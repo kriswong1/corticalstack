@@ -405,4 +405,28 @@
       alert(`request to ${url} failed: ` + (await res.text()));
     }
   }
+
+  // ---------- Persona editor (SOUL / USER / MEMORY) ----------
+  const personaForm = document.getElementById("form-persona");
+  if (personaForm) {
+    personaForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = personaForm.dataset.name;
+      const content = document.getElementById("persona-content").value;
+      const statusEl = document.getElementById("persona-save-status");
+      if (statusEl) statusEl.textContent = "saving…";
+      const res = await fetch(`/api/persona/${name}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (res.ok) {
+        if (statusEl) statusEl.textContent = "saved";
+        setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000);
+      } else {
+        const err = await res.text();
+        if (statusEl) statusEl.textContent = "error: " + err;
+      }
+    });
+  }
 })();

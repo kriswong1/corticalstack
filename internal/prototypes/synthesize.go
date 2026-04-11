@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -15,11 +16,13 @@ type Synthesizer struct {
 	workingDir string
 	model      string
 	formats    *Registry
+	persona    *persona.Loader
 }
 
 // NewSynthesizer wires a synthesizer with the default format registry.
-func NewSynthesizer(workingDir, model string) *Synthesizer {
-	return &Synthesizer{workingDir: workingDir, model: model, formats: NewRegistry()}
+// The persona loader is optional; pass nil to skip persona context injection.
+func NewSynthesizer(workingDir, model string, p *persona.Loader) *Synthesizer {
+	return &Synthesizer{workingDir: workingDir, model: model, formats: NewRegistry(), persona: p}
 }
 
 // Registry returns the format registry so handlers can list supported names.
@@ -47,7 +50,7 @@ func (s *Synthesizer) Synthesize(v *vault.Vault, req CreateRequest) (*Prototype,
 		}
 	}
 
-	prompt := buildSynthesisPrompt(format, sources.String(), req.Hints)
+	prompt := s.persona.BuildContextPrompt() + buildSynthesisPrompt(format, sources.String(), req.Hints)
 
 	ag := &agent.Agent{
 		Model:      s.model,

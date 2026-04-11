@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/persona"
 )
 
 // ClaudeExtractor uses the Claude CLI (Paperclip pattern) to pull
@@ -14,18 +15,20 @@ import (
 type ClaudeExtractor struct {
 	workingDir string
 	model      string
+	persona    *persona.Loader
 }
 
 // NewClaudeExtractor creates an extractor that shells out to `claude --print`.
-func NewClaudeExtractor(workingDir, model string) *ClaudeExtractor {
-	return &ClaudeExtractor{workingDir: workingDir, model: model}
+// The persona loader is optional; pass nil to skip persona context injection.
+func NewClaudeExtractor(workingDir, model string, p *persona.Loader) *ClaudeExtractor {
+	return &ClaudeExtractor{workingDir: workingDir, model: model, persona: p}
 }
 
 // Extract calls Claude to analyze a document and return structured data.
 // The prompt adapts based on cfg.Intention so fields line up with the
 // intention-specific template that will render the body.
 func (e *ClaudeExtractor) Extract(doc *TextDocument, cfg ExtractionConfig) (*Extracted, error) {
-	prompt := buildExtractionPrompt(doc, cfg)
+	prompt := e.persona.BuildContextPrompt() + buildExtractionPrompt(doc, cfg)
 
 	ag := &agent.Agent{
 		Model:      e.model,

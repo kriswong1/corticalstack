@@ -8,6 +8,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -20,20 +21,23 @@ import (
 //  5. Render the markdown body.
 //  6. Create action items for every OpenQuestion (optional, wired by handler).
 type Synthesizer struct {
-	workingDir string
-	model      string
-	retriever  *Retriever
+	workingDir  string
+	model       string
+	retriever   *Retriever
 	actionStore *actions.Store
+	persona     *persona.Loader
 }
 
 // NewSynthesizer wires a synthesizer bound to a retriever and action store.
 // actionStore may be nil if you don't want open questions to flow into actions.
-func NewSynthesizer(workingDir, model string, r *Retriever, as *actions.Store) *Synthesizer {
+// personaLoader may be nil to skip persona context injection.
+func NewSynthesizer(workingDir, model string, r *Retriever, as *actions.Store, p *persona.Loader) *Synthesizer {
 	return &Synthesizer{
 		workingDir:  workingDir,
 		model:       model,
 		retriever:   r,
 		actionStore: as,
+		persona:     p,
 	}
 }
 
@@ -49,7 +53,7 @@ func (s *Synthesizer) Synthesize(v *vault.Vault, req CreateRequest) (*PRD, error
 		return nil, fmt.Errorf("retrieving context: %w", err)
 	}
 
-	prompt := buildPRDPrompt(req.PitchPath, pitchBody, context)
+	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, context)
 
 	ag := &agent.Agent{
 		Model:      s.model,

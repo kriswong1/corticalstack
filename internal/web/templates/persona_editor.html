@@ -1,0 +1,21 @@
+{{define "persona_editor"}}
+<section class="card">
+  <h1 class="page-title">{{.Title}}</h1>
+  <p class="muted">
+    Edits save to <code>{{.File}}</code> in your vault and take effect on the next Claude call.
+    Budget: <code>{{.Budget}}</code> characters (excess is truncated only in the Claude-facing copy).
+  </p>
+  <p class="muted">You can also edit this file directly in Obsidian — changes are picked up automatically.</p>
+</section>
+
+<section class="card">
+  <form id="form-persona" data-name="{{.Name}}">
+    <label class="field">
+      <span class="label">{{.File}}</span>
+      <textarea id="persona-content" name="content" rows="28" class="textarea" spellcheck="false">{{.Content}}</textarea>
+    </label>
+    <button type="submit" class="btn">Save</button>
+    <span id="persona-save-status" class="muted"></span>
+  </form>
+</section>
+{{end}}

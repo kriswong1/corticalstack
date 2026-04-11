@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -15,11 +16,13 @@ import (
 type Generator struct {
 	workingDir string
 	model      string
+	persona    *persona.Loader
 }
 
 // NewGenerator creates a generator bound to a working directory.
-func NewGenerator(workingDir, model string) *Generator {
-	return &Generator{workingDir: workingDir, model: model}
+// The persona loader is optional; pass nil to skip persona context injection.
+func NewGenerator(workingDir, model string, p *persona.Loader) *Generator {
+	return &Generator{workingDir: workingDir, model: model, persona: p}
 }
 
 // FromDoc reads a document out of the vault and asks Claude to extract a
@@ -29,7 +32,7 @@ func (g *Generator) FromDoc(v *vault.Vault, req FromDocRequest) ([]*UseCase, err
 	if err != nil {
 		return nil, fmt.Errorf("reading source: %w", err)
 	}
-	prompt := buildFromDocPrompt(req.SourcePath, body, req.Hint)
+	prompt := g.persona.BuildContextPrompt() + buildFromDocPrompt(req.SourcePath, body, req.Hint)
 	raw, err := g.runClaude(prompt)
 	if err != nil {
 		return nil, err
@@ -39,7 +42,7 @@ func (g *Generator) FromDoc(v *vault.Vault, req FromDocRequest) ([]*UseCase, err
 
 // FromText generates one or more UseCases from a free-form description.
 func (g *Generator) FromText(req FromTextRequest) ([]*UseCase, error) {
-	prompt := buildFromTextPrompt(req.Description, req.ActorsHint)
+	prompt := g.persona.BuildContextPrompt() + buildFromTextPrompt(req.Description, req.ActorsHint)
 	raw, err := g.runClaude(prompt)
 	if err != nil {
 		return nil, err

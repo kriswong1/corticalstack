@@ -86,10 +86,15 @@ func (s *Server) routes() {
 	r.Get("/usecases", s.Handler.UseCasesPage)
 	r.Get("/prototypes", s.Handler.PrototypesPage)
 	r.Get("/prds", s.Handler.PRDsPage)
+	r.Get("/persona/{name}", s.Handler.PersonaEditorPage)
 
 	// API: status & integrations
 	r.Get("/api/status", s.Handler.Status)
 	r.Get("/api/integrations", s.Handler.IntegrationStatus)
+
+	// API: persona (SOUL / USER / MEMORY)
+	r.Get("/api/persona/{name}", s.Handler.GetPersona)
+	r.Post("/api/persona/{name}", s.Handler.SavePersona)
 
 	// API: actions
 	r.Get("/api/actions", s.Handler.ListActions)

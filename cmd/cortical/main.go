@@ -15,6 +15,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/intent"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/pipeline/transformers"
 	"github.com/kriswong/corticalstack/internal/prds"
@@ -50,6 +51,16 @@ func main() {
 	deepgram := integrations.NewDeepgramClient(config.DeepgramAPIKey())
 	reg.Register(deepgram)
 
+	// Persona loader — bootstrapped from embedded templates on first run.
+	personaLoader := persona.New(v)
+	initResult, err := personaLoader.InitIfMissing()
+	if err != nil {
+		log.Fatalf("persona init: %v", err)
+	}
+	if len(initResult.Created) > 0 {
+		log.Printf("persona: bootstrapped %v from templates", initResult.Created)
+	}
+
 	// Action store
 	actionStore := actions.New(v)
 	if err := actionStore.Load(); err != nil {
@@ -63,7 +74,7 @@ func main() {
 	buildTransformers := func(dg *integrations.DeepgramClient) []pipeline.Transformer {
 		return transformers.NewDefault(dg)
 	}
-	pipe := pipeline.New(v, workingDir, claudeModel, deepgram, buildTransformers, actionStore)
+	pipe := pipeline.New(v, workingDir, claudeModel, deepgram, buildTransformers, actionStore, personaLoader)
 	pipe.EnsureFolders(v)
 
 	// Projects store
@@ -73,28 +84,28 @@ func main() {
 	}
 
 	// Intent classifier (Claude CLI)
-	classifier := intent.NewClaudeClassifier(workingDir, claudeModel)
+	classifier := intent.NewClaudeClassifier(workingDir, claudeModel, personaLoader)
 
 	// v3: ShapeUp
 	shapeupStore := shapeup.New(v)
 	if err := shapeupStore.EnsureFolders(); err != nil {
 		log.Printf("warning: could not create product folders: %v", err)
 	}
-	shapeupAdvancer := shapeup.NewAdvancer(workingDir, claudeModel)
+	shapeupAdvancer := shapeup.NewAdvancer(workingDir, claudeModel, personaLoader)
 
 	// v3: UseCases
 	useCaseStore := usecases.New(v)
 	if err := useCaseStore.EnsureFolder(); err != nil {
 		log.Printf("warning: could not create usecases folder: %v", err)
 	}
-	useCaseGen := usecases.NewGenerator(workingDir, claudeModel)
+	useCaseGen := usecases.NewGenerator(workingDir, claudeModel, personaLoader)
 
 	// v3: Prototypes
 	prototypeStore := prototypes.New(v)
 	if err := prototypeStore.EnsureFolder(); err != nil {
 		log.Printf("warning: could not create prototypes folder: %v", err)
 	}
-	prototypeSynth := prototypes.NewSynthesizer(workingDir, claudeModel)
+	prototypeSynth := prototypes.NewSynthesizer(workingDir, claudeModel, personaLoader)
 
 	// v3: PRDs
 	prdStore := prds.New(v)
@@ -102,7 +113,7 @@ func main() {
 		log.Printf("warning: could not create prds folder: %v", err)
 	}
 	prdRetriever := prds.NewRetriever(v)
-	prdSynth := prds.NewSynthesizer(workingDir, claudeModel, prdRetriever, actionStore)
+	prdSynth := prds.NewSynthesizer(workingDir, claudeModel, prdRetriever, actionStore, personaLoader)
 
 	// Jobs + SSE bus (shared by ingest + confirm flows)
 	bus := sse.NewEventBus()
@@ -117,6 +128,8 @@ func main() {
 		Registry:        reg,
 		Projects:        projectStore,
 		Actions:         actionStore,
+		Persona:         personaLoader,
+		PersonaInitCreated: initResult.Created,
 		ShapeUp:         shapeupStore,
 		ShapeUpAdvancer: shapeupAdvancer,
 		UseCases:        useCaseStore,

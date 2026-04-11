@@ -8,6 +8,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/integrations"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -40,10 +41,11 @@ func New(
 	deepgram *integrations.DeepgramClient,
 	buildTransformers BuildFn,
 	actionStore *actions.Store,
+	personaLoader *persona.Loader,
 ) *Pipeline {
 	return &Pipeline{
 		transformers: buildTransformers(deepgram),
-		extractor:    NewClaudeExtractor(workingDir, claudeModel),
+		extractor:    NewClaudeExtractor(workingDir, claudeModel, personaLoader),
 		destinations: []Destination{
 			NewVaultNoteDestination(v),
 			NewActionItemsDestination(v, actionStore),

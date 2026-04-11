@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/persona"
 )
 
 // Advancer runs Claude to generate the next stage's content given all prior
@@ -15,11 +16,13 @@ import (
 type Advancer struct {
 	workingDir string
 	model      string
+	persona    *persona.Loader
 }
 
 // NewAdvancer creates an advancer bound to a working directory.
-func NewAdvancer(workingDir, model string) *Advancer {
-	return &Advancer{workingDir: workingDir, model: model}
+// The persona loader is optional; pass nil to skip persona context injection.
+func NewAdvancer(workingDir, model string, p *persona.Loader) *Advancer {
+	return &Advancer{workingDir: workingDir, model: model, persona: p}
 }
 
 // Advance asks Claude to draft the target stage of a thread. The prior
@@ -29,7 +32,7 @@ func (a *Advancer) Advance(thread *Thread, target Stage, hints string) (string, 
 		return "", fmt.Errorf("invalid target stage: %s", target)
 	}
 
-	prompt := buildAdvancePrompt(thread, target, hints)
+	prompt := a.persona.BuildContextPrompt() + buildAdvancePrompt(thread, target, hints)
 
 	ag := &agent.Agent{
 		Model:      a.model,

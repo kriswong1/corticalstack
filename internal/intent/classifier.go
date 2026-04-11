@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/projects"
 )
@@ -15,17 +16,19 @@ import (
 type ClaudeClassifier struct {
 	workingDir string
 	model      string
+	persona    *persona.Loader
 }
 
 // NewClaudeClassifier creates a classifier bound to a working directory.
-func NewClaudeClassifier(workingDir, model string) *ClaudeClassifier {
-	return &ClaudeClassifier{workingDir: workingDir, model: model}
+// The persona loader is optional; pass nil to skip persona context injection.
+func NewClaudeClassifier(workingDir, model string, p *persona.Loader) *ClaudeClassifier {
+	return &ClaudeClassifier{workingDir: workingDir, model: model, persona: p}
 }
 
 // Classify sends the document to Claude and returns a parsed preview.
 // activeProjects lets Claude suggest associations when content mentions them.
 func (c *ClaudeClassifier) Classify(doc *pipeline.TextDocument, activeProjects []*projects.Project) (*PreviewResult, error) {
-	prompt := buildClassifyPrompt(doc, activeProjects)
+	prompt := c.persona.BuildContextPrompt() + buildClassifyPrompt(doc, activeProjects)
 
 	ag := &agent.Agent{
 		Model:      c.model,

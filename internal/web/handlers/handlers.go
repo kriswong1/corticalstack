@@ -16,6 +16,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/integrations"
+	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/prds"
 	"github.com/kriswong/corticalstack/internal/projects"
@@ -30,32 +31,38 @@ import (
 // Deps bundles every optional dependency the handler struct uses. Grouped
 // this way so `New` has a manageable signature instead of 12 arguments.
 type Deps struct {
-	Vault          *vault.Vault
-	Pipeline       *pipeline.Pipeline
-	Jobs           *jobs.Manager
-	Bus            *sse.EventBus
-	Registry       *integrations.Registry
-	Projects       *projects.Store
-	Actions        *actions.Store
-	ShapeUp        *shapeup.Store
-	ShapeUpAdvancer *shapeup.Advancer
-	UseCases       *usecases.Store
-	UseCaseGen     *usecases.Generator
-	Prototypes     *prototypes.Store
-	PrototypeSynth *prototypes.Synthesizer
-	PRDs           *prds.Store
-	PRDSynth       *prds.Synthesizer
+	Vault              *vault.Vault
+	Pipeline           *pipeline.Pipeline
+	Jobs               *jobs.Manager
+	Bus                *sse.EventBus
+	Registry           *integrations.Registry
+	Projects           *projects.Store
+	Actions            *actions.Store
+	Persona            *persona.Loader
+	PersonaInitCreated []persona.Name
+	ShapeUp            *shapeup.Store
+	ShapeUpAdvancer    *shapeup.Advancer
+	UseCases           *usecases.Store
+	UseCaseGen         *usecases.Generator
+	Prototypes         *prototypes.Store
+	PrototypeSynth     *prototypes.Synthesizer
+	PRDs               *prds.Store
+	PRDSynth           *prds.Synthesizer
 }
 
 // Handler bundles shared dependencies for all dashboard handlers.
 type Handler struct {
-	Vault      *vault.Vault
-	Pipeline   *pipeline.Pipeline
-	Jobs       *jobs.Manager
-	Bus        *sse.EventBus
-	Registry   *integrations.Registry
-	Projects   *projects.Store
-	Actions    *actions.Store
+	Vault    *vault.Vault
+	Pipeline *pipeline.Pipeline
+	Jobs     *jobs.Manager
+	Bus      *sse.EventBus
+	Registry *integrations.Registry
+	Projects *projects.Store
+	Actions  *actions.Store
+
+	// Persona (SOUL/USER/MEMORY)
+	Persona            *persona.Loader
+	PersonaInitCreated []persona.Name // which files were bootstrapped this startup
 
 	// v3 features
 	ShapeUp         *shapeup.Store
@@ -73,21 +80,23 @@ type Handler struct {
 // New wires a handler struct (RenderPage is filled in later by the server).
 func New(deps Deps) *Handler {
 	return &Handler{
-		Vault:           deps.Vault,
-		Pipeline:        deps.Pipeline,
-		Jobs:            deps.Jobs,
-		Bus:             deps.Bus,
-		Registry:        deps.Registry,
-		Projects:        deps.Projects,
-		Actions:         deps.Actions,
-		ShapeUp:         deps.ShapeUp,
-		ShapeUpAdvancer: deps.ShapeUpAdvancer,
-		UseCases:        deps.UseCases,
-		UseCaseGen:      deps.UseCaseGen,
-		Prototypes:      deps.Prototypes,
-		PrototypeSynth:  deps.PrototypeSynth,
-		PRDs:            deps.PRDs,
-		PRDSynth:        deps.PRDSynth,
+		Vault:              deps.Vault,
+		Pipeline:           deps.Pipeline,
+		Jobs:               deps.Jobs,
+		Bus:                deps.Bus,
+		Registry:           deps.Registry,
+		Projects:           deps.Projects,
+		Actions:            deps.Actions,
+		Persona:            deps.Persona,
+		PersonaInitCreated: deps.PersonaInitCreated,
+		ShapeUp:            deps.ShapeUp,
+		ShapeUpAdvancer:    deps.ShapeUpAdvancer,
+		UseCases:           deps.UseCases,
+		UseCaseGen:         deps.UseCaseGen,
+		Prototypes:         deps.Prototypes,
+		PrototypeSynth:     deps.PrototypeSynth,
+		PRDs:               deps.PRDs,
+		PRDSynth:           deps.PRDSynth,
 	}
 }
 
