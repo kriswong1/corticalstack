@@ -1,0 +1,53 @@
+{{define "actions"}}
+<section class="card">
+  <h1 class="page-title">Actions</h1>
+  <p class="muted">Every action is written to its source note, every associated project's tracker, and the central <code>ACTION-ITEMS.md</code>. Status flips here propagate to all locations.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Status counts</h2>
+  <ul class="chip-list">
+    {{range .Statuses}}
+      <li class="chip">{{.}}: {{index $.Counts .}}</li>
+    {{end}}
+  </ul>
+  <p><button type="button" class="btn" id="btn-reconcile">Reconcile from Obsidian</button></p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Open items</h2>
+  {{if .Items}}
+    <table class="table">
+      <thead>
+        <tr><th>Owner</th><th>Description</th><th>Status</th><th>Project(s)</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        {{range .Items}}
+        <tr>
+          <td>{{.Owner}}</td>
+          <td>{{.Description}}</td>
+          <td>
+            <select class="input status-select" data-action-id="{{.ID}}">
+              <option value="pending"  {{if eq (printf "%s" .Status) "pending"}}selected{{end}}>pending</option>
+              <option value="ack"      {{if eq (printf "%s" .Status) "ack"}}selected{{end}}>ack</option>
+              <option value="doing"    {{if eq (printf "%s" .Status) "doing"}}selected{{end}}>doing</option>
+              <option value="done"     {{if eq (printf "%s" .Status) "done"}}selected{{end}}>done</option>
+              <option value="deferred" {{if eq (printf "%s" .Status) "deferred"}}selected{{end}}>deferred</option>
+              <option value="cancelled"{{if eq (printf "%s" .Status) "cancelled"}}selected{{end}}>cancelled</option>
+            </select>
+          </td>
+          <td>
+            {{range .ProjectIDs}}<span class="chip">{{.}}</span>{{end}}
+          </td>
+          <td>
+            {{if .SourceNote}}<a href="/library?note={{.SourceNote}}"><code>{{.SourceNote}}</code></a>{{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <p class="muted">No tracked actions yet. Ingest something with action items to populate this list.</p>
+  {{end}}
+</section>
+{{end}}

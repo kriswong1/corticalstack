@@ -1,0 +1,135 @@
+package intent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/pipeline"
+	"github.com/kriswong/corticalstack/internal/projects"
+)
+
+// ClaudeClassifier runs a single Claude CLI call to classify a document.
+type ClaudeClassifier struct {
+	workingDir string
+	model      string
+}
+
+// NewClaudeClassifier creates a classifier bound to a working directory.
+func NewClaudeClassifier(workingDir, model string) *ClaudeClassifier {
+	return &ClaudeClassifier{workingDir: workingDir, model: model}
+}
+
+// Classify sends the document to Claude and returns a parsed preview.
+// activeProjects lets Claude suggest associations when content mentions them.
+func (c *ClaudeClassifier) Classify(doc *pipeline.TextDocument, activeProjects []*projects.Project) (*PreviewResult, error) {
+	prompt := buildClassifyPrompt(doc, activeProjects)
+
+	ag := &agent.Agent{
+		Model:      c.model,
+		MaxTurns:   1,
+		WorkingDir: c.workingDir,
+	}
+	raw, err := ag.RunSimple(context.Background(), prompt)
+	if err != nil {
+		return nil, fmt.Errorf("classifier claude call: %w", err)
+	}
+	return parsePreviewResult(raw)
+}
+
+func buildClassifyPrompt(doc *pipeline.TextDocument, activeProjects []*projects.Project) string {
+	var b strings.Builder
+
+	b.WriteString("You are an intent classifier for a personal knowledge system. Given a piece of content, decide *why* the user probably saved it, suggest a short title, pick up to 3 matching active projects, and write a one-paragraph gist.\n\n")
+
+	b.WriteString("## Supported intentions\n\n")
+	b.WriteString("- `learning` — something the user wants to absorb or understand\n")
+	b.WriteString("- `information` — facts the user wants to reference later (docs, specs, prices, definitions)\n")
+	b.WriteString("- `research` — info gathered in service of a project with a clear provenance trail\n")
+	b.WriteString("- `project-application` — directly useful for an active project (feature ideas, bug details, integration notes)\n")
+	b.WriteString("- `other` — none of the above; a Claude-proposed structure will be used\n\n")
+
+	if len(activeProjects) > 0 {
+		b.WriteString("## Active projects (id — description)\n\n")
+		for _, p := range activeProjects {
+			if p.Status == projects.StatusArchived {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("- `%s` — %s\n", p.ID, firstNonEmpty(p.Description, p.Name)))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("## Document context\n")
+	b.WriteString(fmt.Sprintf("- Source: %s\n", doc.Source))
+	if doc.Title != "" {
+		b.WriteString(fmt.Sprintf("- Title: %s\n", doc.Title))
+	}
+	if doc.URL != "" {
+		b.WriteString(fmt.Sprintf("- URL: %s\n", doc.URL))
+	}
+	if len(doc.Authors) > 0 {
+		b.WriteString(fmt.Sprintf("- Authors: %s\n", strings.Join(doc.Authors, ", ")))
+	}
+	b.WriteString("\n## Document content (first 8000 chars)\n\n")
+
+	content := doc.Content
+	if len(content) > 8000 {
+		content = content[:8000] + "\n\n[...truncated]"
+	}
+	b.WriteString(content)
+	b.WriteString("\n\n")
+
+	b.WriteString("## Instructions\n\n")
+	b.WriteString("Respond with ONLY a JSON object (no markdown fences, no explanation) containing:\n\n")
+	b.WriteString("```\n{\n")
+	b.WriteString(`  "intention": "learning|information|research|project-application|other",` + "\n")
+	b.WriteString(`  "confidence": 0.0-1.0,` + "\n")
+	b.WriteString(`  "summary": "one paragraph (2-4 sentences) describing what this is",` + "\n")
+	b.WriteString(`  "suggested_title": "short human title (under 80 chars)",` + "\n")
+	b.WriteString(`  "suggested_project_ids": ["project-id-1"],` + "\n")
+	b.WriteString(`  "suggested_tags": ["topic", "tags"],` + "\n")
+	b.WriteString(`  "reasoning": "one sentence on why this intention fits"` + "\n")
+	b.WriteString("}\n```\n\n")
+	b.WriteString("Rules:\n")
+	b.WriteString("- suggested_project_ids MUST come from the active projects list. Empty array if no match.\n")
+	b.WriteString("- Prefer `project-application` over `research` when the content is directly actionable for a listed project.\n")
+	b.WriteString("- Use `information` for neutral reference material with no obvious action.\n")
+	b.WriteString("- Respond with ONLY the JSON. No other text.\n")
+
+	return b.String()
+}
+
+func parsePreviewResult(raw string) (*PreviewResult, error) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+
+	var result PreviewResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		// Fall back to a safe default so callers can still show something.
+		return &PreviewResult{
+			Intention:  Information,
+			Confidence: 0.0,
+			Summary:    fmt.Sprintf("Classifier failed to parse response. Defaulted to 'information'. Raw: %.200s", raw),
+			Reasoning:  "classifier parse error: " + err.Error(),
+		}, nil
+	}
+	if !IsValid(string(result.Intention)) {
+		result.Intention = Other
+	}
+	return &result, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}

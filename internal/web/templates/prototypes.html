@@ -1,0 +1,52 @@
+{{define "prototypes"}}
+<section class="card">
+  <h1 class="page-title">Prototypes</h1>
+  <p class="muted">Turn product docs into design-md specs you can paste into v0, bolt.new, or Figma Make.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Generate spec</h2>
+  <form id="form-prototype">
+    <label class="field">
+      <span class="label">Title</span>
+      <input type="text" name="title" class="input" placeholder="Sign-in flow" required>
+    </label>
+    <label class="field">
+      <span class="label">Source paths (one per line)</span>
+      <textarea name="source_paths" rows="3" class="textarea" placeholder="product/pitch/2026-04-11_feature.md&#10;usecases/2026-04-12_add-member.md" required></textarea>
+    </label>
+    <label class="field">
+      <span class="label">Format</span>
+      <select name="format" class="input" required>
+        {{range .Formats}}<option value="{{.}}">{{.}}</option>{{end}}
+      </select>
+    </label>
+    <label class="field">
+      <span class="label">Hints (optional)</span>
+      <textarea name="hints" rows="2" class="textarea" placeholder="Emphasize mobile layout"></textarea>
+    </label>
+    <button type="submit" class="btn">Generate spec</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">All prototypes</h2>
+  {{if .Prototypes}}
+    <table class="table">
+      <thead><tr><th>Title</th><th>Format</th><th>Status</th><th>Folder</th></tr></thead>
+      <tbody>
+        {{range .Prototypes}}
+        <tr>
+          <td>{{.Title}}</td>
+          <td><span class="chip chip-dest">{{.Format}}</span></td>
+          <td><span class="chip">{{.Status}}</span></td>
+          <td><a href="/library?note={{.FolderPath}}/spec.md"><code>{{.FolderPath}}</code></a></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <p class="muted">No prototypes generated yet.</p>
+  {{end}}
+</section>
+{{end}}

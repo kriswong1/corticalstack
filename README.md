@@ -1,0 +1,181 @@
+# CorticalStack
+
+A local Go web app that ingests raw inputs, classifies the user's intention,
+extracts structured metadata via the Claude CLI, and writes the result as an
+Obsidian-compatible markdown note. Pipeline: **Transform → Classify → Extract → Route**.
+
+## Why
+
+Every note you save has a reason behind it — you're learning something,
+capturing reference material, doing research for a project, or feeding a
+project directly. v2 makes that intention first-class so the output structure
+matches *why* you saved it, and so future Claude sessions can pull project-
+relevant context out of the vault by frontmatter and tag.
+
+## Features
+
+- **Inputs**: pasted text, file uploads (`txt`, `md`, `pdf`, `docx`, `html`),
+  URLs (generic webpages, YouTube, LinkedIn), and audio (`mp3`, `wav`, `m4a`,
+  `ogg`, `flac`, `webm`) via Deepgram.
+- **Two-phase ingest**: every submission first runs Transform + a fast Claude
+  classification call, then pauses on a preview modal so you can confirm or
+  edit the proposed intention, suggested projects, and title before the full
+  extraction runs.
+- **Intentions** (5 templates):
+  - `learning` — Summary · Key Points · How This Applies · Open Questions
+  - `information` — Facts · Claims · Definitions · Key Points
+  - `research` — Findings · Sources · Relevance · Next Steps
+  - `project-application` — Impact · Action Items · Integration Notes · Next Steps
+  - `other` — Claude proposes the section structure
+- **Projects**: discovered from `vault/projects/<id>/project.md`. Create new
+  projects from the dashboard; the manifest and an `ACTION-ITEMS.md` file are
+  written into the vault.
+- **Smart action items**: every action gets a stable UUID and is written to
+  three locations — the source note, every associated project's tracker, and
+  the central `ACTION-ITEMS.md`. Six statuses (`pending`, `ack`, `doing`,
+  `done`, `deferred`, `cancelled`). Status changes from the dashboard
+  propagate to all locations; status changes you make in Obsidian directly
+  can be re-synced via `POST /api/actions/reconcile`.
+- **YouTube via `kkdai/youtube/v2`**: pure-Go captions extraction with
+  timestamp formatting; falls back to downloading the lowest-bitrate audio
+  stream and pushing it through Deepgram when no captions are available.
+- **Extraction**: uses the Claude CLI in Paperclip mode (`claude --print`),
+  so it runs at $0/call on a Claude Max subscription. No `ANTHROPIC_API_KEY`
+  required.
+- **UI**: local Chi dashboard with live SSE progress streaming, vault library
+  browser, projects page, actions tracker. Dark Altered Carbon design system,
+  no framework.
+
+## Prerequisites
+
+- Go 1.25+ (`go version`)
+- [Claude CLI](https://claude.ai/download) with `claude login` completed
+- A Deepgram API key (only needed for audio ingest or YouTube fallback)
+
+## Quick start
+
+```bash
+git clone https://github.com/kriswong/corticalstack
+cd corticalstack
+cp .env.example .env    # fill in VAULT_PATH, DEEPGRAM_API_KEY (optional)
+go run ./cmd/cortical
+```
+
+Then open <http://localhost:8000/dashboard>.
+
+## .env
+
+```bash
+VAULT_PATH=vault            # or absolute path to an existing Obsidian vault
+PORT=8000
+CLAUDE_MODEL=               # blank = CLI default
+DEEPGRAM_API_KEY=           # required for audio ingest and YouTube fallback
+```
+
+## Ingest flow
+
+```
+POST /api/ingest/{text,url,file}
+      │
+      ▼
+[1] Transform               (transformer picks first CanHandle match)
+      │
+      ▼
+TextDocument
+      │
+      ▼
+[1.5] Classify              (claude --print: intention + projects + title)
+      │
+      ▼
+job_status = awaiting_confirmation
+      │
+User confirms or edits intention/projects/title in the dashboard
+      │
+POST /api/jobs/{id}/confirm
+      │
+      ▼
+[2] Extract                 (intention-aware claude --print prompt)
+      │
+      ▼
+Extracted (intention-specific fields)
+      │
+      ▼
+[3] Route ──▶ $VAULT_PATH/<folder>/YYYY-MM-DD_slug.md  (intention template)
+      │  ──▶ vault/.cortical/actions.json              (canonical index)
+      │  ──▶ vault/ACTION-ITEMS.md                     (central tracker)
+      │  ──▶ vault/projects/<id>/ACTION-ITEMS.md       (per-project)
+      └─ ──▶ vault/daily/YYYY-MM-DD.md                 (daily log line)
+```
+
+## Project layout
+
+```
+cmd/cortical/                   # entry point
+internal/
+  agent/                        # Claude CLI subprocess wrapper (Paperclip)
+  config/                       # .env loading
+  integrations/                 # third-party clients (Deepgram, extensible)
+  intent/                       # Claude classifier (single-shot preview)
+  projects/                     # vault-backed project store
+  actions/                      # smart action store + multi-location sync
+  pipeline/                     # 3-stage pipeline
+    transformers/               # one file per input modality
+    template_*.go               # 5 intention renderers + shared helpers
+    extract.go                  # intention-aware extraction prompts
+    route.go                    # destinations (vault note, actions, daily)
+  vault/                        # Obsidian vault I/O
+  web/                          # Chi HTTP server
+    handlers/                   # dashboard, ingest, jobs, projects, actions
+    jobs/                       # two-phase async job manager
+    sse/                        # pub/sub event bus
+    middleware/                 # recovery + request logger
+    templates/                  # HTML templates (embedded)
+    static/                     # CSS + JS (embedded)
+```
+
+## Action item format
+
+The canonical action line in any markdown file:
+
+```markdown
+- [ ] [Owner] Description *(due: 2026-04-18)* #status/pending <!-- id:abc123-... -->
+```
+
+- The checkbox tracks Obsidian-native done/undone.
+- The `#status/*` tag carries the nuanced state (Obsidian renders the tag
+  natively and you can search by it).
+- The HTML comment holds the stable UUID so the multi-location sync can find
+  the same action across files.
+
+Status reconciliation: ticking the checkbox in Obsidian updates the line but
+not the JSON index until you click **Reconcile from Obsidian** on the actions
+page (or call `POST /api/actions/reconcile`). Status changes made in the
+dashboard write through to every location automatically.
+
+## Transformers (in priority order)
+
+| Name          | Inputs                                  | Notes                                                  |
+|---------------|-----------------------------------------|--------------------------------------------------------|
+| `deepgram`    | Audio files                             | Requires `DEEPGRAM_API_KEY`                            |
+| `pdf`         | `.pdf`                                  | Pure Go (`ledongthuc/pdf`)                             |
+| `docx`        | `.docx`                                 | Pure Go (unzip + parse `document.xml`)                 |
+| `youtube`     | YouTube URLs                            | `kkdai/youtube/v2` captions; Deepgram audio fallback   |
+| `linkedin`    | LinkedIn post/article URLs              | JSON-LD + HTML stripping                               |
+| `webpage`     | Generic `http(s)://` URLs               | Stdlib HTTP + HTML stripping                           |
+| `html`        | `.html` files / pasted HTML             | Regex-based HTML stripping                             |
+| `passthrough` | Plain text, `.txt`, `.md`               | Catch-all                                              |
+
+## Tests
+
+```bash
+go test ./...
+go vet ./...
+```
+
+Unit tests cover:
+- `internal/actions` — markdown round-trip, store CRUD, multi-location sync, status counts
+- `internal/projects` — create, list, refresh, duplicate detection
+
+## License
+
+MIT — see [LICENSE](LICENSE) if/when added.

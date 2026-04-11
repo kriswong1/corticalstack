@@ -1,0 +1,55 @@
+{{define "product"}}
+<section class="card">
+  <h1 class="page-title">Product</h1>
+  <p class="muted">ShapeUp pipeline: <code>raw → frame → shape → breadboard → pitch</code>. Every thread is an idea progressing through all five stages.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Capture raw idea</h2>
+  <form id="form-shapeup-idea">
+    <label class="field">
+      <span class="label">Title</span>
+      <input type="text" name="title" class="input" required>
+    </label>
+    <label class="field">
+      <span class="label">Raw content</span>
+      <textarea name="content" rows="8" class="textarea" placeholder="What's the idea? Be as unpolished as you like." required></textarea>
+    </label>
+    <label class="field">
+      <span class="label">Project IDs (one per line, optional)</span>
+      <textarea name="projects" rows="2" class="textarea" placeholder="corticalstack"></textarea>
+    </label>
+    <button type="submit" class="btn">Create raw idea</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Threads</h2>
+  {{if .Threads}}
+    {{range .Threads}}
+    <div class="thread">
+      <h3>{{.Title}}</h3>
+      <p class="muted data-line">
+        <span class="label">thread</span> <code>{{.ID}}</code>
+        · <span class="label">current stage</span> <code>{{.CurrentStage}}</code>
+      </p>
+      <ul class="chip-list">
+        {{range .Artifacts}}
+          <li class="chip chip-dest">{{.Stage}}</li>
+        {{end}}
+      </ul>
+      <div class="advance-controls" data-thread-id="{{.ID}}">
+        <select class="input advance-stage">
+          {{range $.Stages}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+        <input type="text" class="input advance-hints" placeholder="Optional hints for Claude">
+        <button type="button" class="btn advance-btn">Advance →</button>
+      </div>
+    </div>
+    <hr>
+    {{end}}
+  {{else}}
+    <p class="muted">No threads yet. Capture a raw idea above to start one.</p>
+  {{end}}
+</section>
+{{end}}

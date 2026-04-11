@@ -1,0 +1,99 @@
+{{define "ingest"}}
+<section class="card">
+  <h1 class="page-title">Ingest</h1>
+  <p class="muted">Pipe inputs into the vault. Every submission runs Transform → Extract → Route and writes an Obsidian note.</p>
+</section>
+
+<section class="card">
+  <div class="tabs" role="tablist">
+    <button class="tab tab-active" data-tab="text">Text</button>
+    <button class="tab" data-tab="file">File</button>
+    <button class="tab" data-tab="url">URL</button>
+    <button class="tab" data-tab="audio">Audio</button>
+  </div>
+
+  <form id="form-text" class="tab-panel tab-panel-active" data-panel="text">
+    <label class="field">
+      <span class="label">Title (optional)</span>
+      <input type="text" name="title" placeholder="Inferred if blank" class="input">
+    </label>
+    <label class="field">
+      <span class="label">Content</span>
+      <textarea name="text" rows="12" placeholder="Paste prose, meeting notes, rambling thoughts…" class="textarea" required></textarea>
+    </label>
+    <button type="submit" class="btn">Ingest text</button>
+  </form>
+
+  <form id="form-file" class="tab-panel" data-panel="file">
+    <label class="field">
+      <span class="label">File (txt · md · pdf · docx · html)</span>
+      <input type="file" name="file" accept=".txt,.md,.markdown,.pdf,.docx,.html,.htm" class="input" required>
+    </label>
+    <button type="submit" class="btn">Ingest file</button>
+  </form>
+
+  <form id="form-url" class="tab-panel" data-panel="url">
+    <label class="field">
+      <span class="label">URL (webpage · YouTube · LinkedIn)</span>
+      <input type="url" name="url" placeholder="https://…" class="input" required>
+    </label>
+    <button type="submit" class="btn">Ingest URL</button>
+  </form>
+
+  <form id="form-audio" class="tab-panel" data-panel="audio">
+    <label class="field">
+      <span class="label">Audio (mp3 · wav · m4a · ogg · flac · webm) — via Deepgram</span>
+      <input type="file" name="file" accept=".mp3,.wav,.m4a,.ogg,.flac,.webm" class="input" required>
+    </label>
+    <p class="muted">Deepgram must be configured with <code>DEEPGRAM_API_KEY</code>.</p>
+    <button type="submit" class="btn">Ingest audio</button>
+  </form>
+</section>
+
+<section class="card" id="job-panel" hidden>
+  <h2 class="card-title">Job <code id="job-id"></code></h2>
+  <p class="data-line"><span class="label">status</span> <code id="job-status">idle</code></p>
+  <ol id="job-log" class="log"></ol>
+  <p id="job-note" class="data-line" hidden>
+    <span class="label">note</span> <a id="job-note-link" href="#"></a>
+  </p>
+</section>
+
+<section class="card" id="preview-panel" hidden>
+  <h2 class="card-title">Claude's proposal — confirm or edit</h2>
+  <p class="muted" id="preview-reasoning"></p>
+
+  <label class="field">
+    <span class="label">Title</span>
+    <input type="text" id="preview-title" class="input">
+  </label>
+
+  <label class="field">
+    <span class="label">Intention</span>
+    <select id="preview-intention" class="input">
+      <option value="learning">learning — summarize and apply</option>
+      <option value="information">information — structured facts for reuse</option>
+      <option value="research">research — findings with sources</option>
+      <option value="project-application">project-application — direct impact on a project</option>
+      <option value="other">other — Claude proposes a structure</option>
+    </select>
+  </label>
+
+  <label class="field">
+    <span class="label">Projects (one per line)</span>
+    <textarea id="preview-projects" rows="3" class="textarea" placeholder="licenseninja&#10;corticalstack"></textarea>
+  </label>
+
+  <label class="field">
+    <span class="label">Why did you save this? (optional)</span>
+    <textarea id="preview-why" rows="2" class="textarea" placeholder="Short reason Claude should know about"></textarea>
+  </label>
+
+  <label class="field">
+    <span class="label">Summary (Claude's gist)</span>
+    <textarea id="preview-summary" rows="3" class="textarea" readonly></textarea>
+  </label>
+
+  <button type="button" class="btn" id="btn-confirm">Confirm and commit</button>
+</section>
+{{end}}

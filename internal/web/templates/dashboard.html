@@ -1,0 +1,43 @@
+{{define "dashboard"}}
+<section class="card">
+  <h1 class="page-title">Dashboard</h1>
+  <p class="muted">Local Obsidian ingest pipeline. Pipe any raw input through Claude and land a structured note in your vault.</p>
+</section>
+
+<section class="grid">
+  <div class="card">
+    <h2 class="card-title">Vault</h2>
+    <p class="data-line"><span class="label">path</span> <code>{{.VaultPath}}</code></p>
+    <p><a href="/library" class="btn btn-ghost">Browse library →</a></p>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Transformers</h2>
+    <ul class="chip-list">
+      {{range .Transformers}}<li class="chip">{{.}}</li>{{end}}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Destinations</h2>
+    <ul class="chip-list">
+      {{range .Destinations}}<li class="chip chip-dest">{{.}}</li>{{end}}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2 class="card-title">Integrations</h2>
+    <ul class="chip-list">
+      {{range .Integrations}}
+        <li class="chip {{if .Configured}}chip-ok{{else}}chip-off{{end}}">{{.Name}}{{if not .Configured}} · off{{end}}</li>
+      {{end}}
+    </ul>
+  </div>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Quick ingest</h2>
+  <p class="muted">Jump to the ingest page to start processing raw inputs.</p>
+  <p><a href="/ingest" class="btn">Open ingest →</a></p>
+</section>
+{{end}}

@@ -1,0 +1,46 @@
+{{define "projects"}}
+<section class="card">
+  <h1 class="page-title">Projects</h1>
+  <p class="muted">Projects live in <code>vault/projects/&lt;id&gt;/project.md</code>. Creating one here writes the manifest into the vault.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Create project</h2>
+  <form id="form-project">
+    <label class="field">
+      <span class="label">Name</span>
+      <input type="text" name="name" placeholder="LicenseNinja" class="input" required>
+    </label>
+    <label class="field">
+      <span class="label">Description</span>
+      <textarea name="description" rows="3" placeholder="What is this project?" class="textarea"></textarea>
+    </label>
+    <button type="submit" class="btn">Create project</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">All projects</h2>
+  <div id="projects-list">
+    {{if .Projects}}
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>ID</th><th>Status</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          {{range .Projects}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td><code>{{.ID}}</code></td>
+            <td><span class="chip {{if eq (printf "%s" .Status) "active"}}chip-ok{{else}}chip-off{{end}}">{{.Status}}</span></td>
+            <td>{{.Description}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    {{else}}
+      <p class="muted">No projects yet. Create one above.</p>
+    {{end}}
+  </div>
+</section>
+{{end}}

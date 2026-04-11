@@ -1,0 +1,51 @@
+{{define "prds"}}
+<section class="card">
+  <h1 class="page-title">PRDs</h1>
+  <p class="muted">Turn pitches into PRDs augmented with engineering, design, and product context from the vault.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Synthesize PRD</h2>
+  <form id="form-prd">
+    <label class="field">
+      <span class="label">Pitch path (from vault/product/pitch/)</span>
+      <input type="text" name="pitch_path" class="input" placeholder="product/pitch/2026-04-11_feature.md" required>
+    </label>
+    <label class="field">
+      <span class="label">Extra context paths (one per line, optional)</span>
+      <textarea name="extra_context_paths" rows="3" class="textarea" placeholder="architecture/2026-01-15_db-model.md"></textarea>
+    </label>
+    <label class="field">
+      <span class="label">Extra context tags (comma-separated)</span>
+      <input type="text" name="extra_context_tags" class="input" placeholder="auth, pricing">
+    </label>
+    <label class="field">
+      <span class="label">Project IDs (comma-separated)</span>
+      <input type="text" name="project_ids" class="input" placeholder="licenseninja">
+    </label>
+    <button type="submit" class="btn">Synthesize PRD</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">All PRDs</h2>
+  {{if .PRDs}}
+    <table class="table">
+      <thead><tr><th>Title</th><th>Status</th><th>Version</th><th>Open Qs</th><th>Path</th></tr></thead>
+      <tbody>
+        {{range .PRDs}}
+        <tr>
+          <td>{{.Title}}</td>
+          <td><span class="chip">{{.Status}}</span></td>
+          <td>v{{.Version}}</td>
+          <td>{{.OpenQuestionsCount}}</td>
+          <td><a href="/library?note={{.Path}}"><code>{{.Path}}</code></a></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <p class="muted">No PRDs synthesized yet.</p>
+  {{end}}
+</section>
+{{end}}

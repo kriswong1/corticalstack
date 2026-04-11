@@ -1,0 +1,28 @@
+{{define "config"}}
+<section class="card">
+  <h1 class="page-title">Config</h1>
+  <p class="muted">Read-only view of current environment. Edit <code>.env</code> and restart to change.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Vault</h2>
+  <p class="data-line"><span class="label">VAULT_PATH</span> <code>{{.VaultPath}}</code></p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Integrations</h2>
+  <table class="table">
+    <thead>
+      <tr><th>Integration</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {{range .Integrations}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{if .Configured}}<span class="chip chip-ok">configured</span>{{else}}<span class="chip chip-off">not configured</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}

@@ -1,0 +1,38 @@
+{{define "layout"}}<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CorticalStack — {{.Title}}</title>
+  <link rel="stylesheet" href="/static/css/cortical.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">◉</span>
+      <span class="brand-name">CORTICAL<span class="brand-accent">STACK</span></span>
+    </div>
+    <nav class="nav">
+      <a href="/dashboard" class="nav-link{{if eq .ActivePage "dashboard"}} nav-link-active{{end}}">Dashboard</a>
+      <a href="/ingest" class="nav-link{{if eq .ActivePage "ingest"}} nav-link-active{{end}}">Ingest</a>
+      <a href="/library" class="nav-link{{if eq .ActivePage "library"}} nav-link-active{{end}}">Library</a>
+      <a href="/projects" class="nav-link{{if eq .ActivePage "projects"}} nav-link-active{{end}}">Projects</a>
+      <a href="/actions" class="nav-link{{if eq .ActivePage "actions"}} nav-link-active{{end}}">Actions</a>
+      <a href="/product" class="nav-link{{if eq .ActivePage "product"}} nav-link-active{{end}}">Product</a>
+      <a href="/usecases" class="nav-link{{if eq .ActivePage "usecases"}} nav-link-active{{end}}">Use Cases</a>
+      <a href="/prototypes" class="nav-link{{if eq .ActivePage "prototypes"}} nav-link-active{{end}}">Prototypes</a>
+      <a href="/prds" class="nav-link{{if eq .ActivePage "prds"}} nav-link-active{{end}}">PRDs</a>
+      <a href="/config" class="nav-link{{if eq .ActivePage "config"}} nav-link-active{{end}}">Config</a>
+    </nav>
+  </header>
+  <main class="main">
+    {{.Content}}
+  </main>
+  <footer class="app-footer">
+    <span class="muted">corticalstack · local · claude-paperclip</span>
+  </footer>
+  <script src="/static/js/cortical.js"></script>
+</body>
+</html>
+{{end}}

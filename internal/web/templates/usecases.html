@@ -1,0 +1,57 @@
+{{define "usecases"}}
+<section class="card">
+  <h1 class="page-title">Use Cases</h1>
+  <p class="muted">Standardized UseCase schema: actors · preconditions · main flow · alternatives · postconditions · rules.</p>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Generate from vault doc</h2>
+  <form id="form-usecase-doc">
+    <label class="field">
+      <span class="label">Source path (relative to vault)</span>
+      <input type="text" name="source_path" class="input" placeholder="product/pitch/2026-04-11_feature.md" required>
+    </label>
+    <label class="field">
+      <span class="label">Hint (optional)</span>
+      <input type="text" name="hint" class="input" placeholder="focus on admin scenarios">
+    </label>
+    <button type="submit" class="btn">Generate from doc</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">Generate from description</h2>
+  <form id="form-usecase-text">
+    <label class="field">
+      <span class="label">Description</span>
+      <textarea name="description" rows="6" class="textarea" placeholder="When a user forgets their password..." required></textarea>
+    </label>
+    <label class="field">
+      <span class="label">Actors hint (optional)</span>
+      <input type="text" name="actors_hint" class="input" placeholder="user, admin">
+    </label>
+    <button type="submit" class="btn">Generate from description</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">All use cases</h2>
+  {{if .UseCases}}
+    <table class="table">
+      <thead><tr><th>Title</th><th>Actors</th><th>Projects</th><th>Path</th></tr></thead>
+      <tbody>
+        {{range .UseCases}}
+        <tr>
+          <td>{{.Title}}</td>
+          <td>{{range .Actors}}<span class="chip">{{.}}</span>{{end}}</td>
+          <td>{{range .Projects}}<span class="chip chip-dest">{{.}}</span>{{end}}</td>
+          <td><a href="/library?note={{.Path}}"><code>{{.Path}}</code></a></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <p class="muted">No use cases generated yet.</p>
+  {{end}}
+</section>
+{{end}}

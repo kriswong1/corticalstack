@@ -1,0 +1,17 @@
+{{define "library"}}
+<section class="card">
+  <h1 class="page-title">Library</h1>
+  <p class="muted">Vault at <code>{{.VaultPath}}</code>. Click a note to preview.</p>
+</section>
+
+<section class="grid grid-split">
+  <div class="card card-tree">
+    <h2 class="card-title">Tree</h2>
+    <div id="vault-tree" class="tree">Loading…</div>
+  </div>
+  <div class="card card-preview">
+    <h2 class="card-title">Preview</h2>
+    <pre id="vault-preview" class="code">Select a file on the left.</pre>
+  </div>
+</section>
+{{end}}
