@@ -6,10 +6,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/agent"
@@ -31,11 +35,18 @@ import (
 	"github.com/kriswong/corticalstack/internal/web/sse"
 )
 
+// shutdownTimeout bounds how long we'll wait for in-flight jobs and
+// the HTTP server to drain on SIGINT/SIGTERM before forcing exit.
+const shutdownTimeout = 30 * time.Second
+
 func main() {
 	config.Load()
 
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	vaultPath := config.VaultPath()
-	if err := os.MkdirAll(vaultPath, 0o755); err != nil {
+	if err := os.MkdirAll(vaultPath, 0o700); err != nil {
 		log.Fatalf("creating vault dir %q: %v", vaultPath, err)
 	}
 
@@ -120,8 +131,7 @@ func main() {
 
 	// Jobs + SSE bus (shared by ingest + confirm flows)
 	bus := sse.NewEventBus()
-	// TODO(commit8): replace with signal.NotifyContext so SIGINT cancels jobs.
-	jm := jobs.New(context.Background(), pipe, bus, classifier, projectStore)
+	jm := jobs.New(rootCtx, pipe, bus, classifier, projectStore)
 
 	// Build the handler Deps bundle
 	deps := handlers.Deps{
@@ -153,9 +163,29 @@ func main() {
 	printBanner(vaultPath, port, deepgram.Configured())
 
 	addr := fmt.Sprintf(":%d", port)
-	if err := http.ListenAndServe(addr, srv.Router); err != nil {
-		log.Fatalf("http server: %v", err)
+	httpSrv := &http.Server{Addr: addr, Handler: srv.Router}
+
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("http server: %v", err)
+		}
+	}()
+	log.Printf("cortical listening on %s", addr)
+
+	<-rootCtx.Done()
+	log.Printf("shutting down...")
+	stop() // stop receiving further signals — a second Ctrl+C now force-exits
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("http shutdown: %v", err)
 	}
+	if err := jm.Shutdown(shutdownCtx); err != nil {
+		log.Printf("jobs shutdown: %v", err)
+	}
+	log.Printf("bye")
 }
 
 func printBanner(vaultPath string, port int, deepgramOK bool) {
