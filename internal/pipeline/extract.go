@@ -27,7 +27,7 @@ func NewClaudeExtractor(workingDir, model string, p *persona.Loader) *ClaudeExtr
 // Extract calls Claude to analyze a document and return structured data.
 // The prompt adapts based on cfg.Intention so fields line up with the
 // intention-specific template that will render the body.
-func (e *ClaudeExtractor) Extract(doc *TextDocument, cfg ExtractionConfig) (*Extracted, error) {
+func (e *ClaudeExtractor) Extract(ctx context.Context, doc *TextDocument, cfg ExtractionConfig) (*Extracted, error) {
 	prompt := e.persona.BuildContextPrompt() + buildExtractionPrompt(doc, cfg)
 
 	ag := &agent.Agent{
@@ -36,7 +36,6 @@ func (e *ClaudeExtractor) Extract(doc *TextDocument, cfg ExtractionConfig) (*Ext
 		WorkingDir: e.workingDir,
 	}
 
-	ctx := context.Background()
 	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("extraction via claude cli: %w", err)

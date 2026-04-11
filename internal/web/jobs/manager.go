@@ -9,6 +9,7 @@
 package jobs
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -173,7 +174,8 @@ func (m *Manager) runPreview(job *Job, input *pipeline.RawInput) {
 	m.publishProgress(job, fmt.Sprintf("Transformed via %s (%d chars)", transformerName, len(doc.Content)))
 
 	m.setStatus(job, StatusClassifying, "Classifying intention")
-	preview, err := m.classifier.Classify(doc, m.projects.List())
+	// TODO(commit7): replace with per-job ctx from Manager.rootCtx.
+	preview, err := m.classifier.Classify(context.Background(), doc, m.projects.List())
 	if err != nil {
 		m.fail(job, "classification failed: "+err.Error())
 		return
@@ -204,7 +206,8 @@ func (m *Manager) runConfirm(job *Job, doc *pipeline.TextDocument, payload Confi
 	}
 
 	m.setStatus(job, StatusRouting, "Writing notes")
-	result := m.pipe.ExtractAndRoute(doc, cfg, job.Transformer)
+	// TODO(commit7): replace with per-job ctx from Manager.rootCtx.
+	result := m.pipe.ExtractAndRoute(context.Background(), doc, cfg, job.Transformer)
 
 	for _, msg := range result.Errors {
 		m.publishProgress(job, "warning: "+msg)

@@ -6,6 +6,7 @@
 package pipeline
 
 import (
+	"context"
 	"time"
 
 	"github.com/kriswong/corticalstack/internal/vault"
@@ -134,7 +135,7 @@ type Transformer interface {
 
 // Extractor pulls structured artifacts from a TextDocument.
 type Extractor interface {
-	Extract(doc *TextDocument, config ExtractionConfig) (*Extracted, error)
+	Extract(ctx context.Context, doc *TextDocument, config ExtractionConfig) (*Extracted, error)
 }
 
 // Destination receives processed documents and extracted artifacts.

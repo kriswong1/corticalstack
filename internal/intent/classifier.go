@@ -27,7 +27,7 @@ func NewClaudeClassifier(workingDir, model string, p *persona.Loader) *ClaudeCla
 
 // Classify sends the document to Claude and returns a parsed preview.
 // activeProjects lets Claude suggest associations when content mentions them.
-func (c *ClaudeClassifier) Classify(doc *pipeline.TextDocument, activeProjects []*projects.Project) (*PreviewResult, error) {
+func (c *ClaudeClassifier) Classify(ctx context.Context, doc *pipeline.TextDocument, activeProjects []*projects.Project) (*PreviewResult, error) {
 	prompt := c.persona.BuildContextPrompt() + buildClassifyPrompt(doc, activeProjects)
 
 	ag := &agent.Agent{
@@ -35,7 +35,7 @@ func (c *ClaudeClassifier) Classify(doc *pipeline.TextDocument, activeProjects [
 		MaxTurns:   1,
 		WorkingDir: c.workingDir,
 	}
-	raw, err := ag.RunSimple(context.Background(), prompt)
+	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("classifier claude call: %w", err)
 	}

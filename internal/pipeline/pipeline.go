@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -75,14 +76,14 @@ func (p *Pipeline) Transform(input *RawInput) (*TextDocument, string, error) {
 // ExtractAndRoute runs stages 2 and 3 on an already-transformed document.
 // The intention/projects/why fields are embedded in the ExtractionConfig so
 // the prompt and template both see them.
-func (p *Pipeline) ExtractAndRoute(doc *TextDocument, cfg ExtractionConfig, transformerName string) *ProcessResult {
+func (p *Pipeline) ExtractAndRoute(ctx context.Context, doc *TextDocument, cfg ExtractionConfig, transformerName string) *ProcessResult {
 	result := &ProcessResult{
 		Outputs:     make(map[string]string),
 		Document:    doc,
 		Transformer: transformerName,
 	}
 
-	extracted, err := p.extractor.Extract(doc, cfg)
+	extracted, err := p.extractor.Extract(ctx, doc, cfg)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("extraction: %v", err))
 		extracted = &Extracted{}
@@ -123,18 +124,18 @@ func (p *Pipeline) ExtractAndRoute(doc *TextDocument, cfg ExtractionConfig, tran
 
 // Process runs all three stages in one shot using default config for the
 // document's source. Kept for any non-interactive callers.
-func (p *Pipeline) Process(input *RawInput) (*ProcessResult, error) {
+func (p *Pipeline) Process(ctx context.Context, input *RawInput) (*ProcessResult, error) {
 	doc, transformerName, err := p.Transform(input)
 	if err != nil {
 		return nil, err
 	}
 	cfg := extractionConfigForSource(doc.Source)
-	return p.ExtractAndRoute(doc, cfg, transformerName), nil
+	return p.ExtractAndRoute(ctx, doc, cfg, transformerName), nil
 }
 
 // ProcessText is a convenience for pasted text input.
-func (p *Pipeline) ProcessText(text, title string) (*ProcessResult, error) {
-	return p.Process(&RawInput{
+func (p *Pipeline) ProcessText(ctx context.Context, text, title string) (*ProcessResult, error) {
+	return p.Process(ctx, &RawInput{
 		Kind:    InputText,
 		Content: []byte(text),
 		Title:   title,
@@ -142,18 +143,18 @@ func (p *Pipeline) ProcessText(text, title string) (*ProcessResult, error) {
 }
 
 // ProcessFile is a convenience for a file path.
-func (p *Pipeline) ProcessFile(path string) (*ProcessResult, error) {
-	return p.Process(&RawInput{Kind: InputFile, Path: path})
+func (p *Pipeline) ProcessFile(ctx context.Context, path string) (*ProcessResult, error) {
+	return p.Process(ctx, &RawInput{Kind: InputFile, Path: path})
 }
 
 // ProcessUpload is a convenience for an in-memory upload.
-func (p *Pipeline) ProcessUpload(filename string, content []byte) (*ProcessResult, error) {
-	return p.Process(&RawInput{Kind: InputFile, Filename: filename, Content: content})
+func (p *Pipeline) ProcessUpload(ctx context.Context, filename string, content []byte) (*ProcessResult, error) {
+	return p.Process(ctx, &RawInput{Kind: InputFile, Filename: filename, Content: content})
 }
 
 // ProcessURL is a convenience for a URL input.
-func (p *Pipeline) ProcessURL(url string) (*ProcessResult, error) {
-	return p.Process(&RawInput{Kind: InputURL, URL: url})
+func (p *Pipeline) ProcessURL(ctx context.Context, url string) (*ProcessResult, error) {
+	return p.Process(ctx, &RawInput{Kind: InputURL, URL: url})
 }
 
 // ListTransformers returns the names of available transformers.
