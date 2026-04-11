@@ -54,7 +54,7 @@ func (h *Handler) CreatePrototype(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "source_paths required", http.StatusBadRequest)
 		return
 	}
-	p, err := h.PrototypeSynth.Synthesize(h.Vault, req)
+	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -30,7 +30,7 @@ func (s *Synthesizer) Registry() *Registry { return s.formats }
 
 // Synthesize reads the requested sources, picks the format, builds a Claude
 // prompt, and returns a ready-to-store Prototype.
-func (s *Synthesizer) Synthesize(v *vault.Vault, req CreateRequest) (*Prototype, error) {
+func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req CreateRequest) (*Prototype, error) {
 	format := s.formats.Pick(req.Format)
 
 	// Concatenate source contents.
@@ -57,7 +57,7 @@ func (s *Synthesizer) Synthesize(v *vault.Vault, req CreateRequest) (*Prototype,
 		MaxTurns:   1,
 		WorkingDir: s.workingDir,
 	}
-	raw, err := ag.RunSimple(context.Background(), prompt)
+	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("synthesize: %w", err)
 	}

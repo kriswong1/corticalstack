@@ -27,7 +27,7 @@ func NewAdvancer(workingDir, model string, p *persona.Loader) *Advancer {
 
 // Advance asks Claude to draft the target stage of a thread. The prior
 // artifacts must already be ordered raw → frame → ... by the caller.
-func (a *Advancer) Advance(thread *Thread, target Stage, hints string) (string, error) {
+func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hints string) (string, error) {
 	if !IsValidStage(string(target)) {
 		return "", fmt.Errorf("invalid target stage: %s", target)
 	}
@@ -39,7 +39,7 @@ func (a *Advancer) Advance(thread *Thread, target Stage, hints string) (string, 
 		MaxTurns:   1,
 		WorkingDir: a.workingDir,
 	}
-	raw, err := ag.RunSimple(context.Background(), prompt)
+	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("advance claude call: %w", err)
 	}

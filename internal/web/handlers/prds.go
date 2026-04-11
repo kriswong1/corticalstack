@@ -49,7 +49,7 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pitch_path required", http.StatusBadRequest)
 		return
 	}
-	p, err := h.PRDSynth.Synthesize(h.Vault, req)
+	p, err := h.PRDSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

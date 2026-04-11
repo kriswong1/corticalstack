@@ -27,13 +27,13 @@ func NewGenerator(workingDir, model string, p *persona.Loader) *Generator {
 
 // FromDoc reads a document out of the vault and asks Claude to extract a
 // list of UseCases. One document may produce multiple scenarios.
-func (g *Generator) FromDoc(v *vault.Vault, req FromDocRequest) ([]*UseCase, error) {
+func (g *Generator) FromDoc(ctx context.Context, v *vault.Vault, req FromDocRequest) ([]*UseCase, error) {
 	body, err := v.ReadFile(req.SourcePath)
 	if err != nil {
 		return nil, fmt.Errorf("reading source: %w", err)
 	}
 	prompt := g.persona.BuildContextPrompt() + buildFromDocPrompt(req.SourcePath, body, req.Hint)
-	raw, err := g.runClaude(prompt)
+	raw, err := g.runClaude(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -41,22 +41,22 @@ func (g *Generator) FromDoc(v *vault.Vault, req FromDocRequest) ([]*UseCase, err
 }
 
 // FromText generates one or more UseCases from a free-form description.
-func (g *Generator) FromText(req FromTextRequest) ([]*UseCase, error) {
+func (g *Generator) FromText(ctx context.Context, req FromTextRequest) ([]*UseCase, error) {
 	prompt := g.persona.BuildContextPrompt() + buildFromTextPrompt(req.Description, req.ActorsHint)
-	raw, err := g.runClaude(prompt)
+	raw, err := g.runClaude(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
 	return parseUseCases(raw, req.ProjectIDs, []SourceRef{{Type: "freeform"}})
 }
 
-func (g *Generator) runClaude(prompt string) (string, error) {
+func (g *Generator) runClaude(ctx context.Context, prompt string) (string, error) {
 	ag := &agent.Agent{
 		Model:      g.model,
 		MaxTurns:   1,
 		WorkingDir: g.workingDir,
 	}
-	return ag.RunSimple(context.Background(), prompt)
+	return ag.RunSimple(ctx, prompt)
 }
 
 func buildFromDocPrompt(sourcePath, body, hint string) string {

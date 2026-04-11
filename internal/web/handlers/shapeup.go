@@ -103,7 +103,7 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := h.ShapeUpAdvancer.Advance(thread, shapeup.Stage(req.TargetStage), req.Hints)
+	body, err := h.ShapeUpAdvancer.Advance(r.Context(), thread, shapeup.Stage(req.TargetStage), req.Hints)
 	if err != nil {
 		http.Error(w, "advance: "+err.Error(), http.StatusInternalServerError)
 		return

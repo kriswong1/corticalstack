@@ -42,25 +42,25 @@ func NewSynthesizer(workingDir, model string, r *Retriever, as *actions.Store, p
 }
 
 // Synthesize produces a ready-to-store PRD from a pitch path plus extras.
-func (s *Synthesizer) Synthesize(v *vault.Vault, req CreateRequest) (*PRD, error) {
+func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req CreateRequest) (*PRD, error) {
 	pitchBody, err := v.ReadFile(req.PitchPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading pitch: %w", err)
 	}
 
-	context, err := s.retriever.Retrieve(req.ProjectIDs, req.ExtraContextTags, req.ExtraContextPaths)
+	contextNotes, err := s.retriever.Retrieve(req.ProjectIDs, req.ExtraContextTags, req.ExtraContextPaths)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving context: %w", err)
 	}
 
-	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, context)
+	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, contextNotes)
 
 	ag := &agent.Agent{
 		Model:      s.model,
 		MaxTurns:   1,
 		WorkingDir: s.workingDir,
 	}
-	raw, err := ag.RunSimple(ctx(), prompt)
+	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("synthesis: %w", err)
 	}
@@ -70,8 +70,8 @@ func (s *Synthesizer) Synthesize(v *vault.Vault, req CreateRequest) (*PRD, error
 		return nil, err
 	}
 
-	contextRefs := make([]string, 0, len(context))
-	for _, n := range context {
+	contextRefs := make([]string, 0, len(contextNotes))
+	for _, n := range contextNotes {
 		contextRefs = append(contextRefs, n.Path)
 	}
 
@@ -219,6 +219,3 @@ func writeList(b *strings.Builder, heading string, items []string) {
 	b.WriteString("\n")
 }
 
-// ctx returns a background context for the Claude call; split out to keep
-// the Synthesize body readable.
-func ctx() context.Context { return context.Background() }

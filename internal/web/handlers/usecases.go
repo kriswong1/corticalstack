@@ -45,7 +45,7 @@ func (h *Handler) GenerateUseCasesFromDoc(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	cases, err := h.UseCaseGen.FromDoc(h.Vault, req)
+	cases, err := h.UseCaseGen.FromDoc(r.Context(), h.Vault, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -65,7 +65,7 @@ func (h *Handler) GenerateUseCasesFromText(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	cases, err := h.UseCaseGen.FromText(req)
+	cases, err := h.UseCaseGen.FromText(r.Context(), req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
