@@ -38,7 +38,7 @@ purpose: Central action item tracker across all ingested documents
 ## Open Items
 
 `
-		if err := os.WriteFile(fullPath, []byte(header), 0o644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(header), 0o600); err != nil {
 			return fmt.Errorf("creating action items file: %w", err)
 		}
 	}
@@ -75,5 +75,5 @@ purpose: Central action item tracker across all ingested documents
 		contentStr += "\n" + section.String()
 	}
 
-	return os.WriteFile(fullPath, []byte(contentStr), 0o644)
+	return os.WriteFile(fullPath, []byte(contentStr), 0o600)
 }
