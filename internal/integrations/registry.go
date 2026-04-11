@@ -36,15 +36,16 @@ func NewRegistry() *Registry {
 	return &Registry{items: make(map[string]Integration)}
 }
 
-// Register adds an integration. Panics if an integration with the same ID
-// already exists — catch this in tests, never in production.
-func (r *Registry) Register(i Integration) {
+// Register adds an integration. Returns an error if an integration
+// with the same ID already exists.
+func (r *Registry) Register(i Integration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.items[i.ID()]; exists {
-		panic(fmt.Sprintf("integrations: duplicate registration for %q", i.ID()))
+		return fmt.Errorf("integrations: duplicate registration for %q", i.ID())
 	}
 	r.items[i.ID()] = i
+	return nil
 }
 
 // Get returns the integration with the given ID, or nil if not registered.

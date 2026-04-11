@@ -49,7 +49,9 @@ func main() {
 	// Integrations registry
 	reg := integrations.NewRegistry()
 	deepgram := integrations.NewDeepgramClient(config.DeepgramAPIKey())
-	reg.Register(deepgram)
+	if err := reg.Register(deepgram); err != nil {
+		log.Fatalf("register deepgram: %v", err)
+	}
 
 	// Persona loader — bootstrapped from embedded templates on first run.
 	personaLoader := persona.New(v)
