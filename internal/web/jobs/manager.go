@@ -10,8 +10,10 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +23,10 @@ import (
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/web/sse"
 )
+
+// ErrShuttingDown is returned by Submit and Confirm when the manager
+// has begun shutdown and is no longer accepting new work.
+var ErrShuttingDown = errors.New("jobs: manager shutting down")
 
 // Status is a job's terminal-or-running state.
 type Status string
@@ -76,12 +82,20 @@ type Manager struct {
 	classifier *intent.ClaudeClassifier
 	projects   *projects.Store
 
+	// rootCtx is derived from main's shutdown context. Per-job contexts
+	// are children of this, so canceling rootCtx cancels every job.
+	rootCtx      context.Context
+	wg           sync.WaitGroup
+	shuttingDown atomic.Bool
+
 	mu   sync.RWMutex
 	jobs map[string]*Job
 }
 
 // New creates a manager bound to a pipeline, classifier, projects store, and bus.
+// ctx is the root context whose cancellation propagates to every running job.
 func New(
+	ctx context.Context,
 	pipe *pipeline.Pipeline,
 	bus *sse.EventBus,
 	classifier *intent.ClaudeClassifier,
@@ -92,13 +106,18 @@ func New(
 		bus:        bus,
 		classifier: classifier,
 		projects:   ps,
+		rootCtx:    ctx,
 		jobs:       make(map[string]*Job),
 	}
 }
 
 // Submit creates a new job and kicks off Transform + Classify in a goroutine.
 // The job pauses at awaiting_confirmation until Confirm() is called.
-func (m *Manager) Submit(label string, input *pipeline.RawInput) *Job {
+// Returns (nil, ErrShuttingDown) if the manager is no longer accepting work.
+func (m *Manager) Submit(label string, input *pipeline.RawInput) (*Job, error) {
+	if m.shuttingDown.Load() {
+		return nil, ErrShuttingDown
+	}
 	job := &Job{
 		ID:        uuid.NewString(),
 		Label:     label,
@@ -109,13 +128,23 @@ func (m *Manager) Submit(label string, input *pipeline.RawInput) *Job {
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 
-	go m.runPreview(job, input)
-	return job
+	jobCtx, cancel := context.WithCancel(m.rootCtx)
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		defer cancel()
+		m.runPreview(jobCtx, job, input)
+	}()
+	return job, nil
 }
 
 // Confirm resumes a job paused at awaiting_confirmation with the user's choices.
-// Returns an error if the job is missing or not in the expected state.
+// Returns an error if the job is missing, not in the expected state, or the
+// manager is shutting down.
 func (m *Manager) Confirm(jobID string, payload ConfirmPayload) error {
+	if m.shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	m.mu.Lock()
 	job, ok := m.jobs[jobID]
 	if !ok {
@@ -129,8 +158,32 @@ func (m *Manager) Confirm(jobID string, payload ConfirmPayload) error {
 	doc := job.doc
 	m.mu.Unlock()
 
-	go m.runConfirm(job, doc, payload)
+	jobCtx, cancel := context.WithCancel(m.rootCtx)
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		defer cancel()
+		m.runConfirm(jobCtx, job, doc, payload)
+	}()
 	return nil
+}
+
+// Shutdown prevents new jobs from being accepted and waits for all
+// in-flight jobs to finish or for ctx to expire. Returns ctx.Err() on
+// timeout, nil if all jobs drained cleanly.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.shuttingDown.Store(true)
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Get returns a job by ID, or nil if not found.
@@ -158,7 +211,7 @@ func (m *Manager) List() []*Job {
 	return out
 }
 
-func (m *Manager) runPreview(job *Job, input *pipeline.RawInput) {
+func (m *Manager) runPreview(ctx context.Context, job *Job, input *pipeline.RawInput) {
 	job.StartedAt = time.Now()
 	m.setStatus(job, StatusTransforming, "Transforming input")
 
@@ -174,8 +227,7 @@ func (m *Manager) runPreview(job *Job, input *pipeline.RawInput) {
 	m.publishProgress(job, fmt.Sprintf("Transformed via %s (%d chars)", transformerName, len(doc.Content)))
 
 	m.setStatus(job, StatusClassifying, "Classifying intention")
-	// TODO(commit7): replace with per-job ctx from Manager.rootCtx.
-	preview, err := m.classifier.Classify(context.Background(), doc, m.projects.List())
+	preview, err := m.classifier.Classify(ctx, doc, m.projects.List())
 	if err != nil {
 		m.fail(job, "classification failed: "+err.Error())
 		return
@@ -194,7 +246,7 @@ func (m *Manager) runPreview(job *Job, input *pipeline.RawInput) {
 	})
 }
 
-func (m *Manager) runConfirm(job *Job, doc *pipeline.TextDocument, payload ConfirmPayload) {
+func (m *Manager) runConfirm(ctx context.Context, job *Job, doc *pipeline.TextDocument, payload ConfirmPayload) {
 	m.setStatus(job, StatusExtracting, "Extracting structured data")
 
 	cfg := pipeline.DefaultConfigForSource(doc.Source)
@@ -206,8 +258,7 @@ func (m *Manager) runConfirm(job *Job, doc *pipeline.TextDocument, payload Confi
 	}
 
 	m.setStatus(job, StatusRouting, "Writing notes")
-	// TODO(commit7): replace with per-job ctx from Manager.rootCtx.
-	result := m.pipe.ExtractAndRoute(context.Background(), doc, cfg, job.Transformer)
+	result := m.pipe.ExtractAndRoute(ctx, doc, cfg, job.Transformer)
 
 	for _, msg := range result.Errors {
 		m.publishProgress(job, "warning: "+msg)

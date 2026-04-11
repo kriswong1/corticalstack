@@ -172,11 +172,15 @@ func (h *Handler) IngestText(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = firstLine(req.Text, 60)
 	}
-	job := h.Jobs.Submit(label, &pipeline.RawInput{
+	job, err := h.Jobs.Submit(label, &pipeline.RawInput{
 		Kind:    pipeline.InputText,
 		Content: []byte(req.Text),
 		Title:   req.Title,
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	writeJSON(w, ingestResponse{JobID: job.ID})
 }
 
@@ -191,10 +195,14 @@ func (h *Handler) IngestURL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "url is required", http.StatusBadRequest)
 		return
 	}
-	job := h.Jobs.Submit(req.URL, &pipeline.RawInput{
+	job, err := h.Jobs.Submit(req.URL, &pipeline.RawInput{
 		Kind: pipeline.InputURL,
 		URL:  req.URL,
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	writeJSON(w, ingestResponse{JobID: job.ID})
 }
 
@@ -217,12 +225,16 @@ func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := h.Jobs.Submit(header.Filename, &pipeline.RawInput{
+	job, err := h.Jobs.Submit(header.Filename, &pipeline.RawInput{
 		Kind:     pipeline.InputFile,
 		Filename: header.Filename,
 		Content:  content,
 		MIMEType: header.Header.Get("Content-Type"),
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	writeJSON(w, ingestResponse{JobID: job.ID})
 }
 

@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -119,7 +120,8 @@ func main() {
 
 	// Jobs + SSE bus (shared by ingest + confirm flows)
 	bus := sse.NewEventBus()
-	jm := jobs.New(pipe, bus, classifier, projectStore)
+	// TODO(commit8): replace with signal.NotifyContext so SIGINT cancels jobs.
+	jm := jobs.New(context.Background(), pipe, bus, classifier, projectStore)
 
 	// Build the handler Deps bundle
 	deps := handlers.Deps{
