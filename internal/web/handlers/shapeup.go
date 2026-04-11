@@ -98,6 +98,10 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	if len(thread.Artifacts) == 0 {
+		http.Error(w, "thread has no artifacts to advance from", http.StatusConflict)
+		return
+	}
 
 	body, err := h.ShapeUpAdvancer.Advance(thread, shapeup.Stage(req.TargetStage), req.Hints)
 	if err != nil {
