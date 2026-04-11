@@ -27,7 +27,7 @@ func New(v *vault.Vault) *Store {
 
 // EnsureFolder creates vault/usecases/ if it doesn't exist.
 func (s *Store) EnsureFolder() error {
-	return os.MkdirAll(filepath.Join(s.vault.Path(), useCasesDir), 0o755)
+	return os.MkdirAll(filepath.Join(s.vault.Path(), useCasesDir), 0o700)
 }
 
 // Write persists a UseCase to disk and fills in its Path and created time.

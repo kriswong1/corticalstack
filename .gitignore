@@ -1,6 +1,6 @@
 .env
-vault/
-!vault/.gitkeep
+/vault/
+!/vault/.gitkeep
 *.exe
 /tmp/
 /docs/

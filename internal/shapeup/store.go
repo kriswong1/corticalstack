@@ -30,7 +30,7 @@ func New(v *vault.Vault) *Store {
 func (s *Store) EnsureFolders() error {
 	for _, stage := range AllStages() {
 		path := filepath.Join(s.vault.Path(), productDir, string(stage))
-		if err := os.MkdirAll(path, 0o755); err != nil {
+		if err := os.MkdirAll(path, 0o700); err != nil {
 			return fmt.Errorf("creating %s: %w", path, err)
 		}
 	}

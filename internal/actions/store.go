@@ -49,7 +49,7 @@ func New(v *vault.Vault) *Store {
 // Load reads the index from disk, creating an empty one if missing.
 func (s *Store) Load() error {
 	path := s.indexPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating .cortical dir: %w", err)
 	}
 	data, err := os.ReadFile(path)
@@ -93,10 +93,10 @@ func (s *Store) flushLocked() error {
 		return fmt.Errorf("marshaling actions index: %w", err)
 	}
 	path := s.indexPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // List returns all known actions, newest first.

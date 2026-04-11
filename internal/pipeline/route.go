@@ -179,6 +179,6 @@ func sourceFolder(source string) string {
 func EnsureVaultFolders(v *vault.Vault) {
 	folders := []string{"notes", "audio", "documents", "articles", "videos", "inbox", "daily", "projects"}
 	for _, f := range folders {
-		_ = os.MkdirAll(filepath.Join(v.Path(), f), 0o755)
+		_ = os.MkdirAll(filepath.Join(v.Path(), f), 0o700)
 	}
 }

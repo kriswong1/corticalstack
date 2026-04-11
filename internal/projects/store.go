@@ -34,7 +34,7 @@ func New(v *vault.Vault) *Store {
 // Refresh rescans vault/projects/*/project.md and rebuilds the in-memory cache.
 func (s *Store) Refresh() error {
 	root := filepath.Join(s.vault.Path(), projectsFolder)
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fmt.Errorf("ensuring projects dir: %w", err)
 	}
 

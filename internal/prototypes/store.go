@@ -25,7 +25,7 @@ func New(v *vault.Vault) *Store { return &Store{vault: v} }
 
 // EnsureFolder creates vault/prototypes/.
 func (s *Store) EnsureFolder() error {
-	return os.MkdirAll(filepath.Join(s.vault.Path(), prototypesDir), 0o755)
+	return os.MkdirAll(filepath.Join(s.vault.Path(), prototypesDir), 0o700)
 }
 
 // Write persists a prototype's spec.md + source-links.md in a per-prototype

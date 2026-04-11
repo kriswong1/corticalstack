@@ -40,7 +40,7 @@ func (s *Store) Sync(a *Action) error {
 // Creates the file if it doesn't exist.
 func writeOrReplaceLine(vaultPath, relPath, id, newLine string) error {
 	full := filepath.Join(vaultPath, relPath)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return err
 	}
 
@@ -85,8 +85,8 @@ func writeOrReplaceLine(vaultPath, relPath, id, newLine string) error {
 			}
 			content += "\n" + newLine + "\n"
 		}
-		return os.WriteFile(full, []byte(content), 0o644)
+		return os.WriteFile(full, []byte(content), 0o600)
 	}
 
-	return os.WriteFile(full, []byte(strings.Join(lines, "\n")), 0o644)
+	return os.WriteFile(full, []byte(strings.Join(lines, "\n")), 0o600)
 }
