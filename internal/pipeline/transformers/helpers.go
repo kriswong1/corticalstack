@@ -3,17 +3,67 @@
 package transformers
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kriswong/corticalstack/internal/pipeline"
 )
+
+// safeHTTPClient is a package-level client that blocks connections to
+// private / loopback / link-local IP ranges at dial time, catching
+// SSRF attempts including DNS rebinding (the check runs after the
+// resolver so any rebind is caught before the TCP handshake).
+var safeHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+			ControlContext: func(ctx context.Context, network, address string, c syscall.RawConn) error {
+				host, _, err := net.SplitHostPort(address)
+				if err != nil {
+					return fmt.Errorf("parsing address: %w", err)
+				}
+				ip := net.ParseIP(host)
+				if ip == nil {
+					return fmt.Errorf("resolved address is not an IP: %q", host)
+				}
+				if isPrivateIP(ip) {
+					return fmt.Errorf("blocked private IP %s", ip)
+				}
+				return nil
+			},
+		}).DialContext,
+	},
+}
+
+// isPrivateIP reports whether ip is a loopback, private, link-local,
+// or otherwise non-routable address that must not be reachable from
+// server-side URL fetchers.
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	// Go 1.17+ covers RFC 1918 and the IPv6 ULA range.
+	if ip.IsPrivate() {
+		return true
+	}
+	// CGNAT range (RFC 6598) — not covered by IsPrivate.
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1]&0xc0 == 64 {
+		return true
+	}
+	return false
+}
 
 // readInputBytes returns the input as a UTF-8 string, reading from Path if needed.
 func readInputBytes(input *pipeline.RawInput) string {
@@ -68,15 +118,15 @@ func identifierFor(input *pipeline.RawInput) string {
 	return fmt.Sprintf("text-%d", time.Now().UnixMilli())
 }
 
-// httpGet fetches a URL with a browser-ish UA and a sane timeout.
+// httpGet fetches a URL with a browser-ish UA, a sane timeout, and
+// an SSRF guard that rejects private / loopback / link-local IPs.
 func httpGet(url string) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) CorticalStack/1.0")
-	resp, err := client.Do(req)
+	resp, err := safeHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("http get: %w", err)
 	}
