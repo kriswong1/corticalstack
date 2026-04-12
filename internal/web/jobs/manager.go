@@ -28,6 +28,23 @@ import (
 // has begun shutdown and is no longer accepting new work.
 var ErrShuttingDown = errors.New("jobs: manager shutting down")
 
+// pipelineRunner is the subset of *pipeline.Pipeline that Manager needs.
+// Exists as an interface so tests can substitute a stub.
+type pipelineRunner interface {
+	Transform(input *pipeline.RawInput) (*pipeline.TextDocument, string, error)
+	ExtractAndRoute(ctx context.Context, doc *pipeline.TextDocument, cfg pipeline.ExtractionConfig, transformerName string) *pipeline.ProcessResult
+}
+
+// docClassifier is the subset of *intent.ClaudeClassifier that Manager needs.
+type docClassifier interface {
+	Classify(ctx context.Context, doc *pipeline.TextDocument, activeProjects []*projects.Project) (*intent.PreviewResult, error)
+}
+
+// projectLister is the subset of *projects.Store that Manager needs.
+type projectLister interface {
+	List() []*projects.Project
+}
+
 // Status is a job's terminal-or-running state.
 type Status string
 
@@ -77,10 +94,10 @@ type ConfirmPayload struct {
 
 // Manager runs pipeline jobs asynchronously.
 type Manager struct {
-	pipe       *pipeline.Pipeline
+	pipe       pipelineRunner
 	bus        *sse.EventBus
-	classifier *intent.ClaudeClassifier
-	projects   *projects.Store
+	classifier docClassifier
+	projects   projectLister
 
 	// rootCtx is derived from main's shutdown context. Per-job contexts
 	// are children of this, so canceling rootCtx cancels every job.
