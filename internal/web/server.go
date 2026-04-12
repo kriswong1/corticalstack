@@ -65,6 +65,7 @@ func (s *Server) RenderPage(w http.ResponseWriter, contentTemplate string, data 
 func (s *Server) routes() {
 	r := s.Router
 
+	r.Use(mw.RequestID)
 	r.Use(mw.Recovery)
 	r.Use(mw.Logger)
 

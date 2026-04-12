@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Agent configures a Claude CLI invocation.
@@ -72,6 +74,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		cmd.Dir = a.WorkingDir
 	}
 
+	slog.Info("claude cli start", "model", a.Model, "prompt_len", len(prompt))
+	start := time.Now()
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("creating stdout pipe: %w", err)
@@ -87,6 +92,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			return nil, fmt.Errorf("claude exited with error: %w", err)
 		}
 	}
+	slog.Info("claude cli done", "duration", time.Since(start), "cost_usd", result.CostUSD, "result_len", len(result.Text))
 	return result, nil
 }
 

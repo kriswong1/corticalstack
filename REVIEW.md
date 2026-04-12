@@ -3,13 +3,13 @@
 **Date:** 2026-04-11
 **Scope:** Full sweep of `cmd/` and `internal/` against Go best practices.
 **Target:** Go 1.26, Chi + SSE, 3-stage Transform→Extract→Route pipeline, Claude CLI via Paperclip.
-**Status:** Phases A+B+C shipped 2026-04-11 — see Execution Status below.
+**Status:** Phases A+B+C+E shipped 2026-04-11 — see Execution Status below.
 
 ---
 
-## Execution status — Phases A+B+C shipped (2026-04-11)
+## Execution status — Phases A+B+C+E shipped (2026-04-11)
 
-9 commits landed on `origin/master` (`7123178..195966a`). Build, vet, and existing tests all green.
+9 commits landed for A+B+C on `origin/master` (`7123178..195966a`). Phase E landed same day. Build, vet, and all tests green throughout.
 
 | # | Commit | Covers |
 |---|---|---|
@@ -30,9 +30,9 @@
 
 ### Deferred to follow-up phases
 
-- **#10** — `slog` migration, request IDs, metrics → **Phase E**
 - **Phase D** — test coverage (still ~5%; critical paths in transformers, vault, pipeline, agent remain untested)
 - Minor P2 items: SSE subscriber cap, middleware Authorization header sanitization, strict `filepath.Rel()` path-traversal check, `pipeline/templates` sub-package split, exported field doc comments, `config.Validate()` at startup, error-returns in `pipeline/route.go:182`
+- Metrics (jobs processed, transform success/fail, extraction duration, cost tracking) — deferred from Phase E scope
 
 ### Discovery — `.gitignore` was hiding `internal/vault/`
 
@@ -57,7 +57,7 @@ Not in the original audit. Found during Commit 2 execution: the unanchored `vaul
 | 7 | `cmd/cortical/main.go` (missing) | **P1** | No graceful shutdown; SIGINT/SIGTERM unhandled | ✅ **Shipped** `0e16d5b` |
 | 8 | `internal/pipeline/transformers/helpers.go:72-92` | **P2** | SSRF: `httpGet` doesn't block private IPs | ✅ **Shipped** `ebbae4d` |
 | 9 | `internal/vault/vault.go:52,70` | **P2** | Vault files `0o644` / dirs `0o755` — too loose for private notes | ✅ **Shipped** `f0b57af` + `195966a` |
-| 10 | throughout | **P2** | Stdlib `log.Printf` instead of `slog` — no structured logs, no request IDs | ⏳ **Deferred** to Phase E |
+| 10 | throughout | **P2** | Stdlib `log.Printf` instead of `slog` — no structured logs, no request IDs | ✅ **Shipped** Phase E |
 
 ---
 
@@ -170,8 +170,8 @@ Covered #8, #9 (template audit skipped — already safe). Commits: `ebbae4d`, `f
 **Phase D — Test coverage** ⏳ deferred
 Dedicated phase. Table-driven tests for transformers, vault, pipeline stages, agent (with Claude CLI mock). Current coverage ~5% (3 test files).
 
-**Phase E — Observability** ⏳ deferred
-Dedicated phase. Migrate to `slog`, add request-ID middleware, add job/cost metrics.
+**Phase E — Observability** ✅ shipped
+Migrated all `log.*` and `fmt.Fprintf(os.Stderr)` to `slog`. Added `RequestID` middleware (UUID per request, `X-Request-ID` header, context propagation). Added structured logging to job lifecycle (status transitions, completion duration, failures) and Claude CLI invocations (model, prompt length, duration, cost). Proper log levels throughout (Error for fatal startup, Warn for non-fatal, Info for operational). Metrics deferred to a future phase.
 
 ---
 
@@ -179,6 +179,6 @@ Dedicated phase. Migrate to `slog`, add request-ID middleware, add job/cost metr
 
 **Strengths:** clean project layout, strong DI, safe shell-out pattern, proper error wrapping, minimal globals, idiomatic naming.
 
-**Weaknesses remaining:** test coverage, structured logging & observability. Concurrency lifecycle, request-scoped context, graceful shutdown, SSRF guard, and vault file permissions were all resolved in Phases A+B+C.
+**Weaknesses remaining:** test coverage (~5%), metrics. Concurrency lifecycle, request-scoped context, graceful shutdown, SSRF guard, vault file permissions (A+B+C), and structured logging with request IDs (E) are all resolved.
 
-**Estimated Top-10 effort:** ~8 hours (Phases A+B+C bundled) — **actual: ~8 hours, 9 commits shipped 2026-04-11.** Phases D and E remain and are larger individual efforts.
+**Estimated Top-10 effort:** ~8 hours (Phases A+B+C bundled) — **actual: ~8 hours, 9 commits shipped 2026-04-11.** Phase E shipped same day. Phase D (test coverage) remains as the primary outstanding effort.

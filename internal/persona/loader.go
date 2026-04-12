@@ -3,6 +3,7 @@ package persona
 import (
 	"embed"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,7 +120,7 @@ func (l *Loader) getTrimmed(name Name) string {
 		return raw
 	}
 	// Log the truncation so the user knows to trim their file.
-	fmt.Fprintf(os.Stderr, "persona: %s truncated from %d to %d chars\n", name, len(raw), budget)
+	slog.Warn("persona truncated", "name", name, "original_len", len(raw), "budget", budget)
 	return raw[:budget]
 }
 

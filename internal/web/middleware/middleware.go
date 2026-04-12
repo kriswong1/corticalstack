@@ -2,12 +2,34 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+type ctxKey struct{}
+
+// RequestID generates a unique ID per request, stores it in the context,
+// and sets the X-Request-ID response header.
+func RequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := uuid.NewString()[:8]
+		ctx := context.WithValue(r.Context(), ctxKey{}, id)
+		w.Header().Set("X-Request-ID", id)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// ReqID extracts the request ID from a context, or returns "" if none.
+func ReqID(ctx context.Context) string {
+	id, _ := ctx.Value(ctxKey{}).(string)
+	return id
+}
 
 // Recovery catches panics in handlers and returns HTTP 500 instead of
 // crashing the server.
@@ -15,7 +37,11 @@ func Recovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("panic in handler: %v\n%s", err, debug.Stack())
+				slog.ErrorContext(r.Context(), "panic in handler",
+					"error", err,
+					"stack", string(debug.Stack()),
+					"request_id", ReqID(r.Context()),
+				)
 				http.Error(w, fmt.Sprintf("internal server error: %v", err), http.StatusInternalServerError)
 			}
 		}()
@@ -29,7 +55,13 @@ func Logger(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
-		log.Printf("%s %s → %d (%s)", r.Method, r.URL.Path, sw.status, time.Since(start))
+		slog.InfoContext(r.Context(), "http",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", sw.status,
+			"duration", time.Since(start),
+			"request_id", ReqID(r.Context()),
+		)
 	})
 }
 

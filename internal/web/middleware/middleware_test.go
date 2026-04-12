@@ -2,18 +2,24 @@ package middleware
 
 import (
 	"bytes"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
+// captureSlog installs a text handler writing to a buffer and returns
+// the buffer. Caller must defer restoring the default logger.
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	return &buf
+}
+
 func TestRecoveryCatchesPanic(t *testing.T) {
-	// Silence panic log output so the test runs clean.
-	var logBuf bytes.Buffer
-	log.SetOutput(&logBuf)
-	defer log.SetOutput(nil)
+	logBuf := captureSlog(t)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
@@ -62,9 +68,7 @@ func TestRecoveryPassesThrough(t *testing.T) {
 }
 
 func TestLoggerRecordsStatusAndPath(t *testing.T) {
-	var logBuf bytes.Buffer
-	log.SetOutput(&logBuf)
-	defer log.SetOutput(nil)
+	logBuf := captureSlog(t)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
@@ -84,9 +88,7 @@ func TestLoggerRecordsStatusAndPath(t *testing.T) {
 }
 
 func TestLoggerDefaultStatus200(t *testing.T) {
-	var logBuf bytes.Buffer
-	log.SetOutput(&logBuf)
-	defer log.SetOutput(nil)
+	logBuf := captureSlog(t)
 
 	// Handler writes body without explicit WriteHeader — default 200.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,4 +150,45 @@ func TestStatusWriterFlushNoOpWithoutFlusher(t *testing.T) {
 // nonFlushingWriter wraps a ResponseWriter without exposing Flusher.
 type nonFlushingWriter struct {
 	http.ResponseWriter
+}
+
+func TestRequestIDSetsHeader(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := ReqID(r.Context())
+		if id == "" {
+			t.Error("request ID missing from context")
+		}
+		w.Write([]byte(id))
+	})
+
+	wrapped := RequestID(handler)
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+
+	hdr := rec.Header().Get("X-Request-ID")
+	if hdr == "" {
+		t.Error("X-Request-ID header not set")
+	}
+	if rec.Body.String() != hdr {
+		t.Errorf("context ID %q != header ID %q", rec.Body.String(), hdr)
+	}
+}
+
+func TestLoggerIncludesRequestID(t *testing.T) {
+	logBuf := captureSlog(t)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	wrapped := RequestID(Logger(inner))
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+
+	out := logBuf.String()
+	if !strings.Contains(out, "request_id=") {
+		t.Errorf("log missing request_id: %q", out)
+	}
 }

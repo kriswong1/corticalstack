@@ -1,7 +1,7 @@
 package actions
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +28,7 @@ func (s *Store) Sync(a *Action) error {
 	for _, loc := range locations {
 		if err := writeOrReplaceLine(s.vault.Path(), loc, a.ID, line); err != nil {
 			// Non-fatal per location so one broken file doesn't block others.
-			fmt.Fprintf(os.Stderr, "actions.Sync: %s: %v\n", loc, err)
+			slog.Warn("actions.Sync: write failed", "location", loc, "error", err)
 		}
 	}
 	return nil

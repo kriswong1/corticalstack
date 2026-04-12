@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,6 +40,7 @@ import (
 const shutdownTimeout = 30 * time.Second
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	config.Load()
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -47,12 +48,14 @@ func main() {
 
 	vaultPath := config.VaultPath()
 	if err := os.MkdirAll(vaultPath, 0o700); err != nil {
-		log.Fatalf("creating vault dir %q: %v", vaultPath, err)
+		slog.Error("creating vault dir", "path", vaultPath, "error", err)
+		os.Exit(1)
 	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {
-		log.Fatalf("getting working dir: %v", err)
+		slog.Error("getting working dir", "error", err)
+		os.Exit(1)
 	}
 
 	v := vault.New(vaultPath)
@@ -62,26 +65,29 @@ func main() {
 	reg := integrations.NewRegistry()
 	deepgram := integrations.NewDeepgramClient(config.DeepgramAPIKey())
 	if err := reg.Register(deepgram); err != nil {
-		log.Fatalf("register deepgram: %v", err)
+		slog.Error("register deepgram", "error", err)
+		os.Exit(1)
 	}
 
 	// Persona loader — bootstrapped from embedded templates on first run.
 	personaLoader := persona.New(v)
 	initResult, err := personaLoader.InitIfMissing()
 	if err != nil {
-		log.Fatalf("persona init: %v", err)
+		slog.Error("persona init", "error", err)
+		os.Exit(1)
 	}
 	if len(initResult.Created) > 0 {
-		log.Printf("persona: bootstrapped %v from templates", initResult.Created)
+		slog.Info("persona: bootstrapped from templates", "created", initResult.Created)
 	}
 
 	// Action store
 	actionStore := actions.New(v)
 	if err := actionStore.Load(); err != nil {
-		log.Fatalf("loading actions index: %v", err)
+		slog.Error("loading actions index", "error", err)
+		os.Exit(1)
 	}
 	if err := actionStore.EnsureCentralFile(); err != nil {
-		log.Printf("warning: could not create central ACTION-ITEMS.md: %v", err)
+		slog.Warn("could not create central ACTION-ITEMS.md", "error", err)
 	}
 
 	// Pipeline wiring
@@ -94,7 +100,7 @@ func main() {
 	// Projects store
 	projectStore := projects.New(v)
 	if err := projectStore.Refresh(); err != nil {
-		log.Printf("warning: project discovery failed: %v", err)
+		slog.Warn("project discovery failed", "error", err)
 	}
 
 	// Intent classifier (Claude CLI)
@@ -103,28 +109,28 @@ func main() {
 	// v3: ShapeUp
 	shapeupStore := shapeup.New(v)
 	if err := shapeupStore.EnsureFolders(); err != nil {
-		log.Printf("warning: could not create product folders: %v", err)
+		slog.Warn("could not create product folders", "error", err)
 	}
 	shapeupAdvancer := shapeup.NewAdvancer(workingDir, claudeModel, personaLoader)
 
 	// v3: UseCases
 	useCaseStore := usecases.New(v)
 	if err := useCaseStore.EnsureFolder(); err != nil {
-		log.Printf("warning: could not create usecases folder: %v", err)
+		slog.Warn("could not create usecases folder", "error", err)
 	}
 	useCaseGen := usecases.NewGenerator(workingDir, claudeModel, personaLoader)
 
 	// v3: Prototypes
 	prototypeStore := prototypes.New(v)
 	if err := prototypeStore.EnsureFolder(); err != nil {
-		log.Printf("warning: could not create prototypes folder: %v", err)
+		slog.Warn("could not create prototypes folder", "error", err)
 	}
 	prototypeSynth := prototypes.NewSynthesizer(workingDir, claudeModel, personaLoader)
 
 	// v3: PRDs
 	prdStore := prds.New(v)
 	if err := prdStore.EnsureFolder(); err != nil {
-		log.Printf("warning: could not create prds folder: %v", err)
+		slog.Warn("could not create prds folder", "error", err)
 	}
 	prdRetriever := prds.NewRetriever(v)
 	prdSynth := prds.NewSynthesizer(workingDir, claudeModel, prdRetriever, actionStore, personaLoader)
@@ -156,7 +162,8 @@ func main() {
 
 	srv, err := web.NewServer(deps)
 	if err != nil {
-		log.Fatalf("creating server: %v", err)
+		slog.Error("creating server", "error", err)
+		os.Exit(1)
 	}
 
 	port := config.Port()
@@ -167,25 +174,26 @@ func main() {
 
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("http server: %v", err)
+			slog.Error("http server", "error", err)
+			os.Exit(1)
 		}
 	}()
-	log.Printf("cortical listening on %s", addr)
+	slog.Info("cortical listening", "addr", addr)
 
 	<-rootCtx.Done()
-	log.Printf("shutting down...")
+	slog.Info("shutting down")
 	stop() // stop receiving further signals — a second Ctrl+C now force-exits
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("http shutdown: %v", err)
+		slog.Error("http shutdown", "error", err)
 	}
 	if err := jm.Shutdown(shutdownCtx); err != nil {
-		log.Printf("jobs shutdown: %v", err)
+		slog.Error("jobs shutdown", "error", err)
 	}
-	log.Printf("bye")
+	slog.Info("bye")
 }
 
 func printBanner(vaultPath string, port int, deepgramOK bool) {

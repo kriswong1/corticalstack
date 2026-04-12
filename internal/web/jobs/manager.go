@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -303,6 +304,7 @@ func (m *Manager) setStatus(job *Job, status Status, message string) {
 	}
 	m.mu.Unlock()
 
+	slog.Info("job status", "job_id", job.ID, "status", status, "msg", message)
 	m.bus.Publish(sse.Event{
 		Type: "job_status",
 		Data: Event{JobID: job.ID, Status: status, Message: message},
@@ -324,9 +326,11 @@ func (m *Manager) complete(job *Job, message string) {
 	m.mu.Lock()
 	job.Status = StatusCompleted
 	job.EndedAt = time.Now()
+	duration := job.EndedAt.Sub(job.StartedAt)
 	job.Messages = append(job.Messages, message)
 	m.mu.Unlock()
 
+	slog.Info("job complete", "job_id", job.ID, "duration", duration, "msg", message)
 	m.bus.Publish(sse.Event{
 		Type: "job_complete",
 		Data: Event{JobID: job.ID, Status: StatusCompleted, Message: message},
@@ -341,6 +345,7 @@ func (m *Manager) fail(job *Job, message string) {
 	job.Messages = append(job.Messages, "error: "+message)
 	m.mu.Unlock()
 
+	slog.Error("job failed", "job_id", job.ID, "error", message)
 	m.bus.Publish(sse.Event{
 		Type: "job_failed",
 		Data: Event{JobID: job.ID, Status: StatusFailed, Message: message},
