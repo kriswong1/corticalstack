@@ -112,6 +112,7 @@ func parseStream(r io.Reader) *Result {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	var parseErrors int
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -119,6 +120,10 @@ func parseStream(r io.Reader) *Result {
 		}
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			parseErrors++
+			if parseErrors <= 3 {
+				slog.Warn("claude stream: malformed line", "error", err, "line_len", len(line))
+			}
 			continue
 		}
 		switch event.Type {

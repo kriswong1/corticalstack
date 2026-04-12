@@ -156,7 +156,7 @@ func TestBuildExtractionPromptTruncates(t *testing.T) {
 		Content: strings.Repeat("x", 60000),
 	}
 	got := buildExtractionPrompt(doc, ExtractionConfig{})
-	if !strings.Contains(got, "truncated at 50,000 characters") {
+	if !strings.Contains(got, "content truncated at") {
 		t.Errorf("expected truncation notice in prompt")
 	}
 	if strings.Count(got, "x") > 50100 {

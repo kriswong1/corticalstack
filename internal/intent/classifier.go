@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/projects"
@@ -76,11 +77,12 @@ func buildClassifyPrompt(doc *pipeline.TextDocument, activeProjects []*projects.
 	if len(doc.Authors) > 0 {
 		b.WriteString(fmt.Sprintf("- Authors: %s\n", strings.Join(doc.Authors, ", ")))
 	}
-	b.WriteString("\n## Document content (first 8000 chars)\n\n")
+	maxChars := config.MaxClassifierChars()
+	b.WriteString(fmt.Sprintf("\n## Document content (first %d chars)\n\n", maxChars))
 
 	content := doc.Content
-	if len(content) > 8000 {
-		content = content[:8000] + "\n\n[...truncated]"
+	if len(content) > maxChars {
+		content = content[:maxChars] + "\n\n[...truncated]"
 	}
 	b.WriteString(content)
 	b.WriteString("\n\n")

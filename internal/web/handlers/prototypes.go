@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/kriswong/corticalstack/internal/prototypes"
@@ -11,7 +12,11 @@ import (
 func (h *Handler) PrototypesPage(w http.ResponseWriter, r *http.Request) {
 	var list []*prototypes.Prototype
 	if h.Prototypes != nil {
-		list, _ = h.Prototypes.List()
+		var err error
+		list, err = h.Prototypes.List()
+		if err != nil {
+			slog.Warn("listing prototypes", "error", err)
+		}
 	}
 	formats := []string{}
 	if h.PrototypeSynth != nil {
@@ -56,10 +61,12 @@ func (h *Handler) CreatePrototype(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
+		slog.Error("prototype synthesize", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if err := h.Prototypes.Write(p); err != nil {
+		slog.Error("prototype write", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

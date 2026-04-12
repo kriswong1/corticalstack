@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
+	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/persona"
 )
 
@@ -77,9 +78,10 @@ func buildExtractionPrompt(doc *TextDocument, cfg ExtractionConfig) string {
 	b.WriteString("\n")
 
 	b.WriteString("## Document Content\n\n")
+	maxChars := config.MaxExtractionChars()
 	content := doc.Content
-	if len(content) > 50000 {
-		content = content[:50000] + "\n\n[...content truncated at 50,000 characters]"
+	if len(content) > maxChars {
+		content = content[:maxChars] + fmt.Sprintf("\n\n[...content truncated at %d characters]", maxChars)
 	}
 	b.WriteString(content)
 	b.WriteString("\n\n")

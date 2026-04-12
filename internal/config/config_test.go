@@ -28,8 +28,8 @@ func TestPort(t *testing.T) {
 		{"numeric override", "3000", 3000},
 		{"non-numeric falls back", "notanumber", 8000},
 		{"whitespace is non-numeric", "  ", 8000},
-		{"negative number accepted as-is", "-1", -1},
-		{"zero accepted as-is", "0", 0},
+		{"negative falls back to default", "-1", 8000},
+		{"zero falls back to default", "0", 8000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

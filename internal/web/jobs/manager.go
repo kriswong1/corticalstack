@@ -29,6 +29,11 @@ import (
 // has begun shutdown and is no longer accepting new work.
 var ErrShuttingDown = errors.New("jobs: manager shutting down")
 
+// ErrTooManyJobs is returned when the in-memory job map hits its cap.
+var ErrTooManyJobs = errors.New("jobs: too many tracked jobs")
+
+const maxJobs = 10_000
+
 // pipelineRunner is the subset of *pipeline.Pipeline that Manager needs.
 // Exists as an interface so tests can substitute a stub.
 type pipelineRunner interface {
@@ -76,6 +81,14 @@ type Job struct {
 
 	// Internal state (not exposed in JSON except where needed)
 	doc *pipeline.TextDocument
+}
+
+// snapshot returns a shallow copy safe to read outside the mutex.
+func (j *Job) snapshot() *Job {
+	cp := *j
+	cp.Messages = make([]string, len(j.Messages))
+	copy(cp.Messages, j.Messages)
+	return &cp
 }
 
 // Event describes a progress update for a single job.
@@ -148,6 +161,10 @@ func (m *Manager) Submit(label string, input *pipeline.RawInput) (*Job, error) {
 		CreatedAt: time.Now(),
 	}
 	m.mu.Lock()
+	if len(m.jobs) >= maxJobs {
+		m.mu.Unlock()
+		return nil, ErrTooManyJobs
+	}
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 
@@ -209,20 +226,24 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}
 }
 
-// Get returns a job by ID, or nil if not found.
+// Get returns a snapshot of a job by ID, or nil if not found.
 func (m *Manager) Get(id string) *Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.jobs[id]
+	j := m.jobs[id]
+	if j == nil {
+		return nil
+	}
+	return j.snapshot()
 }
 
-// List returns a snapshot of all jobs, newest first.
+// List returns snapshots of all jobs, newest first.
 func (m *Manager) List() []*Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]*Job, 0, len(m.jobs))
 	for _, j := range m.jobs {
-		out = append(out, j)
+		out = append(out, j.snapshot())
 	}
 	for i := 0; i < len(out); i++ {
 		for j := i + 1; j < len(out); j++ {
@@ -235,7 +256,9 @@ func (m *Manager) List() []*Job {
 }
 
 func (m *Manager) runPreview(ctx context.Context, job *Job, input *pipeline.RawInput) {
+	m.mu.Lock()
 	job.StartedAt = time.Now()
+	m.mu.Unlock()
 	m.setStatus(job, StatusTransforming, "Transforming input")
 
 	doc, transformerName, err := m.pipe.Transform(input)

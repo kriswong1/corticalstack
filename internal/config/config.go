@@ -34,10 +34,11 @@ func VaultPath() string {
 }
 
 // Port returns the HTTP server port, defaulting to 8000.
+// Values outside the valid TCP range (1-65535) are ignored.
 func Port() int {
 	Load()
 	if v := os.Getenv("PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 65535 {
 			return n
 		}
 	}
@@ -54,6 +55,39 @@ func ClaudeModel() string {
 func DeepgramAPIKey() string {
 	Load()
 	return os.Getenv("DEEPGRAM_API_KEY")
+}
+
+// MaxUploadBytes returns the upload size cap, defaulting to 200 MB.
+func MaxUploadBytes() int64 {
+	Load()
+	if v := os.Getenv("MAX_UPLOAD_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 200 << 20
+}
+
+// MaxExtractionChars returns the extraction prompt content cap, defaulting to 50000.
+func MaxExtractionChars() int {
+	Load()
+	if v := os.Getenv("MAX_EXTRACTION_CHARS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 50_000
+}
+
+// MaxClassifierChars returns the classifier prompt content cap, defaulting to 8000.
+func MaxClassifierChars() int {
+	Load()
+	if v := os.Getenv("MAX_CLASSIFIER_CHARS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 8000
 }
 
 // GetSecret reads an arbitrary environment variable.

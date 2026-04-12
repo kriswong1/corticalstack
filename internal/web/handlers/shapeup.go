@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -16,7 +17,11 @@ import (
 func (h *Handler) ShapeUpPage(w http.ResponseWriter, r *http.Request) {
 	var threads []*shapeup.Thread
 	if h.ShapeUp != nil {
-		threads, _ = h.ShapeUp.ListThreads()
+		var err error
+		threads, err = h.ShapeUp.ListThreads()
+		if err != nil {
+			slog.Warn("listing shapeup threads", "error", err)
+		}
 	}
 	h.RenderPage(w, "product", map[string]interface{}{
 		"Title":      "Product",
@@ -105,6 +110,7 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 
 	body, err := h.ShapeUpAdvancer.Advance(r.Context(), thread, shapeup.Stage(req.TargetStage), req.Hints)
 	if err != nil {
+		slog.Error("shapeup advance", "thread", id, "stage", req.TargetStage, "error", err)
 		http.Error(w, "advance: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

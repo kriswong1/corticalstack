@@ -3,13 +3,13 @@
 **Date:** 2026-04-11
 **Scope:** Full sweep of `cmd/` and `internal/` against Go best practices.
 **Target:** Go 1.26, Chi + SSE, 3-stage Transform→Extract→Route pipeline, Claude CLI via Paperclip.
-**Status:** Phases A+B+C+E shipped 2026-04-11 — see Execution Status below.
+**Status:** Phases A+B+C+E+F shipped 2026-04-11 — see Execution Status below.
 
 ---
 
-## Execution status — Phases A+B+C+E shipped (2026-04-11)
+## Execution status — Phases A+B+C+E+F shipped (2026-04-11)
 
-9 commits landed for A+B+C on `origin/master` (`7123178..195966a`). Phase E landed same day. Build, vet, and all tests green throughout.
+9 commits landed for A+B+C on `origin/master` (`7123178..195966a`). Phases E and F landed same day. Build, vet, and all tests green throughout.
 
 | # | Commit | Covers |
 |---|---|---|
@@ -28,10 +28,31 @@
 - **#1 — `vault/parser.go:70` nil-deref** — `note.Body` is a `string` (not `[]byte`) and there is already a dominating `if note.Body != ""` guard at line 65. No real risk.
 - **Template audit (server.go:59)** — all 12 templates use `html/template` (auto-escaping), no `| html` filters, no raw concatenation. The `template.HTML()` wrap is safe because the inner template already escapes.
 
+### Phase F — Re-audit fixes (14 items)
+
+| # | File | Severity | Problem | Fix |
+|---|------|----------|---------|-----|
+| F1 | `jobs/manager.go:237` | **P1** | `job.StartedAt` written without mutex — data race | Wrapped in `m.mu.Lock()` |
+| F2 | `jobs/manager.go:220-235` | **P1** | `List()`/`Get()` return mutable `*Job` pointers — callers race with goroutines | Added `snapshot()` method, `Get`/`List` return copies |
+| F3 | `sse/bus.go:48-57` | **P1** | `Publish` could panic on send-to-closed-channel | Added `recover()` guard in send loop |
+| F4 | `handlers/*.go` (multiple) | **P1** | `http.Error()` 500s not logged server-side | Added `slog.Error`/`slog.Warn` before every 500/503 response |
+| F5 | `handlers/persona.go:24` | **P1** | `h.Persona.Get()` error silently discarded | Log error, continue with empty content |
+| F6 | `handlers/prds.go:14` | **P1** | `h.PRDs.List()` error silently discarded | Same pattern |
+| F7 | `jobs/manager.go:110` | **P2** | Unbounded `jobs` map — no submission cap | Added `maxJobs = 10_000` constant + `ErrTooManyJobs` |
+| F8 | `handlers/handlers.go:468` | **P2** | Dead code: unused `abs()` helper | Removed |
+| F9 | `config/config.go:37-44` | **P2** | Port not validated — could be negative or >65535 | Added `n >= 1 && n <= 65535` range check |
+| F10 | `agent/agent.go:115-117` | **P2** | `parseStream` silently skips malformed JSON lines | Log first 3 parse errors via `slog.Warn` |
+| F11 | `handlers/handlers.go:299,318,332` | **P2** | Unchecked `w.Write` in SSE `StreamJob` | Check errors, return on failure |
+| F12 | `actions/reconcile.go:56-58` | **P2** | File read errors silently skipped during reconciliation | Added `slog.Warn` for non-existence errors |
+| F13 | `shapeup/store.go:174-187` | **P2** | Artifact read errors silently skipped during listing | Added `slog.Warn` for skipped artifacts |
+| F14 | `extract.go:81`, `classifier.go:82`, `handlers.go:211` | **P2** | Hard-coded limits (50k chars, 8k chars, 200MB upload) | Moved to `config` package with env var overrides |
+
+Also fixed in Phase F: silent error discards in `handlers/shapeup.go`, `handlers/usecases.go`, `handlers/prototypes.go` (same `list, _ = .List()` pattern as F5/F6), and `actions/reconcile.go:129` (`_ = s.Sync(a)` → logged).
+
 ### Deferred to follow-up phases
 
 - **Phase D** — test coverage (still ~5%; critical paths in transformers, vault, pipeline, agent remain untested)
-- Minor P2 items: SSE subscriber cap, middleware Authorization header sanitization, strict `filepath.Rel()` path-traversal check, `pipeline/templates` sub-package split, exported field doc comments, `config.Validate()` at startup, error-returns in `pipeline/route.go:182`
+- Minor P2 items: SSE subscriber cap, middleware Authorization header sanitization, strict `filepath.Rel()` path-traversal check, `pipeline/templates` sub-package split, exported field doc comments, error-returns in `pipeline/route.go:182`
 - Metrics (jobs processed, transform success/fail, extraction duration, cost tracking) — deferred from Phase E scope
 
 ### Discovery — `.gitignore` was hiding `internal/vault/`
@@ -173,12 +194,15 @@ Dedicated phase. Table-driven tests for transformers, vault, pipeline stages, ag
 **Phase E — Observability** ✅ shipped
 Migrated all `log.*` and `fmt.Fprintf(os.Stderr)` to `slog`. Added `RequestID` middleware (UUID per request, `X-Request-ID` header, context propagation). Added structured logging to job lifecycle (status transitions, completion duration, failures) and Claude CLI invocations (model, prompt length, duration, cost). Proper log levels throughout (Error for fatal startup, Warn for non-fatal, Info for operational). Metrics deferred to a future phase.
 
+**Phase F — Re-audit hardening** ✅ shipped
+14-item sweep from second full-codebase audit. Fixed data races in job manager (mutex on `StartedAt`, snapshot copies from `Get`/`List`), SSE bus send-on-closed-channel guard, server-side error logging for all 500/503 HTTP responses, silent error discards in 6 handler page-render paths, unbounded job map cap (10k), dead code removal, port validation, `parseStream` error logging, SSE `w.Write` error checking, reconcile/shapeup silent-skip logging, and 3 hard-coded limits moved to config with env var overrides.
+
 ---
 
 ## Summary
 
-**Strengths:** clean project layout, strong DI, safe shell-out pattern, proper error wrapping, minimal globals, idiomatic naming.
+**Strengths:** clean project layout, strong DI, safe shell-out pattern, proper error wrapping, minimal globals, idiomatic naming, structured logging with request IDs, defensive concurrency.
 
-**Weaknesses remaining:** test coverage (~5%), metrics. Concurrency lifecycle, request-scoped context, graceful shutdown, SSRF guard, vault file permissions (A+B+C), and structured logging with request IDs (E) are all resolved.
+**Weaknesses remaining:** test coverage (~5%), metrics. All Top-10 items and Phase F re-audit items are resolved.
 
-**Estimated Top-10 effort:** ~8 hours (Phases A+B+C bundled) — **actual: ~8 hours, 9 commits shipped 2026-04-11.** Phase E shipped same day. Phase D (test coverage) remains as the primary outstanding effort.
+**Estimated Top-10 effort:** ~8 hours (Phases A+B+C bundled) — **actual: ~8 hours, 9 commits shipped 2026-04-11.** Phases E and F shipped same day. Phase D (test coverage) remains as the primary outstanding effort.

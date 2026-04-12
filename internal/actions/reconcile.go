@@ -2,6 +2,7 @@ package actions
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,7 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 			continue
 		}
 		if err != nil {
+			slog.Warn("reconcile: reading action file", "path", full, "error", err)
 			continue
 		}
 		res.Scanned++
@@ -126,7 +128,9 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 		a := s.byID[id]
 		s.mu.RUnlock()
 		if a != nil {
-			_ = s.Sync(a)
+			if err := s.Sync(a); err != nil {
+				slog.Warn("reconcile: sync failed", "action_id", id, "error", err)
+			}
 		}
 	}
 

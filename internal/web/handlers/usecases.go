@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/kriswong/corticalstack/internal/usecases"
@@ -11,7 +12,11 @@ import (
 func (h *Handler) UseCasesPage(w http.ResponseWriter, r *http.Request) {
 	var list []*usecases.UseCase
 	if h.UseCases != nil {
-		list, _ = h.UseCases.List()
+		var err error
+		list, err = h.UseCases.List()
+		if err != nil {
+			slog.Warn("listing usecases", "error", err)
+		}
 	}
 	h.RenderPage(w, "usecases", map[string]interface{}{
 		"Title":      "Use Cases",
@@ -47,6 +52,7 @@ func (h *Handler) GenerateUseCasesFromDoc(w http.ResponseWriter, r *http.Request
 	}
 	cases, err := h.UseCaseGen.FromDoc(r.Context(), h.Vault, req)
 	if err != nil {
+		slog.Error("usecase from-doc", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -67,6 +73,7 @@ func (h *Handler) GenerateUseCasesFromText(w http.ResponseWriter, r *http.Reques
 	}
 	cases, err := h.UseCaseGen.FromText(r.Context(), req)
 	if err != nil {
+		slog.Error("usecase from-text", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -78,6 +85,7 @@ func writeAll(store *usecases.Store, cases []*usecases.UseCase) []*usecases.UseC
 	out := make([]*usecases.UseCase, 0, len(cases))
 	for _, c := range cases {
 		if err := store.Write(c); err != nil {
+			slog.Warn("usecase write skipped", "error", err)
 			continue
 		}
 		out = append(out, c)

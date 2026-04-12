@@ -3,8 +3,8 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/actions"
+	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
@@ -178,6 +179,7 @@ func (h *Handler) IngestText(w http.ResponseWriter, r *http.Request) {
 		Title:   req.Title,
 	})
 	if err != nil {
+		slog.Warn("ingest text: submit failed", "error", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -200,6 +202,7 @@ func (h *Handler) IngestURL(w http.ResponseWriter, r *http.Request) {
 		URL:  req.URL,
 	})
 	if err != nil {
+		slog.Warn("ingest url: submit failed", "error", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -208,7 +211,7 @@ func (h *Handler) IngestURL(w http.ResponseWriter, r *http.Request) {
 
 // IngestFile handles POST /api/ingest/file with a multipart upload.
 func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(200 << 20); err != nil { // 200 MB cap
+	if err := r.ParseMultipartForm(config.MaxUploadBytes()); err != nil {
 		http.Error(w, "parse form: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -221,6 +224,7 @@ func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
 
 	content, err := io.ReadAll(file)
 	if err != nil {
+		slog.Error("ingest file: reading upload", "error", err)
 		http.Error(w, "reading upload: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -232,6 +236,7 @@ func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
 		MIMEType: header.Header.Get("Content-Type"),
 	})
 	if err != nil {
+		slog.Warn("ingest file: submit failed", "error", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -296,7 +301,9 @@ func (h *Handler) StreamJob(w http.ResponseWriter, r *http.Request) {
 	// Send the job's existing state immediately so late subscribers catch up.
 	initial, err := sse.FormatSSE(sse.Event{Type: "job_snapshot", Data: job})
 	if err == nil {
-		w.Write(initial)
+		if _, err := w.Write(initial); err != nil {
+			return
+		}
 		flusher.Flush()
 	}
 
@@ -315,7 +322,9 @@ func (h *Handler) StreamJob(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
-			w.Write([]byte(": heartbeat\n\n"))
+			if _, err := w.Write([]byte(": heartbeat\n\n")); err != nil {
+				return
+			}
 			flusher.Flush()
 		case event, ok := <-ch:
 			if !ok {
@@ -329,7 +338,9 @@ func (h *Handler) StreamJob(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			w.Write(buf)
+			if _, err := w.Write(buf); err != nil {
+				return
+			}
 			flusher.Flush()
 			if event.Type == "job_complete" || event.Type == "job_failed" {
 				return
@@ -464,7 +475,3 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// abs turns a relative vault path into an absolute one for debugging.
-func abs(v *vault.Vault, rel string) string {
-	return fmt.Sprintf("%s/%s", v.Path(), rel)
-}

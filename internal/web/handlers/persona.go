@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -21,7 +22,11 @@ func (h *Handler) PersonaEditorPage(w http.ResponseWriter, r *http.Request) {
 
 	content := ""
 	if h.Persona != nil {
-		content, _ = h.Persona.Get(persona.Name(name))
+		var err error
+		content, err = h.Persona.Get(persona.Name(name))
+		if err != nil {
+			slog.Warn("persona load failed", "name", name, "error", err)
+		}
 	}
 
 	h.RenderPage(w, "persona_editor", map[string]interface{}{

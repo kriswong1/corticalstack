@@ -45,14 +45,19 @@ func (b *EventBus) Unsubscribe(ch chan Event) {
 
 // Publish sends an event to all subscribers without blocking.
 // Subscribers whose buffer is full will drop the event.
+// The recover guards against a theoretical send-on-closed-channel
+// if Unsubscribe races with Publish under unusual scheduling.
 func (b *EventBus) Publish(event Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for ch := range b.subscribers {
-		select {
-		case ch <- event:
-		default:
-		}
+		func() {
+			defer func() { recover() }()
+			select {
+			case ch <- event:
+			default:
+			}
+		}()
 	}
 }
 

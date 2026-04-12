@@ -2,6 +2,7 @@ package shapeup
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -181,6 +182,7 @@ func (s *Store) walkArtifacts() ([]*Artifact, error) {
 			relPath := filepath.ToSlash(filepath.Join(productDir, string(stage), e.Name()))
 			a, err := s.readArtifact(relPath)
 			if err != nil {
+				slog.Warn("shapeup: skipping artifact", "path", relPath, "error", err)
 				continue
 			}
 			artifacts = append(artifacts, a)

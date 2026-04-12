@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/kriswong/corticalstack/internal/prds"
@@ -11,7 +12,11 @@ import (
 func (h *Handler) PRDsPage(w http.ResponseWriter, r *http.Request) {
 	var list []*prds.PRD
 	if h.PRDs != nil {
-		list, _ = h.PRDs.List()
+		var err error
+		list, err = h.PRDs.List()
+		if err != nil {
+			slog.Warn("listing prds", "error", err)
+		}
 	}
 	h.RenderPage(w, "prds", map[string]interface{}{
 		"Title":      "PRDs",
@@ -51,10 +56,12 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.PRDSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
+		slog.Error("prd synthesize", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if err := h.PRDs.Write(p); err != nil {
+		slog.Error("prd write", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
