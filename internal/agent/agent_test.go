@@ -114,3 +114,10 @@ func TestParseStreamEmptyTextBlockSkipped(t *testing.T) {
 		t.Errorf("text = %q", got.Text)
 	}
 }
+
+func TestIsInstalled(t *testing.T) {
+	// Just verify IsInstalled returns a bool without panicking.
+	// We don't assert true/false since claude may or may not be installed.
+	got := IsInstalled()
+	_ = got // use the value to avoid any linter complaint
+}

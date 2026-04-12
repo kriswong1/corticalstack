@@ -73,6 +73,75 @@ func TestDeepgramAPIKey(t *testing.T) {
 	})
 }
 
+func TestMaxUploadBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want int64
+	}{
+		{"default when unset", "", 200 << 20},
+		{"numeric override", "1048576", 1048576},
+		{"non-numeric falls back", "notanumber", 200 << 20},
+		{"whitespace is non-numeric", "  ", 200 << 20},
+		{"negative falls back to default", "-1", 200 << 20},
+		{"zero falls back to default", "0", 200 << 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MAX_UPLOAD_BYTES", tt.env)
+			if got := MaxUploadBytes(); got != tt.want {
+				t.Errorf("MaxUploadBytes() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaxExtractionChars(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want int
+	}{
+		{"default when unset", "", 50_000},
+		{"numeric override", "10000", 10000},
+		{"non-numeric falls back", "notanumber", 50_000},
+		{"whitespace is non-numeric", "  ", 50_000},
+		{"negative falls back to default", "-1", 50_000},
+		{"zero falls back to default", "0", 50_000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MAX_EXTRACTION_CHARS", tt.env)
+			if got := MaxExtractionChars(); got != tt.want {
+				t.Errorf("MaxExtractionChars() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMaxClassifierChars(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want int
+	}{
+		{"default when unset", "", 8000},
+		{"numeric override", "2000", 2000},
+		{"non-numeric falls back", "notanumber", 8000},
+		{"whitespace is non-numeric", "  ", 8000},
+		{"negative falls back to default", "-1", 8000},
+		{"zero falls back to default", "0", 8000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MAX_CLASSIFIER_CHARS", tt.env)
+			if got := MaxClassifierChars(); got != tt.want {
+				t.Errorf("MaxClassifierChars() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetSecret(t *testing.T) {
 	t.Setenv("MY_SECRET_VAR", "secret-value")
 	if got := GetSecret("MY_SECRET_VAR"); got != "secret-value" {
