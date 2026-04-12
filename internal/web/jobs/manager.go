@@ -111,12 +111,17 @@ type Manager struct {
 
 // New creates a manager bound to a pipeline, classifier, projects store, and bus.
 // ctx is the root context whose cancellation propagates to every running job.
+//
+// The pipe, classifier, and ps parameters take unexported interface types
+// matching the subset of methods Manager actually calls. *pipeline.Pipeline,
+// *intent.ClaudeClassifier, and *projects.Store all satisfy them, so
+// production callers pass concrete types exactly as before.
 func New(
 	ctx context.Context,
-	pipe *pipeline.Pipeline,
+	pipe pipelineRunner,
 	bus *sse.EventBus,
-	classifier *intent.ClaudeClassifier,
-	ps *projects.Store,
+	classifier docClassifier,
+	ps projectLister,
 ) *Manager {
 	return &Manager{
 		pipe:       pipe,
