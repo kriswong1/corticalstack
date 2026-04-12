@@ -130,6 +130,19 @@ func (s *Store) Create(req CreateRequest) (*Project, error) {
 	return project, nil
 }
 
+// EnsureExists creates a project with the given id if it doesn't already exist.
+// Used during ingest to auto-create projects referenced in the preview panel.
+func (s *Store) EnsureExists(id string) {
+	s.mu.RLock()
+	_, exists := s.cache[id]
+	s.mu.RUnlock()
+	if exists {
+		return
+	}
+	// Auto-create with the id as the name; user can rename later.
+	s.Create(CreateRequest{Name: id})
+}
+
 // ActionItemsPath returns the relative vault path of a project's action items file.
 func (s *Store) ActionItemsPath(id string) string {
 	return filepath.ToSlash(filepath.Join(projectsFolder, id, actionItemsName))

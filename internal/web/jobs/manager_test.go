@@ -81,6 +81,7 @@ type stubProjects struct {
 }
 
 func (s *stubProjects) List() []*projects.Project { return s.list }
+func (s *stubProjects) EnsureExists(id string)     {}
 
 // newTestManager wires Manager with stubs and returns it plus the
 // stubs for direct manipulation.

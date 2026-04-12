@@ -49,6 +49,7 @@ type docClassifier interface {
 // projectLister is the subset of *projects.Store that Manager needs.
 type projectLister interface {
 	List() []*projects.Project
+	EnsureExists(id string)
 }
 
 // Status is a job's terminal-or-running state.
@@ -293,6 +294,11 @@ func (m *Manager) runPreview(ctx context.Context, job *Job, input *pipeline.RawI
 }
 
 func (m *Manager) runConfirm(ctx context.Context, job *Job, doc *pipeline.TextDocument, payload ConfirmPayload) {
+	// Auto-create projects referenced in the preview that don't exist yet.
+	for _, pid := range payload.ProjectIDs {
+		m.projects.EnsureExists(pid)
+	}
+
 	m.setStatus(job, StatusExtracting, "Extracting structured data")
 
 	cfg := pipeline.DefaultConfigForSource(doc.Source)

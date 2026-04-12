@@ -10,7 +10,6 @@ import { ProductPage } from "@/pages/product"
 import { UseCasesPage } from "@/pages/usecases"
 import { PrototypesPage } from "@/pages/prototypes"
 import { PRDsPage } from "@/pages/prds"
-import { PersonaEditorPage } from "@/pages/persona-editor"
 
 export const router = createBrowserRouter([
   {
@@ -28,7 +27,8 @@ export const router = createBrowserRouter([
       { path: "usecases", element: <UseCasesPage /> },
       { path: "prototypes", element: <PrototypesPage /> },
       { path: "prds", element: <PRDsPage /> },
-      { path: "persona/:name", element: <PersonaEditorPage /> },
+      // Persona editors are now inside Config page; redirect old URLs
+      { path: "persona/:name", element: <Navigate to="/config" replace /> },
     ],
   },
 ])
