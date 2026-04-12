@@ -14,14 +14,21 @@ import (
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/persona"
+	"github.com/kriswong/corticalstack/internal/prds"
 	"github.com/kriswong/corticalstack/internal/projects"
+	"github.com/kriswong/corticalstack/internal/prototypes"
+	"github.com/kriswong/corticalstack/internal/shapeup"
+	"github.com/kriswong/corticalstack/internal/usecases"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
+type stubPipelineInfo struct{}
+
+func (s *stubPipelineInfo) ListTransformers() []string { return []string{"passthrough", "webpage"} }
+func (s *stubPipelineInfo) ListDestinations() []string { return []string{"vault"} }
+
 // newAPITestHandler creates a Handler with a temp vault, real stores for
-// projects/actions/persona, and a minimal integrations registry. It does
-// NOT wire Pipeline or Jobs because the API endpoints under test here
-// don't use them.
+// projects/actions/persona, and a minimal integrations registry.
 func newAPITestHandler(t *testing.T) (*Handler, *chi.Mux) {
 	t.Helper()
 	dir := t.TempDir()
@@ -39,12 +46,26 @@ func newAPITestHandler(t *testing.T) (*Handler, *chi.Mux) {
 
 	reg := integrations.NewRegistry()
 
+	ss := shapeup.New(v)
+	_ = ss.EnsureFolders()
+	us := usecases.New(v)
+	_ = us.EnsureFolder()
+	prdsStore := prds.New(v)
+	_ = prdsStore.EnsureFolder()
+	protos := prototypes.New(v)
+	_ = protos.EnsureFolder()
+
 	h := &Handler{
-		Vault:    v,
-		Registry: reg,
-		Projects: ps,
-		Actions:  as,
-		Persona:  pl,
+		Vault:      v,
+		Pipeline:   &stubPipelineInfo{},
+		Registry:   reg,
+		Projects:   ps,
+		Actions:    as,
+		Persona:    pl,
+		ShapeUp:    ss,
+		UseCases:   us,
+		PRDs:       prdsStore,
+		Prototypes: protos,
 	}
 	h.RenderPage = func(w http.ResponseWriter, _ string, _ map[string]interface{}) {
 		w.WriteHeader(http.StatusOK)
@@ -59,24 +80,24 @@ func newAPITestHandler(t *testing.T) (*Handler, *chi.Mux) {
 	r.Post("/api/projects", h.CreateProject)
 	r.Get("/api/actions", h.ListActions)
 	r.Get("/api/actions/counts", h.ActionCounts)
+	r.Post("/api/actions/{id}/status", h.SetActionStatus)
+	r.Post("/api/actions/reconcile", h.ReconcileActions)
 	r.Get("/api/persona/{name}", h.GetPersona)
 	r.Post("/api/persona/{name}", h.SavePersona)
+	r.Get("/api/shapeup/threads", h.ListShapeUpThreads)
+	r.Get("/api/shapeup/threads/{id}", h.GetShapeUpThread)
+	r.Post("/api/shapeup/idea", h.CreateShapeUpIdea)
+	r.Get("/api/usecases", h.ListUseCases)
+	r.Get("/api/prototypes", h.ListPrototypes)
+	r.Get("/api/prds", h.ListPRDs)
 
 	return h, r
 }
 
 // --- Status ---
 
-// TestStatusReturns200WithExpectedFields exercises the full Status handler.
-// Status() calls h.Pipeline.ListTransformers() and ListDestinations(),
-// which requires a non-nil Pipeline. Pipeline construction needs external
-// tooling (claude CLI, deepgram), so this test skips when Pipeline is nil.
 func TestStatusReturns200WithExpectedFields(t *testing.T) {
-	h, r := newAPITestHandler(t)
-
-	if h.Pipeline == nil {
-		t.Skip("Status() requires a non-nil Pipeline; skipping")
-	}
+	_, r := newAPITestHandler(t)
 
 	req := httptest.NewRequest("GET", "/api/status", nil)
 	rec := httptest.NewRecorder()
@@ -524,5 +545,171 @@ func TestCreateThenGetProjectRoundTrip(t *testing.T) {
 	}
 	if fetched.Name != "Round Trip" {
 		t.Errorf("name = %q, want %q", fetched.Name, "Round Trip")
+	}
+}
+
+// --- SetActionStatus ---
+
+func TestSetActionStatusRoundTrip(t *testing.T) {
+	h, r := newAPITestHandler(t)
+
+	a, err := h.Actions.Upsert(&actions.Action{
+		Owner:       "test",
+		Description: "do thing",
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	body := `{"status":"done"}`
+	req := httptest.NewRequest("POST", "/api/actions/"+a.ID+"/status", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+func TestSetActionStatusInvalidReturns400(t *testing.T) {
+	h, r := newAPITestHandler(t)
+
+	a, _ := h.Actions.Upsert(&actions.Action{Owner: "x", Description: "y"})
+
+	body := `{"status":"bogus"}`
+	req := httptest.NewRequest("POST", "/api/actions/"+a.ID+"/status", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// --- ReconcileActions ---
+
+func TestReconcileActionsReturnsResult(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("POST", "/api/actions/reconcile", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var res actions.ReconcileResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+}
+
+// --- ShapeUp ---
+
+func TestListShapeUpThreadsReturnsArray(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/shapeup/threads", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var list []*shapeup.Thread
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+}
+
+func TestGetShapeUpThreadMissingReturns404(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/shapeup/threads/nonexistent", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestCreateShapeUpIdeaHappyPath(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	body := `{"title":"My Idea","content":"Some raw idea content","project_ids":[]}`
+	req := httptest.NewRequest("POST", "/api/shapeup/idea", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d (body: %s)", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	var art shapeup.Artifact
+	if err := json.Unmarshal(rec.Body.Bytes(), &art); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if art.ID == "" {
+		t.Error("expected non-empty artifact ID")
+	}
+	if art.Stage != shapeup.StageRaw {
+		t.Errorf("stage = %q, want %q", art.Stage, shapeup.StageRaw)
+	}
+}
+
+func TestCreateShapeUpIdeaMalformedJSON(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("POST", "/api/shapeup/idea", strings.NewReader("{bad"))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+// --- UseCases ---
+
+func TestListUseCasesReturnsArray(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/usecases", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+// --- Prototypes ---
+
+func TestListPrototypesReturnsArray(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/prototypes", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+// --- PRDs ---
+
+func TestListPRDsReturnsArray(t *testing.T) {
+	_, r := newAPITestHandler(t)
+
+	req := httptest.NewRequest("GET", "/api/prds", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }

@@ -29,11 +29,17 @@ import (
 	"github.com/kriswong/corticalstack/internal/web/sse"
 )
 
+// pipelineInfo is the subset of *pipeline.Pipeline that handlers need.
+type pipelineInfo interface {
+	ListTransformers() []string
+	ListDestinations() []string
+}
+
 // Deps bundles every optional dependency the handler struct uses. Grouped
 // this way so `New` has a manageable signature instead of 12 arguments.
 type Deps struct {
 	Vault              *vault.Vault
-	Pipeline           *pipeline.Pipeline
+	Pipeline           pipelineInfo
 	Jobs               *jobs.Manager
 	Bus                *sse.EventBus
 	Registry           *integrations.Registry
@@ -54,7 +60,7 @@ type Deps struct {
 // Handler bundles shared dependencies for all dashboard handlers.
 type Handler struct {
 	Vault    *vault.Vault
-	Pipeline *pipeline.Pipeline
+	Pipeline pipelineInfo
 	Jobs     *jobs.Manager
 	Bus      *sse.EventBus
 	Registry *integrations.Registry

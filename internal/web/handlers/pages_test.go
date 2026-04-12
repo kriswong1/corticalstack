@@ -10,7 +10,11 @@ import (
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/persona"
+	"github.com/kriswong/corticalstack/internal/prds"
 	"github.com/kriswong/corticalstack/internal/projects"
+	"github.com/kriswong/corticalstack/internal/prototypes"
+	"github.com/kriswong/corticalstack/internal/shapeup"
+	"github.com/kriswong/corticalstack/internal/usecases"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -21,8 +25,7 @@ type renderCall struct {
 }
 
 // newPageTestHandler builds a Handler with every dependency that page
-// handlers touch. Pipeline is intentionally nil — page handlers that
-// require it (DashboardPage, IngestPage) are tested conditionally.
+// handlers touch, including a stubbed Pipeline for DashboardPage/IngestPage.
 func newPageTestHandler(t *testing.T) (*Handler, *chi.Mux, *renderCall) {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,12 +43,26 @@ func newPageTestHandler(t *testing.T) (*Handler, *chi.Mux, *renderCall) {
 
 	reg := integrations.NewRegistry()
 
+	ss := shapeup.New(v)
+	_ = ss.EnsureFolders()
+	us := usecases.New(v)
+	_ = us.EnsureFolder()
+	prdsStore := prds.New(v)
+	_ = prdsStore.EnsureFolder()
+	protos := prototypes.New(v)
+	_ = protos.EnsureFolder()
+
 	h := &Handler{
-		Vault:    v,
-		Registry: reg,
-		Projects: ps,
-		Actions:  as,
-		Persona:  pl,
+		Vault:      v,
+		Pipeline:   &stubPipelineInfo{},
+		Registry:   reg,
+		Projects:   ps,
+		Actions:    as,
+		Persona:    pl,
+		ShapeUp:    ss,
+		UseCases:   us,
+		PRDs:       prdsStore,
+		Prototypes: protos,
 	}
 
 	captured := &renderCall{}
@@ -56,10 +73,16 @@ func newPageTestHandler(t *testing.T) (*Handler, *chi.Mux, *renderCall) {
 	}
 
 	r := chi.NewRouter()
+	r.Get("/dashboard", h.DashboardPage)
+	r.Get("/ingest", h.IngestPage)
 	r.Get("/library", h.LibraryPage)
 	r.Get("/config", h.ConfigPage)
 	r.Get("/projects", h.ProjectsPage)
 	r.Get("/actions", h.ActionsPage)
+	r.Get("/product", h.ShapeUpPage)
+	r.Get("/usecases", h.UseCasesPage)
+	r.Get("/prototypes", h.PrototypesPage)
+	r.Get("/prds", h.PRDsPage)
 	r.Get("/persona/{name}", h.PersonaEditorPage)
 
 	return h, r, captured
@@ -233,51 +256,125 @@ func TestPersonaEditorPageUserAndMemory(t *testing.T) {
 	}
 }
 
-// DashboardPage and IngestPage require h.Pipeline (non-nil) to call
-// ListTransformers/ListDestinations. Since Pipeline construction needs
-// external tooling, we test these page handlers only when Pipeline is
-// available. These tests document the expected template/ActivePage values.
+func TestDashboardPageRendersCorrectTemplate(t *testing.T) {
+	_, r, captured := newPageTestHandler(t)
 
-func TestDashboardPageRequiresPipeline(t *testing.T) {
-	h, _, captured := newPageTestHandler(t)
-
-	if h.Pipeline == nil {
-		t.Skip("DashboardPage requires non-nil Pipeline; skipping")
-	}
-
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/dashboard", nil)
 	rec := httptest.NewRecorder()
-	h.DashboardPage(rec, req)
+	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d", rec.Code)
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	if captured.Template != "dashboard" {
 		t.Errorf("template = %q, want %q", captured.Template, "dashboard")
 	}
 	if captured.Data["ActivePage"] != "dashboard" {
-		t.Errorf("ActivePage = %v", captured.Data["ActivePage"])
+		t.Errorf("ActivePage = %v, want %q", captured.Data["ActivePage"], "dashboard")
+	}
+	if captured.Data["Title"] != "Dashboard" {
+		t.Errorf("Title = %v, want %q", captured.Data["Title"], "Dashboard")
+	}
+	if captured.Data["Transformers"] == nil {
+		t.Error("Transformers should not be nil")
+	}
+	if captured.Data["Destinations"] == nil {
+		t.Error("Destinations should not be nil")
 	}
 }
 
-func TestIngestPageRequiresPipeline(t *testing.T) {
-	h, _, captured := newPageTestHandler(t)
-
-	if h.Pipeline == nil {
-		t.Skip("IngestPage requires non-nil Pipeline; skipping")
-	}
+func TestIngestPageRendersCorrectTemplate(t *testing.T) {
+	_, r, captured := newPageTestHandler(t)
 
 	req := httptest.NewRequest("GET", "/ingest", nil)
 	rec := httptest.NewRecorder()
-	h.IngestPage(rec, req)
+	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d", rec.Code)
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	if captured.Template != "ingest" {
 		t.Errorf("template = %q, want %q", captured.Template, "ingest")
 	}
 	if captured.Data["ActivePage"] != "ingest" {
-		t.Errorf("ActivePage = %v", captured.Data["ActivePage"])
+		t.Errorf("ActivePage = %v, want %q", captured.Data["ActivePage"], "ingest")
+	}
+	if captured.Data["Transformers"] == nil {
+		t.Error("Transformers should not be nil")
+	}
+}
+
+func TestShapeUpPageRendersCorrectTemplate(t *testing.T) {
+	_, r, captured := newPageTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/product", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if captured.Template != "product" {
+		t.Errorf("template = %q, want %q", captured.Template, "product")
+	}
+	if captured.Data["ActivePage"] != "product" {
+		t.Errorf("ActivePage = %v, want %q", captured.Data["ActivePage"], "product")
+	}
+	if captured.Data["Stages"] == nil {
+		t.Error("Stages should not be nil")
+	}
+}
+
+func TestUseCasesPageRendersCorrectTemplate(t *testing.T) {
+	_, r, captured := newPageTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/usecases", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if captured.Template != "usecases" {
+		t.Errorf("template = %q, want %q", captured.Template, "usecases")
+	}
+	if captured.Data["ActivePage"] != "usecases" {
+		t.Errorf("ActivePage = %v, want %q", captured.Data["ActivePage"], "usecases")
+	}
+}
+
+func TestPrototypesPageRendersCorrectTemplate(t *testing.T) {
+	_, r, captured := newPageTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/prototypes", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if captured.Template != "prototypes" {
+		t.Errorf("template = %q, want %q", captured.Template, "prototypes")
+	}
+	if captured.Data["ActivePage"] != "prototypes" {
+		t.Errorf("ActivePage = %v, want %q", captured.Data["ActivePage"], "prototypes")
+	}
+}
+
+func TestPRDsPageRendersCorrectTemplate(t *testing.T) {
+	_, r, captured := newPageTestHandler(t)
+
+	req := httptest.NewRequest("GET", "/prds", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if captured.Template != "prds" {
+		t.Errorf("template = %q, want %q", captured.Template, "prds")
+	}
+	if captured.Data["ActivePage"] != "prds" {
+		t.Errorf("ActivePage = %v, want %q", captured.Data["ActivePage"], "prds")
 	}
 }
