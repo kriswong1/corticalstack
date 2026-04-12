@@ -17,21 +17,23 @@ const deepgramEndpoint = "https://api.deepgram.com/v1/listen"
 // DeepgramClient wraps the Deepgram REST API. Configured from
 // DEEPGRAM_API_KEY via config.DeepgramAPIKey().
 type DeepgramClient struct {
-	APIKey string
-	Model  string        // defaults to "nova-3"
-	Lang   string        // defaults to "en"
-	HTTP   *http.Client
-	Timeout time.Duration // per-request timeout; defaults to 10 min
+	APIKey   string
+	Model    string        // defaults to "nova-3"
+	Lang     string        // defaults to "en"
+	HTTP     *http.Client
+	Timeout  time.Duration // per-request timeout; defaults to 10 min
+	Endpoint string        // override for tests; empty = production endpoint
 }
 
 // NewDeepgramClient builds a Deepgram client with sensible defaults.
 func NewDeepgramClient(apiKey string) *DeepgramClient {
 	return &DeepgramClient{
-		APIKey:  apiKey,
-		Model:   "nova-3",
-		Lang:    "en",
-		HTTP:    &http.Client{},
-		Timeout: 10 * time.Minute,
+		APIKey:   apiKey,
+		Model:    "nova-3",
+		Lang:     "en",
+		HTTP:     &http.Client{},
+		Timeout:  10 * time.Minute,
+		Endpoint: deepgramEndpoint,
 	}
 }
 
@@ -130,7 +132,11 @@ func (c *DeepgramClient) Transcribe(audio []byte, mime string) (*TranscriptionRe
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", deepgramEndpoint+"?"+params.Encode(), bytes.NewReader(audio))
+	endpoint := c.Endpoint
+	if endpoint == "" {
+		endpoint = deepgramEndpoint
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint+"?"+params.Encode(), bytes.NewReader(audio))
 	if err != nil {
 		return nil, fmt.Errorf("deepgram: build request: %w", err)
 	}
