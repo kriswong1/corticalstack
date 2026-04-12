@@ -5,3 +5,8 @@
 /tmp/
 /docs/
 /.claude/
+
+# Frontend
+ui/node_modules/
+internal/web/spa/dist/*
+!internal/web/spa/dist/.gitkeep

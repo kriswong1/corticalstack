@@ -1,5 +1,5 @@
-// Package web hosts the CorticalStack Chi dashboard: templates, static
-// assets, SSE streaming, and the HTTP handlers that drive the pipeline.
+// Package web hosts the CorticalStack HTTP server: API handlers, SSE
+// streaming, and the embedded React SPA.
 package web
 
 import (
@@ -8,11 +8,13 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/web/handlers"
 	mw "github.com/kriswong/corticalstack/internal/web/middleware"
+	"github.com/kriswong/corticalstack/internal/web/spa"
 )
 
 //go:embed templates/*.html
@@ -21,16 +23,15 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
-// Server is the CorticalStack dashboard HTTP server.
+// Server is the CorticalStack HTTP server.
 type Server struct {
 	Router  *chi.Mux
 	Handler *handlers.Handler
 	tmpl    *template.Template
 }
 
-// NewServer wires the dashboard server. All dependencies are passed via
-// handlers.Deps so main.go constructs each store/synthesizer once and hands
-// them over here as a bundle.
+// NewServer wires the server. All dependencies are passed via handlers.Deps
+// so main.go constructs each store/synthesizer once and hands them over.
 func NewServer(deps handlers.Deps) (*Server, error) {
 	tmpl, err := template.New("").ParseFS(templateFS, "templates/*.html")
 	if err != nil {
@@ -50,6 +51,7 @@ func NewServer(deps handlers.Deps) (*Server, error) {
 }
 
 // RenderPage renders a named content template inside the layout.
+// Retained for handler compatibility and tests; pages are now served by the SPA.
 func (s *Server) RenderPage(w http.ResponseWriter, contentTemplate string, data map[string]interface{}) {
 	var contentBuf bytes.Buffer
 	if err := s.tmpl.ExecuteTemplate(&contentBuf, contentTemplate, data); err != nil {
@@ -68,26 +70,6 @@ func (s *Server) routes() {
 	r.Use(mw.RequestID)
 	r.Use(mw.Recovery)
 	r.Use(mw.Logger)
-
-	// Static files (embedded)
-	staticContent, _ := fs.Sub(staticFS, "static")
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))
-
-	// Pages
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/dashboard", http.StatusTemporaryRedirect)
-	})
-	r.Get("/dashboard", s.Handler.DashboardPage)
-	r.Get("/ingest", s.Handler.IngestPage)
-	r.Get("/library", s.Handler.LibraryPage)
-	r.Get("/config", s.Handler.ConfigPage)
-	r.Get("/projects", s.Handler.ProjectsPage)
-	r.Get("/actions", s.Handler.ActionsPage)
-	r.Get("/product", s.Handler.ShapeUpPage)
-	r.Get("/usecases", s.Handler.UseCasesPage)
-	r.Get("/prototypes", s.Handler.PrototypesPage)
-	r.Get("/prds", s.Handler.PRDsPage)
-	r.Get("/persona/{name}", s.Handler.PersonaEditorPage)
 
 	// API: status & integrations
 	r.Get("/api/status", s.Handler.Status)
@@ -141,4 +123,33 @@ func (s *Server) routes() {
 	// API: PRDs
 	r.Get("/api/prds", s.Handler.ListPRDs)
 	r.Post("/api/prds", s.Handler.CreatePRD)
+
+	// SPA catch-all: serve Vite-built React app for all non-API routes.
+	spaFS, _ := fs.Sub(spa.DistFS, "dist")
+	r.Handle("/assets/*", http.StripPrefix("/", http.FileServer(http.FS(spaFS))))
+	r.NotFound(spaHandler(spaFS))
+}
+
+// spaHandler serves index.html for any path not matched by API or asset
+// routes, enabling React Router client-side navigation.
+func spaHandler(fsys fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		// Try to serve the exact file (favicon.ico, robots.txt, etc.)
+		if path != "" {
+			if f, err := fsys.Open(path); err == nil {
+				f.Close()
+				http.FileServer(http.FS(fsys)).ServeHTTP(w, r)
+				return
+			}
+		}
+		// Fall back to index.html for SPA routing
+		index, err := fs.ReadFile(fsys, "index.html")
+		if err != nil {
+			http.Error(w, "SPA not built — run: make ui-build", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(index)
+	}
 }

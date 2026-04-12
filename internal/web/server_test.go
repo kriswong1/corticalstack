@@ -43,15 +43,16 @@ func TestNewServerReturnsNonNil(t *testing.T) {
 
 func TestNewServerRoutesRegistered(t *testing.T) {
 	srv := newTestServer(t)
-	// Hit the root redirect — minimal path, no dep dereference.
+	// The SPA catch-all serves index.html for unmatched routes including /.
+	// React Router handles the / → /dashboard redirect client-side.
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
 	srv.Router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusTemporaryRedirect {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if loc := rec.Header().Get("Location"); loc != "/dashboard" {
-		t.Errorf("redirect = %q, want /dashboard", loc)
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("content-type = %q, want text/html; charset=utf-8", ct)
 	}
 }
 
