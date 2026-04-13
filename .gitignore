@@ -5,8 +5,8 @@
 /tmp/
 /docs/
 /.claude/
+/.playwright-mcp/
 
 # Frontend
 ui/node_modules/
 internal/web/spa/dist/*
-!internal/web/spa/dist/.gitkeep
