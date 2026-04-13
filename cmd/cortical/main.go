@@ -90,11 +90,19 @@ func main() {
 		slog.Warn("could not create central ACTION-ITEMS.md", "error", err)
 	}
 
+	// v3: ShapeUp — constructed before the pipeline so the ingest flow can
+	// route raw product ideas straight into the ShapeUp queue.
+	shapeupStore := shapeup.New(v)
+	if err := shapeupStore.EnsureFolders(); err != nil {
+		slog.Warn("could not create product folders", "error", err)
+	}
+	shapeupAdvancer := shapeup.NewAdvancer(workingDir, claudeModel, personaLoader)
+
 	// Pipeline wiring
 	buildTransformers := func(dg *integrations.DeepgramClient) []pipeline.Transformer {
 		return transformers.NewDefault(dg)
 	}
-	pipe := pipeline.New(v, workingDir, claudeModel, deepgram, buildTransformers, actionStore, personaLoader)
+	pipe := pipeline.New(v, workingDir, claudeModel, deepgram, buildTransformers, actionStore, shapeupStore, personaLoader)
 	pipe.EnsureFolders(v)
 
 	// Projects store
@@ -105,13 +113,6 @@ func main() {
 
 	// Intent classifier (Claude CLI)
 	classifier := intent.NewClaudeClassifier(workingDir, claudeModel, personaLoader)
-
-	// v3: ShapeUp
-	shapeupStore := shapeup.New(v)
-	if err := shapeupStore.EnsureFolders(); err != nil {
-		slog.Warn("could not create product folders", "error", err)
-	}
-	shapeupAdvancer := shapeup.NewAdvancer(workingDir, claudeModel, personaLoader)
 
 	// v3: UseCases
 	useCaseStore := usecases.New(v)

@@ -11,6 +11,7 @@ import (
 func NewDefault(deepgram *integrations.DeepgramClient) []pipeline.Transformer {
 	return []pipeline.Transformer{
 		&DeepgramTransformer{Client: deepgram},
+		&VTTTransformer{},
 		&PDFTransformer{},
 		&DOCXTransformer{},
 		&YouTubeTransformer{Deepgram: deepgram},

@@ -92,6 +92,7 @@ func buildExtractionPrompt(doc *TextDocument, cfg ExtractionConfig) string {
 	b.WriteString(`  "summary": "2-4 sentence prose summary",` + "\n")
 	b.WriteString(`  "key_points": ["point 1", "point 2"],` + "\n")
 	b.WriteString(`  "actions": [{"owner": "Name", "description": "task", "deadline": "optional"}],` + "\n")
+	b.WriteString(`  "ideas": ["short, self-contained product or feature idea raised in the content"],` + "\n")
 	b.WriteString(`  "tags": ["topic", "tags"],` + "\n")
 	b.WriteString(`  "domain": "engineering | product | design | operations | finance | ...",` + "\n")
 	b.WriteString(`  "triggers": ["when to surface this"],` + "\n")
@@ -105,6 +106,7 @@ func buildExtractionPrompt(doc *TextDocument, cfg ExtractionConfig) string {
 	b.WriteString("Rules:\n")
 	b.WriteString("- Only extract what's in the document. Never invent.\n")
 	b.WriteString("- For actions, include an owner ('TBD' if unclear).\n")
+	b.WriteString("- For ideas: capture any product, feature, tool, or workflow idea raised in the content — even offhand ones. Each entry should be one sentence that stands alone without needing the source for context. Omit the field entirely if no ideas were raised.\n")
 	b.WriteString("- Omit empty arrays and empty strings. Only include fields you actually populate.\n")
 	b.WriteString("- Generate 2-5 triggers — specific scenarios where this knowledge should surface.\n")
 	b.WriteString("- Respond with ONLY the JSON.\n")
@@ -153,7 +155,7 @@ func intentionFieldHints(intention string) string {
 	case "other":
 		return `  "proposed_structure": {"Heading A": ["bullet 1"], "Heading B": ["bullet 1"]}` + "\n"
 	default:
-		return `  "ideas": ["idea 1"]` + "\n"
+		return ""
 	}
 }
 

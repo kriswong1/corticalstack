@@ -162,6 +162,8 @@ func sourceFolder(source string) string {
 	switch source {
 	case "deepgram", "audio":
 		return "audio"
+	case "vtt":
+		return "transcripts"
 	case "pdf", "docx":
 		return "documents"
 	case "youtube":
@@ -177,7 +179,7 @@ func sourceFolder(source string) string {
 
 // EnsureVaultFolders creates the standard folder layout used by route.go.
 func EnsureVaultFolders(v *vault.Vault) {
-	folders := []string{"notes", "audio", "documents", "articles", "videos", "inbox", "daily", "projects"}
+	folders := []string{"notes", "audio", "transcripts", "documents", "articles", "videos", "inbox", "daily", "projects"}
 	for _, f := range folders {
 		_ = os.MkdirAll(filepath.Join(v.Path(), f), 0o700)
 	}

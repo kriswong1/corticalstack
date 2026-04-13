@@ -28,7 +28,7 @@ func TestNewDefaultExpectedTransformers(t *testing.T) {
 		names[tr.Name()] = true
 	}
 
-	expected := []string{"passthrough", "youtube", "linkedin", "webpage", "html", "pdf", "docx", "deepgram"}
+	expected := []string{"passthrough", "youtube", "linkedin", "webpage", "html", "pdf", "docx", "deepgram", "vtt"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("expected transformer %q not found in NewDefault(nil); got %v", name, names)

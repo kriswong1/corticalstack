@@ -14,9 +14,9 @@ relevant context out of the vault by frontmatter and tag.
 
 ## Features
 
-- **Inputs**: pasted text, file uploads (`txt`, `md`, `pdf`, `docx`, `html`),
-  URLs (generic webpages, YouTube, LinkedIn), and audio (`mp3`, `wav`, `m4a`,
-  `ogg`, `flac`, `webm`) via Deepgram.
+- **Inputs**: pasted text, file uploads (`txt`, `md`, `pdf`, `docx`, `html`,
+  `vtt`), URLs (generic webpages, YouTube, LinkedIn), and audio (`mp3`, `wav`,
+  `m4a`, `ogg`, `flac`, `webm`) via Deepgram.
 - **Two-phase ingest**: every submission first runs Transform + a fast Claude
   classification call, then pauses on a preview modal so you can confirm or
   edit the proposed intention, suggested projects, and title before the full
@@ -39,6 +39,17 @@ relevant context out of the vault by frontmatter and tag.
 - **YouTube via `kkdai/youtube/v2`**: pure-Go captions extraction with
   timestamp formatting; falls back to downloading the lowest-bitrate audio
   stream and pushing it through Deepgram when no captions are available.
+- **Meeting transcripts (VTT)**: drop a `.vtt` export from Zoom, Teams, Google
+  Meet, or Otter and the dedicated transformer strips the WEBVTT header, NOTE
+  blocks, cue identifiers, timestamps, and styling markup while preserving
+  speaker prefixes. Participants land in `authors` and the last cue's end time
+  lands in `duration`. Notes file under `vault/transcripts/`.
+- **ShapedPRD queue**: every extraction — regardless of transformer or
+  intention — asks Claude for any product, feature, or workflow idea raised in
+  the content. Each idea becomes a new raw artifact in the ShapeUp pipeline
+  (`vault/product/raw/`), starting its own thread with a backlink to the
+  source note, ready to be advanced through frame → shape → breadboard →
+  pitch.
 - **Extraction**: uses the Claude CLI in Paperclip mode (`claude --print`),
   so it runs at $0/call on a Claude Max subscription. No `ANTHROPIC_API_KEY`
   required.
@@ -104,6 +115,7 @@ Extracted (intention-specific fields)
       │  ──▶ vault/.cortical/actions.json              (canonical index)
       │  ──▶ vault/ACTION-ITEMS.md                     (central tracker)
       │  ──▶ vault/projects/<id>/ACTION-ITEMS.md       (per-project)
+      │  ──▶ vault/product/raw/YYYY-MM-DD_slug.md      (one per extracted idea)
       └─ ──▶ vault/daily/YYYY-MM-DD.md                 (daily log line)
 ```
 
@@ -157,6 +169,7 @@ dashboard write through to every location automatically.
 | Name          | Inputs                                  | Notes                                                  |
 |---------------|-----------------------------------------|--------------------------------------------------------|
 | `deepgram`    | Audio files                             | Requires `DEEPGRAM_API_KEY`                            |
+| `vtt`         | `.vtt` meeting transcripts              | Zoom / Teams / Meet / Otter; preserves speakers        |
 | `pdf`         | `.pdf`                                  | Pure Go (`ledongthuc/pdf`)                             |
 | `docx`        | `.docx`                                 | Pure Go (unzip + parse `document.xml`)                 |
 | `youtube`     | YouTube URLs                            | `kkdai/youtube/v2` captions; Deepgram audio fallback   |

@@ -191,8 +191,9 @@ func TestIntentionFieldHints(t *testing.T) {
 			t.Errorf("%s returned empty hints", i)
 		}
 	}
-	// Default branch returns something (ideas).
-	if intentionFieldHints("") == "" {
-		t.Error("default branch empty")
+	// Default branch is empty — ideas are now in the core output format,
+	// so no intention-specific hint is needed for the unknown case.
+	if intentionFieldHints("") != "" {
+		t.Error("default branch should be empty (ideas are in core fields)")
 	}
 }

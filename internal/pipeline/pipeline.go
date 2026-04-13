@@ -10,6 +10,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/persona"
+	"github.com/kriswong/corticalstack/internal/shapeup"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -42,6 +43,7 @@ func New(
 	deepgram *integrations.DeepgramClient,
 	buildTransformers BuildFn,
 	actionStore *actions.Store,
+	shapeupStore *shapeup.Store,
 	personaLoader *persona.Loader,
 ) *Pipeline {
 	return &Pipeline{
@@ -50,6 +52,7 @@ func New(
 		destinations: []Destination{
 			NewVaultNoteDestination(v),
 			NewActionItemsDestination(v, actionStore),
+			NewShapeUpIdeasDestination(shapeupStore),
 			NewDailyLogDestination(v),
 		},
 	}
