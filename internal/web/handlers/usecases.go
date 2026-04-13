@@ -39,6 +39,46 @@ func (h *Handler) ListUseCases(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, list)
 }
 
+// QuestionsFromDoc handles POST /api/usecases/from-doc/questions.
+func (h *Handler) QuestionsFromDoc(w http.ResponseWriter, r *http.Request) {
+	if h.UseCases == nil || h.UseCaseGen == nil {
+		http.Error(w, "usecase store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req usecases.QuestionsFromDocRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	qs, err := h.UseCaseGen.QuestionsFromDoc(r.Context(), h.Vault, req)
+	if err != nil {
+		slog.Error("usecase questions from-doc", "error", err)
+		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"questions": qs})
+}
+
+// QuestionsFromText handles POST /api/usecases/from-text/questions.
+func (h *Handler) QuestionsFromText(w http.ResponseWriter, r *http.Request) {
+	if h.UseCases == nil || h.UseCaseGen == nil {
+		http.Error(w, "usecase store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req usecases.QuestionsFromTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	qs, err := h.UseCaseGen.QuestionsFromText(r.Context(), req)
+	if err != nil {
+		slog.Error("usecase questions from-text", "error", err)
+		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"questions": qs})
+}
+
 // GenerateUseCasesFromDoc handles POST /api/usecases/from-doc.
 func (h *Handler) GenerateUseCasesFromDoc(w http.ResponseWriter, r *http.Request) {
 	if h.UseCases == nil || h.UseCaseGen == nil {

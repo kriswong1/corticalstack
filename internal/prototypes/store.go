@@ -61,6 +61,15 @@ func (s *Store) Write(p *Prototype) error {
 		return fmt.Errorf("writing spec: %w", err)
 	}
 
+	// prototype.html for raw-HTML formats (interactive-html).
+	if strings.TrimSpace(p.HTMLBody) != "" {
+		htmlPath := filepath.Join(s.vault.Path(), folder, "prototype.html")
+		if err := os.WriteFile(htmlPath, []byte(p.HTMLBody), 0o600); err != nil {
+			return fmt.Errorf("writing prototype.html: %w", err)
+		}
+		p.HasHTML = true
+	}
+
 	// source-links.md
 	var body strings.Builder
 	body.WriteString(fmt.Sprintf("# Source Links — %s\n\n", p.Title))
@@ -109,6 +118,10 @@ func (s *Store) List() ([]*Prototype, error) {
 		}
 		p := fromNote(note)
 		p.FolderPath = filepath.ToSlash(filepath.Join(prototypesDir, e.Name()))
+		htmlPath := filepath.Join(dir, e.Name(), "prototype.html")
+		if _, err := os.Stat(htmlPath); err == nil {
+			p.HasHTML = true
+		}
 		out = append(out, p)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
@@ -117,6 +130,27 @@ func (s *Store) List() ([]*Prototype, error) {
 
 // Vault exposes the bound vault for callers that need to read sources.
 func (s *Store) Vault() *vault.Vault { return s.vault }
+
+// ReadHTML returns the prototype.html contents for a prototype by ID.
+// Returns os.ErrNotExist if the prototype exists but has no HTML file.
+func (s *Store) ReadHTML(id string) ([]byte, *Prototype, error) {
+	list, err := s.List()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range list {
+		if p.ID != id {
+			continue
+		}
+		htmlPath := filepath.Join(s.vault.Path(), p.FolderPath, "prototype.html")
+		body, err := os.ReadFile(htmlPath)
+		if err != nil {
+			return nil, p, err
+		}
+		return body, p, nil
+	}
+	return nil, nil, fmt.Errorf("prototype not found: %s", id)
+}
 
 func buildFrontmatter(p *Prototype) map[string]interface{} {
 	fm := map[string]interface{}{

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/persona"
+	"github.com/kriswong/corticalstack/internal/questions"
 )
 
 // Advancer runs Claude to generate the next stage's content given all prior
@@ -17,22 +18,56 @@ type Advancer struct {
 	workingDir string
 	model      string
 	persona    *persona.Loader
+	asker      *questions.Asker
 }
 
 // NewAdvancer creates an advancer bound to a working directory.
 // The persona loader is optional; pass nil to skip persona context injection.
 func NewAdvancer(workingDir, model string, p *persona.Loader) *Advancer {
-	return &Advancer{workingDir: workingDir, model: model, persona: p}
+	return &Advancer{
+		workingDir: workingDir,
+		model:      model,
+		persona:    p,
+		asker:      questions.NewAsker(workingDir, model),
+	}
+}
+
+// Questions asks Claude what a human should clarify before drafting the
+// target stage. Returns an empty slice if the thread context is complete.
+func (a *Advancer) Questions(ctx context.Context, thread *Thread, target Stage) ([]questions.Question, error) {
+	if !IsValidStage(string(target)) {
+		return nil, fmt.Errorf("invalid target stage: %s", target)
+	}
+
+	goal := fmt.Sprintf("Draft the `%s` stage of a ShapeUp thread titled %q. Ask clarifying questions that will materially change the draft — things like appetite, affected users, hidden constraints, rejected directions.", target, thread.Title)
+
+	blocks := []questions.ContextBlock{
+		{Heading: "Stage guidance", Body: stageGuidance(target)},
+	}
+	for _, art := range thread.Artifacts {
+		body := art.Body
+		if len(body) > 4000 {
+			body = body[:4000] + "\n\n[...truncated]"
+		}
+		blocks = append(blocks, questions.ContextBlock{
+			Heading: fmt.Sprintf("Prior stage: %s", art.Stage),
+			Body:    body,
+		})
+	}
+
+	return a.asker.Ask(ctx, goal, blocks)
 }
 
 // Advance asks Claude to draft the target stage of a thread. The prior
 // artifacts must already be ordered raw → frame → ... by the caller.
-func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hints string) (string, error) {
+// answers may be nil — callers that skipped the Q&A phase just pass hints.
+func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hints string, qs []questions.Question, answers []questions.Answer) (string, error) {
 	if !IsValidStage(string(target)) {
 		return "", fmt.Errorf("invalid target stage: %s", target)
 	}
 
-	prompt := a.persona.BuildContextPrompt() + buildAdvancePrompt(thread, target, hints)
+	answerBlock := questions.FormatAnswers(qs, answers)
+	prompt := a.persona.BuildContextPrompt() + buildAdvancePrompt(thread, target, hints, answerBlock)
 
 	ag := &agent.Agent{
 		Model:      a.model,
@@ -46,7 +81,7 @@ func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hi
 	return stripCodeFences(raw), nil
 }
 
-func buildAdvancePrompt(thread *Thread, target Stage, hints string) string {
+func buildAdvancePrompt(thread *Thread, target Stage, hints, answerBlock string) string {
 	var b strings.Builder
 
 	b.WriteString("You are a product strategist applying Ryan Singer's Shape Up methodology.\n\n")
@@ -54,6 +89,10 @@ func buildAdvancePrompt(thread *Thread, target Stage, hints string) string {
 
 	b.WriteString(stageGuidance(target))
 	b.WriteString("\n\n")
+
+	if answerBlock != "" {
+		b.WriteString(answerBlock)
+	}
 
 	if hints != "" {
 		b.WriteString(fmt.Sprintf("## Hints from the user\n%s\n\n", hints))

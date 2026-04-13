@@ -101,7 +101,7 @@ func TestBuildAdvancePrompt(t *testing.T) {
 		},
 	}
 
-	got := buildAdvancePrompt(thread, StageShape, "focus on UX")
+	got := buildAdvancePrompt(thread, StageShape, "focus on UX", "")
 
 	wantHas := []string{
 		"Ryan Singer's Shape Up",
@@ -127,7 +127,7 @@ func TestBuildAdvancePromptTruncatesLongBody(t *testing.T) {
 			{Stage: StageRaw, Title: "Huge", Body: strings.Repeat("x", 9000)},
 		},
 	}
-	got := buildAdvancePrompt(thread, StageFrame, "")
+	got := buildAdvancePrompt(thread, StageFrame, "", "")
 	if !strings.Contains(got, "[...truncated]") {
 		t.Errorf("expected truncation marker for >8000 char body")
 	}
@@ -137,7 +137,7 @@ func TestBuildAdvancePromptEmptyHints(t *testing.T) {
 	thread := &Thread{
 		Artifacts: []*Artifact{{Stage: StageRaw, Body: "x"}},
 	}
-	got := buildAdvancePrompt(thread, StageFrame, "")
+	got := buildAdvancePrompt(thread, StageFrame, "", "")
 	if strings.Contains(got, "Hints from the user") {
 		t.Errorf("empty hints should not produce hints section")
 	}

@@ -80,6 +80,41 @@ func (h *Handler) CreateShapeUpIdea(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, art)
 }
 
+// QuestionsForShapeUpThread handles POST /api/shapeup/threads/{id}/questions.
+// It asks Claude for clarifying questions to answer before advancing to a
+// target stage. The body is a shapeup.QuestionsRequest.
+func (h *Handler) QuestionsForShapeUpThread(w http.ResponseWriter, r *http.Request) {
+	if h.ShapeUp == nil || h.ShapeUpAdvancer == nil {
+		http.Error(w, "shapeup store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	var req shapeup.QuestionsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !shapeup.IsValidStage(req.TargetStage) {
+		http.Error(w, "invalid target stage: "+req.TargetStage, http.StatusBadRequest)
+		return
+	}
+
+	thread, err := h.ShapeUp.GetThread(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	qs, err := h.ShapeUpAdvancer.Questions(r.Context(), thread, shapeup.Stage(req.TargetStage))
+	if err != nil {
+		slog.Error("shapeup questions", "thread", id, "stage", req.TargetStage, "error", err)
+		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"questions": qs})
+}
+
 // AdvanceShapeUpThread handles POST /api/shapeup/threads/{id}/advance.
 func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 	if h.ShapeUp == nil || h.ShapeUpAdvancer == nil {
@@ -108,7 +143,7 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := h.ShapeUpAdvancer.Advance(r.Context(), thread, shapeup.Stage(req.TargetStage), req.Hints)
+	body, err := h.ShapeUpAdvancer.Advance(r.Context(), thread, shapeup.Stage(req.TargetStage), req.Hints, req.Questions, req.Answers)
 	if err != nil {
 		slog.Error("shapeup advance", "thread", id, "stage", req.TargetStage, "error", err)
 		http.Error(w, "advance: "+err.Error(), http.StatusInternalServerError)

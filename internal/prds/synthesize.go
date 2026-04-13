@@ -9,6 +9,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/persona"
+	"github.com/kriswong/corticalstack/internal/questions"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -26,6 +27,7 @@ type Synthesizer struct {
 	retriever   *Retriever
 	actionStore *actions.Store
 	persona     *persona.Loader
+	asker       *questions.Asker
 }
 
 // NewSynthesizer wires a synthesizer bound to a retriever and action store.
@@ -38,7 +40,26 @@ func NewSynthesizer(workingDir, model string, r *Retriever, as *actions.Store, p
 		retriever:   r,
 		actionStore: as,
 		persona:     p,
+		asker:       questions.NewAsker(workingDir, model),
 	}
+}
+
+// Questions asks Claude what a user should clarify before drafting the PRD.
+func (s *Synthesizer) Questions(ctx context.Context, v *vault.Vault, req QuestionsRequest) ([]questions.Question, error) {
+	pitchBody, err := v.ReadFile(req.PitchPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading pitch: %w", err)
+	}
+	if len(pitchBody) > 6000 {
+		pitchBody = pitchBody[:6000] + "\n\n[...truncated]"
+	}
+
+	goal := "Draft a full PRD (problem, goals, requirements, rollout plan) from the pitch below. Ask clarifying questions about target users, non-goals, success metrics, launch constraints, and engineering concerns that the pitch doesn't address."
+
+	blocks := []questions.ContextBlock{
+		{Heading: fmt.Sprintf("Pitch: %s", req.PitchPath), Body: pitchBody},
+	}
+	return s.asker.Ask(ctx, goal, blocks)
 }
 
 // Synthesize produces a ready-to-store PRD from a pitch path plus extras.
@@ -53,7 +74,8 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 		return nil, fmt.Errorf("retrieving context: %w", err)
 	}
 
-	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, contextNotes)
+	answerBlock := questions.FormatAnswers(req.Questions, req.Answers)
+	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, contextNotes, answerBlock)
 
 	ag := &agent.Agent{
 		Model:      s.model,
@@ -101,9 +123,13 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 }
 
 // buildPRDPrompt creates the Claude prompt with schema, pitch, and context.
-func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote) string {
+func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote, answerBlock string) string {
 	var b strings.Builder
 	b.WriteString("You are a senior product manager. Turn the pitch below into a full PRD.\n\n")
+
+	if answerBlock != "" {
+		b.WriteString(answerBlock)
+	}
 
 	b.WriteString("## Pitch (primary source)\n\n")
 	b.WriteString(fmt.Sprintf("*From `%s`*\n\n", pitchPath))

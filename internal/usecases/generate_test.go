@@ -63,7 +63,7 @@ func TestParseUseCases(t *testing.T) {
 }
 
 func TestBuildFromDocPrompt(t *testing.T) {
-	got := buildFromDocPrompt("notes/article.md", "This is an article body.", "focus on auth flows")
+	got := buildFromDocPrompt("notes/article.md", "This is an article body.", "focus on auth flows", "")
 	wantHas := []string{
 		"notes/article.md",
 		"This is an article body",
@@ -79,14 +79,14 @@ func TestBuildFromDocPrompt(t *testing.T) {
 }
 
 func TestBuildFromDocPromptTruncates(t *testing.T) {
-	got := buildFromDocPrompt("src.md", strings.Repeat("x", 25000), "")
+	got := buildFromDocPrompt("src.md", strings.Repeat("x", 25000), "", "")
 	if !strings.Contains(got, "[...truncated]") {
 		t.Errorf("expected truncation marker")
 	}
 }
 
 func TestBuildFromTextPrompt(t *testing.T) {
-	got := buildFromTextPrompt("User wants to reset password", "user, admin")
+	got := buildFromTextPrompt("User wants to reset password", "user, admin", "")
 	wantHas := []string{"User wants to reset password", "user, admin", "Actors hint", "JSON array"}
 	for _, sub := range wantHas {
 		if !strings.Contains(got, sub) {
@@ -96,7 +96,7 @@ func TestBuildFromTextPrompt(t *testing.T) {
 }
 
 func TestBuildFromTextPromptNoHint(t *testing.T) {
-	got := buildFromTextPrompt("Something", "")
+	got := buildFromTextPrompt("Something", "", "")
 	if strings.Contains(got, "Actors hint") {
 		t.Errorf("empty hint should not produce hint section")
 	}

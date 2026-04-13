@@ -39,6 +39,30 @@ func (h *Handler) ListPRDs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, list)
 }
 
+// QuestionsForPRD handles POST /api/prds/questions.
+func (h *Handler) QuestionsForPRD(w http.ResponseWriter, r *http.Request) {
+	if h.PRDs == nil || h.PRDSynth == nil {
+		http.Error(w, "prd store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req prds.QuestionsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.PitchPath == "" {
+		http.Error(w, "pitch_path required", http.StatusBadRequest)
+		return
+	}
+	qs, err := h.PRDSynth.Questions(r.Context(), h.Vault, req)
+	if err != nil {
+		slog.Error("prd questions", "error", err)
+		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"questions": qs})
+}
+
 // CreatePRD handles POST /api/prds.
 func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 	if h.PRDs == nil || h.PRDSynth == nil {

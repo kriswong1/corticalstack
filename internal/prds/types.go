@@ -4,7 +4,11 @@
 // structured JSON matching the PRD template.
 package prds
 
-import "time"
+import (
+	"time"
+
+	"github.com/kriswong/corticalstack/internal/questions"
+)
 
 // Status is the lifecycle state of a PRD.
 type Status string
@@ -53,8 +57,18 @@ type Synthesis struct {
 
 // CreateRequest is POST /api/prds.
 type CreateRequest struct {
-	PitchPath          string   `json:"pitch_path"`
-	ExtraContextTags   []string `json:"extra_context_tags,omitempty"`
-	ExtraContextPaths  []string `json:"extra_context_paths,omitempty"`
-	ProjectIDs         []string `json:"project_ids,omitempty"`
+	PitchPath         string               `json:"pitch_path"`
+	ExtraContextTags  []string             `json:"extra_context_tags,omitempty"`
+	ExtraContextPaths []string             `json:"extra_context_paths,omitempty"`
+	ProjectIDs        []string             `json:"project_ids,omitempty"`
+	Questions         []questions.Question `json:"questions,omitempty"`
+	Answers           []questions.Answer   `json:"answers,omitempty"`
+}
+
+// QuestionsRequest is POST /api/prds/questions.
+type QuestionsRequest struct {
+	PitchPath         string   `json:"pitch_path"`
+	ExtraContextTags  []string `json:"extra_context_tags,omitempty"`
+	ExtraContextPaths []string `json:"extra_context_paths,omitempty"`
+	ProjectIDs        []string `json:"project_ids,omitempty"`
 }

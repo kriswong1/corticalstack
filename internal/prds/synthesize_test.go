@@ -148,7 +148,7 @@ func TestBuildPRDPrompt(t *testing.T) {
 		{Bucket: "design", Title: "Design System", Path: "design/system.md", Body: "Design body"},
 		{Bucket: "engineering", Title: "Auth Middleware", Path: "eng/auth.md", Body: "Eng body"},
 	}
-	got := buildPRDPrompt("pitches/foo.md", "The pitch body", context)
+	got := buildPRDPrompt("pitches/foo.md", "The pitch body", context, "")
 
 	wantHas := []string{
 		"senior product manager",
@@ -170,7 +170,7 @@ func TestBuildPRDPrompt(t *testing.T) {
 }
 
 func TestBuildPRDPromptTruncatesPitch(t *testing.T) {
-	got := buildPRDPrompt("x.md", strings.Repeat("p", 20000), nil)
+	got := buildPRDPrompt("x.md", strings.Repeat("p", 20000), nil, "")
 	if !strings.Contains(got, "[...truncated]") {
 		t.Errorf("expected truncation for long pitch")
 	}
@@ -180,7 +180,7 @@ func TestBuildPRDPromptTruncatesContextBody(t *testing.T) {
 	context := []RetrievedNote{
 		{Bucket: "design", Title: "Long", Path: "x.md", Body: strings.Repeat("p", 5000)},
 	}
-	got := buildPRDPrompt("x.md", "short", context)
+	got := buildPRDPrompt("x.md", "short", context, "")
 	if !strings.Contains(got, "[...truncated]") {
 		t.Errorf("expected truncation for long context body")
 	}

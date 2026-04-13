@@ -143,6 +143,42 @@ func (s *Store) EnsureExists(id string) {
 	s.Create(CreateRequest{Name: id})
 }
 
+// SyncFromVault scans all markdown notes in the vault for frontmatter
+// `projects:` entries and ensures each referenced project exists in the store.
+// Returns the list of newly created project IDs.
+func (s *Store) SyncFromVault() ([]string, error) {
+	var created []string
+	seen := map[string]bool{}
+
+	err := s.vault.Walk(func(relPath string, note *vault.Note) {
+		projects, ok := note.Frontmatter["projects"].([]interface{})
+		if !ok {
+			return
+		}
+		for _, raw := range projects {
+			pid, ok := raw.(string)
+			if !ok || pid == "" {
+				continue
+			}
+			if seen[pid] {
+				continue
+			}
+			seen[pid] = true
+
+			s.mu.RLock()
+			_, exists := s.cache[pid]
+			s.mu.RUnlock()
+			if exists {
+				continue
+			}
+			if _, err := s.Create(CreateRequest{Name: pid}); err == nil {
+				created = append(created, pid)
+			}
+		}
+	})
+	return created, err
+}
+
 // ActionItemsPath returns the relative vault path of a project's action items file.
 func (s *Store) ActionItemsPath(id string) string {
 	return filepath.ToSlash(filepath.Join(projectsFolder, id, actionItemsName))

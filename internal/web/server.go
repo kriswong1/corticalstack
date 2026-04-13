@@ -75,19 +75,27 @@ func (s *Server) routes() {
 	r.Get("/api/status", s.Handler.Status)
 	r.Get("/api/integrations", s.Handler.IntegrationStatus)
 
+	// API: dashboard operating view (single aggregator snapshot)
+	r.Get("/api/dashboard", s.Handler.GetDashboard)
+
 	// API: persona (SOUL / USER / MEMORY)
+	r.Post("/api/persona/setup", s.Handler.SetupPersona)
 	r.Get("/api/persona/{name}", s.Handler.GetPersona)
 	r.Post("/api/persona/{name}", s.Handler.SavePersona)
+	r.Post("/api/persona/{name}/enhance", s.Handler.EnhancePersona)
+	r.Post("/api/persona/{name}/enhance/questions", s.Handler.QuestionsForPersonaEnhance)
 
 	// API: actions
 	r.Get("/api/actions", s.Handler.ListActions)
 	r.Get("/api/actions/counts", s.Handler.ActionCounts)
+	r.Put("/api/actions/{id}", s.Handler.UpdateAction)
 	r.Post("/api/actions/{id}/status", s.Handler.SetActionStatus)
 	r.Post("/api/actions/reconcile", s.Handler.ReconcileActions)
 
 	// API: projects
 	r.Get("/api/projects", s.Handler.ListProjects)
 	r.Post("/api/projects", s.Handler.CreateProject)
+	r.Post("/api/projects/sync", s.Handler.SyncProjects)
 	r.Get("/api/projects/{id}", s.Handler.GetProject)
 
 	// API: ingest
@@ -109,20 +117,26 @@ func (s *Server) routes() {
 	r.Get("/api/shapeup/threads", s.Handler.ListShapeUpThreads)
 	r.Get("/api/shapeup/threads/{id}", s.Handler.GetShapeUpThread)
 	r.Post("/api/shapeup/idea", s.Handler.CreateShapeUpIdea)
+	r.Post("/api/shapeup/threads/{id}/questions", s.Handler.QuestionsForShapeUpThread)
 	r.Post("/api/shapeup/threads/{id}/advance", s.Handler.AdvanceShapeUpThread)
 
 	// API: use cases
 	r.Get("/api/usecases", s.Handler.ListUseCases)
 	r.Post("/api/usecases/from-doc", s.Handler.GenerateUseCasesFromDoc)
 	r.Post("/api/usecases/from-text", s.Handler.GenerateUseCasesFromText)
+	r.Post("/api/usecases/from-doc/questions", s.Handler.QuestionsFromDoc)
+	r.Post("/api/usecases/from-text/questions", s.Handler.QuestionsFromText)
 
 	// API: prototypes
 	r.Get("/api/prototypes", s.Handler.ListPrototypes)
 	r.Post("/api/prototypes", s.Handler.CreatePrototype)
+	r.Post("/api/prototypes/questions", s.Handler.QuestionsForPrototype)
+	r.Get("/api/prototypes/{id}/html", s.Handler.ViewPrototypeHTML)
 
 	// API: PRDs
 	r.Get("/api/prds", s.Handler.ListPRDs)
 	r.Post("/api/prds", s.Handler.CreatePRD)
+	r.Post("/api/prds/questions", s.Handler.QuestionsForPRD)
 
 	// SPA catch-all: serve Vite-built React app for all non-API routes.
 	spaFS, _ := fs.Sub(spa.DistFS, "dist")

@@ -10,7 +10,7 @@ import (
 func TestRegistryNames(t *testing.T) {
 	r := NewRegistry()
 	got := r.Names()
-	want := []string{"component-spec", "screen-flow", "user-journey"}
+	want := []string{"component-spec", "interactive-html", "screen-flow", "user-journey"}
 	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Names() = %v, want %v", got, want)

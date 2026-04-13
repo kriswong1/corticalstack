@@ -65,7 +65,7 @@ func TestParseJSONResponse(t *testing.T) {
 
 func TestBuildSynthesisPrompt(t *testing.T) {
 	format := &ScreenFlow{}
-	got := buildSynthesisPrompt(format, "source document content", "make it mobile first")
+	got := buildSynthesisPrompt(format, "source document content", "make it mobile first", "")
 	wantHas := []string{
 		"senior product designer",
 		"screen-flow",
@@ -84,7 +84,7 @@ func TestBuildSynthesisPrompt(t *testing.T) {
 }
 
 func TestBuildSynthesisPromptNoHints(t *testing.T) {
-	got := buildSynthesisPrompt(&ScreenFlow{}, "content", "")
+	got := buildSynthesisPrompt(&ScreenFlow{}, "content", "", "")
 	if strings.Contains(got, "User hints") {
 		t.Errorf("empty hints should not produce hints section")
 	}

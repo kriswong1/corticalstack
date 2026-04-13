@@ -4,7 +4,11 @@
 // full arc of a single idea can be reconstructed.
 package shapeup
 
-import "time"
+import (
+	"time"
+
+	"github.com/kriswong/corticalstack/internal/questions"
+)
 
 // Stage is one of the five ShapeUp stages.
 type Stage string
@@ -78,6 +82,13 @@ type CreateIdeaRequest struct {
 
 // AdvanceRequest is POST /api/shapeup/threads/{thread}/advance.
 type AdvanceRequest struct {
+	TargetStage string               `json:"target_stage"`
+	Hints       string               `json:"hints,omitempty"`
+	Questions   []questions.Question `json:"questions,omitempty"`
+	Answers     []questions.Answer   `json:"answers,omitempty"`
+}
+
+// QuestionsRequest is POST /api/shapeup/threads/{thread}/questions.
+type QuestionsRequest struct {
 	TargetStage string `json:"target_stage"`
-	Hints       string `json:"hints,omitempty"`
 }

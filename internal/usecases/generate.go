@@ -8,6 +8,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/persona"
+	"github.com/kriswong/corticalstack/internal/questions"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -17,12 +18,51 @@ type Generator struct {
 	workingDir string
 	model      string
 	persona    *persona.Loader
+	asker      *questions.Asker
 }
 
 // NewGenerator creates a generator bound to a working directory.
 // The persona loader is optional; pass nil to skip persona context injection.
 func NewGenerator(workingDir, model string, p *persona.Loader) *Generator {
-	return &Generator{workingDir: workingDir, model: model, persona: p}
+	return &Generator{
+		workingDir: workingDir,
+		model:      model,
+		persona:    p,
+		asker:      questions.NewAsker(workingDir, model),
+	}
+}
+
+// QuestionsFromDoc asks Claude what a user should clarify before extracting
+// use cases from a document.
+func (g *Generator) QuestionsFromDoc(ctx context.Context, v *vault.Vault, req QuestionsFromDocRequest) ([]questions.Question, error) {
+	body, err := v.ReadFile(req.SourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading source: %w", err)
+	}
+	if len(body) > 6000 {
+		body = body[:6000] + "\n\n[...truncated]"
+	}
+	goal := "Extract standardized UseCases from the document below. Ask clarifying questions about which scenarios to extract, how granular each flow should be, preconditions/postconditions that aren't explicit, and whether the user wants alternative flows."
+	blocks := []questions.ContextBlock{
+		{Heading: fmt.Sprintf("Source: %s", req.SourcePath), Body: body},
+	}
+	if req.Hint != "" {
+		blocks = append(blocks, questions.ContextBlock{Heading: "User hint", Body: req.Hint})
+	}
+	return g.asker.Ask(ctx, goal, blocks)
+}
+
+// QuestionsFromText asks Claude what to clarify before extracting use cases
+// from a free-form description.
+func (g *Generator) QuestionsFromText(ctx context.Context, req QuestionsFromTextRequest) ([]questions.Question, error) {
+	goal := "Turn the free-form description below into one or more standardized UseCases. Ask clarifying questions about actors, success vs. failure paths, preconditions, and which distinct scenarios to split out."
+	blocks := []questions.ContextBlock{
+		{Heading: "Description", Body: req.Description},
+	}
+	if req.ActorsHint != "" {
+		blocks = append(blocks, questions.ContextBlock{Heading: "Actors hint", Body: req.ActorsHint})
+	}
+	return g.asker.Ask(ctx, goal, blocks)
 }
 
 // FromDoc reads a document out of the vault and asks Claude to extract a
@@ -32,7 +72,8 @@ func (g *Generator) FromDoc(ctx context.Context, v *vault.Vault, req FromDocRequ
 	if err != nil {
 		return nil, fmt.Errorf("reading source: %w", err)
 	}
-	prompt := g.persona.BuildContextPrompt() + buildFromDocPrompt(req.SourcePath, body, req.Hint)
+	answerBlock := questions.FormatAnswers(req.Questions, req.Answers)
+	prompt := g.persona.BuildContextPrompt() + buildFromDocPrompt(req.SourcePath, body, req.Hint, answerBlock)
 	raw, err := g.runClaude(ctx, prompt)
 	if err != nil {
 		return nil, err
@@ -42,7 +83,8 @@ func (g *Generator) FromDoc(ctx context.Context, v *vault.Vault, req FromDocRequ
 
 // FromText generates one or more UseCases from a free-form description.
 func (g *Generator) FromText(ctx context.Context, req FromTextRequest) ([]*UseCase, error) {
-	prompt := g.persona.BuildContextPrompt() + buildFromTextPrompt(req.Description, req.ActorsHint)
+	answerBlock := questions.FormatAnswers(req.Questions, req.Answers)
+	prompt := g.persona.BuildContextPrompt() + buildFromTextPrompt(req.Description, req.ActorsHint, answerBlock)
 	raw, err := g.runClaude(ctx, prompt)
 	if err != nil {
 		return nil, err
@@ -59,9 +101,12 @@ func (g *Generator) runClaude(ctx context.Context, prompt string) (string, error
 	return ag.RunSimple(ctx, prompt)
 }
 
-func buildFromDocPrompt(sourcePath, body, hint string) string {
+func buildFromDocPrompt(sourcePath, body, hint, answerBlock string) string {
 	var b strings.Builder
 	b.WriteString("You are a product analyst. Read the source document and extract one or more standardized UseCases.\n\n")
+	if answerBlock != "" {
+		b.WriteString(answerBlock)
+	}
 	if hint != "" {
 		b.WriteString(fmt.Sprintf("## User hint\n%s\n\n", hint))
 	}
@@ -75,9 +120,12 @@ func buildFromDocPrompt(sourcePath, body, hint string) string {
 	return b.String()
 }
 
-func buildFromTextPrompt(description, actorsHint string) string {
+func buildFromTextPrompt(description, actorsHint, answerBlock string) string {
 	var b strings.Builder
 	b.WriteString("You are a product analyst. A user has described a scenario in free text; turn it into one or more standardized UseCases.\n\n")
+	if answerBlock != "" {
+		b.WriteString(answerBlock)
+	}
 	if actorsHint != "" {
 		b.WriteString(fmt.Sprintf("## Actors hint\n%s\n\n", actorsHint))
 	}

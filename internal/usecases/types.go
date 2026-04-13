@@ -4,7 +4,11 @@
 // reference.
 package usecases
 
-import "time"
+import (
+	"time"
+
+	"github.com/kriswong/corticalstack/internal/questions"
+)
 
 // AltFlow is an alternative flow that branches from a step in the main flow.
 type AltFlow struct {
@@ -40,16 +44,32 @@ type UseCase struct {
 
 // FromDocRequest is POST /api/usecases/from-doc.
 type FromDocRequest struct {
-	SourcePath string   `json:"source_path"`
-	Hint       string   `json:"hint,omitempty"`
-	ProjectIDs []string `json:"project_ids,omitempty"`
+	SourcePath string               `json:"source_path"`
+	Hint       string               `json:"hint,omitempty"`
+	ProjectIDs []string             `json:"project_ids,omitempty"`
+	Questions  []questions.Question `json:"questions,omitempty"`
+	Answers    []questions.Answer   `json:"answers,omitempty"`
 }
 
 // FromTextRequest is POST /api/usecases/from-text.
 type FromTextRequest struct {
-	Description string   `json:"description"`
-	ActorsHint  string   `json:"actors_hint,omitempty"`
-	ProjectIDs  []string `json:"project_ids,omitempty"`
+	Description string               `json:"description"`
+	ActorsHint  string               `json:"actors_hint,omitempty"`
+	ProjectIDs  []string             `json:"project_ids,omitempty"`
+	Questions   []questions.Question `json:"questions,omitempty"`
+	Answers     []questions.Answer   `json:"answers,omitempty"`
+}
+
+// QuestionsFromDocRequest is POST /api/usecases/from-doc/questions.
+type QuestionsFromDocRequest struct {
+	SourcePath string `json:"source_path"`
+	Hint       string `json:"hint,omitempty"`
+}
+
+// QuestionsFromTextRequest is POST /api/usecases/from-text/questions.
+type QuestionsFromTextRequest struct {
+	Description string `json:"description"`
+	ActorsHint  string `json:"actors_hint,omitempty"`
 }
 
 // GenerateResponse is what both generation endpoints return.

@@ -16,6 +16,18 @@ type Format interface {
 	Render(filled map[string]interface{}) string
 }
 
+// RawFormat is an optional extension implemented by formats that want to
+// receive Claude's raw response directly rather than going through JSON
+// parsing + Render. Used by interactive-html, which asks Claude for a full
+// HTML document instead of a JSON object.
+type RawFormat interface {
+	Format
+	IsRaw() bool
+	// RenderRaw transforms Claude's raw response into the stored spec body.
+	// HTMLBody is set separately for formats that emit HTML.
+	RenderRaw(raw string) (spec, htmlBody string)
+}
+
 // Registry picks a format by name.
 type Registry struct {
 	items    map[string]Format
@@ -28,6 +40,7 @@ func NewRegistry() *Registry {
 	r.Register(&ScreenFlow{})
 	r.Register(&ComponentSpec{})
 	r.Register(&UserJourney{})
+	r.Register(&InteractiveHTML{})
 	r.fallback = &ScreenFlow{}
 	return r
 }
@@ -245,6 +258,61 @@ func (u *UserJourney) Render(filled map[string]interface{}) string {
 	}
 
 	return b.String()
+}
+
+// --- Format: Interactive HTML ---
+
+// InteractiveHTML asks Claude to emit a complete, self-contained HTML
+// document (inline CSS/JS, no external dependencies). The result is stored
+// as prototype.html in the prototype's folder so the user can view a working
+// preview directly in the browser.
+type InteractiveHTML struct{}
+
+func (h *InteractiveHTML) Name() string { return "interactive-html" }
+
+func (h *InteractiveHTML) Description() string {
+	return "Self-contained HTML document viewable in-app — no external tools needed."
+}
+
+func (h *InteractiveHTML) SchemaHint() string {
+	// Not used — raw formats bypass JSON schema parsing — but Format interface
+	// still requires this method. Return the rendering brief so it flows into
+	// the prompt in place of the JSON schema.
+	return `A complete HTML document:
+- Start with <!DOCTYPE html>
+- Include everything inline (no external CSS, no external JS, no CDN links)
+- Make it look polished: semantic HTML, a minimal design system (CSS custom properties), adequate spacing, good typography
+- If the source docs describe multiple screens, stack them vertically as sections with clear titles
+- If there are interactive states, use <details>/<summary> or simple JavaScript
+- The document should render usefully when opened directly in a browser`
+}
+
+func (h *InteractiveHTML) IsRaw() bool { return true }
+
+func (h *InteractiveHTML) Render(filled map[string]interface{}) string {
+	// Unreachable for raw formats — Synthesize uses RenderRaw instead.
+	return ""
+}
+
+func (h *InteractiveHTML) RenderRaw(raw string) (spec, htmlBody string) {
+	htmlBody = stripHTMLFences(raw)
+	// The spec.md sibling summarizes what was generated and links to the html.
+	spec = "# Interactive HTML Prototype\n\n" +
+		"This prototype was generated as a self-contained HTML document.\n\n" +
+		"Open `prototype.html` in this folder, or use the **View** button in the Prototypes page.\n"
+	return spec, htmlBody
+}
+
+func stripHTMLFences(s string) string {
+	s = strings.TrimSpace(s)
+	for _, prefix := range []string{"```html", "```HTML", "```"} {
+		if strings.HasPrefix(s, prefix) {
+			s = strings.TrimPrefix(s, prefix)
+			break
+		}
+	}
+	s = strings.TrimSuffix(s, "```")
+	return strings.TrimSpace(s)
 }
 
 // --- helpers ---
