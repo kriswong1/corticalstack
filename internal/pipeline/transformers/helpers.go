@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chromedp/chromedp"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 )
 
@@ -141,17 +143,99 @@ func httpGet(url string) (string, error) {
 	return string(body), nil
 }
 
+// validateSafeURL resolves pageURL's host and returns an error if any
+// resolved IP is loopback, private, link-local, or otherwise non-routable.
+// Used as a pre-flight SSRF guard for code paths that cannot install a
+// dial-time hook (e.g. headless Chrome). Only http/https are allowed.
+func validateSafeURL(pageURL string) error {
+	u, err := url.Parse(pageURL)
+	if err != nil {
+		return fmt.Errorf("parse url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("blocked scheme %q (only http/https allowed)", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("url has no host: %s", pageURL)
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("no IPs for host %s", host)
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("blocked private IP %s for host %s", ip, host)
+		}
+	}
+	return nil
+}
+
+// chromedpGet renders a URL in headless Chrome and returns the full HTML
+// after JavaScript execution. Used as a fallback when httpGet returns
+// empty or JS-dependent content (SPAs, JS redirects, etc.).
+//
+// Applies validateSafeURL first because chromedp launches a full browser
+// that has no dial-time hook — without this check, the headless Chrome
+// process would happily reach loopback / private / link-local hosts.
+func chromedpGet(pageURL string) (string, error) {
+	if err := validateSafeURL(pageURL); err != nil {
+		return "", fmt.Errorf("chromedp ssrf guard: %w", err)
+	}
+	allocCtx, allocCancel := chromedp.NewExecAllocator(
+		context.Background(),
+		append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.Flag("headless", true),
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("no-sandbox", true),
+		)...,
+	)
+	defer allocCancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var html string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(pageURL),
+		chromedp.WaitReady("body"),
+		chromedp.Sleep(2*time.Second),
+		chromedp.OuterHTML("html", &html),
+	)
+	if err != nil {
+		return "", fmt.Errorf("chromedp render: %w", err)
+	}
+	return html, nil
+}
+
+// contentLooksEmpty returns true if stripped text is too short to be
+// meaningful content — indicates the page likely needs JS rendering.
+func contentLooksEmpty(text string) bool {
+	return len(strings.TrimSpace(text)) < 100
+}
+
 // --- HTML stripping helpers ---
 
 var (
 	scriptRe       = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
 	styleRe        = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
 	noscriptRe     = regexp.MustCompile(`(?is)<noscript[^>]*>.*?</noscript>`)
+	navRe          = regexp.MustCompile(`(?is)<nav[^>]*>.*?</nav>`)
+	headerRe       = regexp.MustCompile(`(?is)<header[^>]*>.*?</header>`)
+	footerRe       = regexp.MustCompile(`(?is)<footer[^>]*>.*?</footer>`)
+	svgRe          = regexp.MustCompile(`(?is)<svg[^>]*>.*?</svg>`)
 	htmlTagRe      = regexp.MustCompile(`<[^>]*>`)
 	htmlTitleRe    = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	htmlEntityRe   = regexp.MustCompile(`&[a-zA-Z0-9#]+;`)
-	multiNewlineRe = regexp.MustCompile(`\n{3,}`)
-	wsRe           = regexp.MustCompile(`[ \t]+`)
+	multiNewlineRe = regexp.MustCompile(`\n{2,}`)
+	multiSpaceRe   = regexp.MustCompile(`[ \t]+`)
+	blankLineRe    = regexp.MustCompile(`(?m)^\s+$`)
 )
 
 // stripHTML returns readable plain text from an HTML document.
@@ -159,10 +243,15 @@ func stripHTML(html string) string {
 	text := scriptRe.ReplaceAllString(html, "")
 	text = styleRe.ReplaceAllString(text, "")
 	text = noscriptRe.ReplaceAllString(text, "")
-	text = htmlTagRe.ReplaceAllString(text, " ")
+	text = navRe.ReplaceAllString(text, "")
+	text = headerRe.ReplaceAllString(text, "")
+	text = footerRe.ReplaceAllString(text, "")
+	text = svgRe.ReplaceAllString(text, "")
+	text = htmlTagRe.ReplaceAllString(text, "\n")
 	text = decodeCommonEntities(text)
 	text = htmlEntityRe.ReplaceAllString(text, "")
-	text = wsRe.ReplaceAllString(text, " ")
+	text = multiSpaceRe.ReplaceAllString(text, " ")
+	text = blankLineRe.ReplaceAllString(text, "")
 	text = multiNewlineRe.ReplaceAllString(strings.TrimSpace(text), "\n\n")
 	return text
 }

@@ -69,6 +69,18 @@ func buildFrontmatter(doc *TextDocument, extracted *Extracted, intention string)
 	if inputFile := doc.Metadata["input_file"]; inputFile != "" {
 		fm["input_file"] = inputFile
 	}
+	// Pass through video metadata from the youtube transformer so callers
+	// can search / group by channel or reference duration without opening
+	// the note. These keys are only set when the transformer provides them.
+	if videoID := doc.Metadata["video_id"]; videoID != "" {
+		fm["video_id"] = videoID
+	}
+	if duration := doc.Metadata["duration"]; duration != "" {
+		fm["duration"] = duration
+	}
+	if channel := doc.Metadata["channel"]; channel != "" {
+		fm["channel"] = channel
+	}
 	if len(doc.Authors) > 0 {
 		fm["authors"] = doc.Authors
 	}
