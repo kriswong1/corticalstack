@@ -1,16 +1,71 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { PageHeader } from "@/components/layout/page-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import type { VaultTreeNode } from "@/types/api"
-import { ChevronRight, ChevronDown, File, Folder } from "lucide-react"
+import { ChevronRight, ChevronDown, File, Folder, X } from "lucide-react"
+
+// filterTree returns a pruned copy of the vault tree showing only nodes
+// that match the active date/type filters from the URL. A directory is
+// kept iff any descendant leaf file matches. Leaves match when: (a) the
+// file is under the requested type folder (or no type filter), AND (b)
+// the filename starts with the requested date prefix (or no date filter).
+// Returns null when the whole branch is filtered out.
+function filterTree(
+  node: VaultTreeNode,
+  dateFilter: string | null,
+  typeFilter: string | null,
+  parentFolder: string | null,
+): VaultTreeNode | null {
+  if (!node.is_dir) {
+    // Type filter: the leaf's immediate parent folder must match.
+    if (typeFilter && parentFolder !== typeFilter) return null
+    // Date filter: filenames follow "YYYY-MM-DD_slug.md" convention so a
+    // simple prefix check is enough. Notes without a date-prefixed name
+    // are hidden under a date filter.
+    if (dateFilter && !node.name.startsWith(dateFilter)) return null
+    return node
+  }
+
+  // Directories: recurse. A directory only survives if it contains at
+  // least one surviving leaf — empty folders under an active filter are
+  // pruned so the tree shows the user exactly what matched.
+  const childFolder = node.path === "" ? null : node.name
+  const kept = (node.children ?? [])
+    .map((c) => filterTree(c, dateFilter, typeFilter, childFolder))
+    .filter((c): c is VaultTreeNode => c !== null)
+
+  if (kept.length === 0) {
+    // Keep the root dir even when empty so we always have a container.
+    if (node.path === "") {
+      return { ...node, children: [] }
+    }
+    return null
+  }
+  return { ...node, children: kept }
+}
 
 export function LibraryPage() {
-  const [searchParams] = useSearchParams()
-  const initialNote = searchParams.get("note")
-  const [selectedPath, setSelectedPath] = useState<string | null>(initialNote)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedPath = searchParams.get("note")
+  const dateFilter = searchParams.get("date")
+  const typeFilter = searchParams.get("type")
+  const hasFilter = !!(dateFilter || typeFilter)
+
+  const selectPath = (path: string) => {
+    const next = new URLSearchParams(searchParams)
+    next.set("note", path)
+    setSearchParams(next, { replace: false })
+  }
+
+  const clearFilters = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete("date")
+    next.delete("type")
+    setSearchParams(next, { replace: true })
+  }
 
   const { data: tree } = useQuery({
     queryKey: ["vault-tree"],
@@ -23,14 +78,42 @@ export function LibraryPage() {
     enabled: !!selectedPath,
   })
 
+  const filteredTree = useMemo(() => {
+    if (!tree) return null
+    if (!hasFilter) return tree
+    return filterTree(tree, dateFilter, typeFilter, null)
+  }, [tree, dateFilter, typeFilter, hasFilter])
+
   return (
     <>
       <PageHeader title="Library" description="Browse vault contents" />
 
+      {hasFilter && (
+        <div className="mb-3 flex items-center gap-2 rounded-sm border border-border bg-muted/30 px-3 py-2">
+          <span className="text-xs text-muted-foreground">Filtered:</span>
+          {typeFilter && (
+            <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-[11px] font-normal text-secondary-foreground">
+              type: {typeFilter}
+            </span>
+          )}
+          {dateFilter && (
+            <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-[11px] font-normal text-secondary-foreground">
+              date: {dateFilter}
+            </span>
+          )}
+          <button
+            onClick={clearFilters}
+            className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <X className="h-3 w-3" /> Clear
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr] h-[calc(100vh-220px)]">
         <ScrollArea className="rounded-md border border-border p-3">
-          {tree ? (
-            <TreeNode node={tree} onSelect={setSelectedPath} selectedPath={selectedPath} depth={0} />
+          {filteredTree ? (
+            <TreeNode node={filteredTree} onSelect={selectPath} selectedPath={selectedPath} depth={0} />
           ) : (
             <p className="text-sm text-muted-foreground">Loading...</p>
           )}
@@ -63,7 +146,10 @@ function TreeNode({
   selectedPath: string | null
   depth: number
 }) {
-  const [open, setOpen] = useState(depth < 1)
+  // Auto-expand directories by default when filters are narrowing the
+  // tree — the user is already arriving here from a deep link, hiding
+  // the matches behind a collapsed folder wastes the click.
+  const [open, setOpen] = useState(depth < 2)
 
   if (node.is_dir) {
     return (

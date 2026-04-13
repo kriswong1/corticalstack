@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { api } from "@/lib/api"
-import { Plus } from "lucide-react"
+import { Plus, RefreshCw } from "lucide-react"
 
 export function ProjectsPage() {
   const queryClient = useQueryClient()
@@ -37,6 +37,18 @@ export function ProjectsPage() {
     },
   })
 
+  const syncMutation = useMutation({
+    mutationFn: api.syncProjects,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] })
+      if (result.created_count > 0) {
+        alert(`Synced: created ${result.created_count} project(s): ${result.created.join(", ")}`)
+      } else {
+        alert("All projects already in sync.")
+      }
+    },
+  })
+
   const statusColor: Record<string, string> = {
     active:
       "bg-[rgba(21,190,83,0.2)] text-[var(--stripe-success-text)] border-[rgba(21,190,83,0.4)]",
@@ -47,6 +59,15 @@ export function ProjectsPage() {
   return (
     <>
       <PageHeader title="Projects" description="Manage projects">
+        <Button
+          variant="outline"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+          className="border-border rounded-sm font-normal gap-1.5"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+          Sync from Vault
+        </Button>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5">

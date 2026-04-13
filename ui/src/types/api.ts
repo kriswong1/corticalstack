@@ -52,19 +52,32 @@ export interface JobEvent {
 // --- Actions ---
 
 export type ActionStatus =
+  | "inbox"
+  | "next"
+  | "waiting"
+  | "doing"
+  | "someday"
+  | "deferred"
+  | "done"
+  | "cancelled"
+  // Legacy statuses accepted by API for migration
   | "pending"
   | "ack"
-  | "doing"
-  | "done"
-  | "deferred"
-  | "cancelled"
+
+export type ActionPriority = "p1" | "p2" | "p3"
+
+export type ActionEffort = "xs" | "s" | "m" | "l" | "xl"
 
 export interface Action {
   id: string
+  title?: string
   description: string
   owner: string
   deadline?: string
   status: ActionStatus
+  priority?: ActionPriority
+  effort?: ActionEffort
+  context?: string
   source_note: string
   source_title?: string
   project_ids?: string[]
@@ -75,6 +88,7 @@ export interface Action {
 export interface ReconcileResult {
   scanned: number
   lines_matched: number
+  unique_actions: number
   updated: number
 }
 
@@ -145,6 +159,8 @@ export interface CreateIdeaRequest {
 export interface AdvanceRequest {
   target_stage: string
   hints?: string
+  questions?: Question[]
+  answers?: Answer[]
 }
 
 // --- Use Cases ---
@@ -182,12 +198,26 @@ export interface FromDocRequest {
   source_path: string
   hint?: string
   project_ids?: string[]
+  questions?: Question[]
+  answers?: Answer[]
 }
 
 export interface FromTextRequest {
   description: string
   actors_hint?: string
   project_ids?: string[]
+  questions?: Question[]
+  answers?: Answer[]
+}
+
+export interface UseCaseFromDocQuestionsRequest {
+  source_path: string
+  hint?: string
+}
+
+export interface UseCaseFromTextQuestionsRequest {
+  description: string
+  actors_hint?: string
 }
 
 export interface GenerateUseCasesResponse {
@@ -206,6 +236,7 @@ export interface Prototype {
   projects?: string[]
   status: string
   spec?: string
+  has_html?: boolean
   folder_path?: string
   created: string
 }
@@ -217,6 +248,15 @@ export interface CreatePrototypeRequest {
   hints?: string
   project_ids?: string[]
   source_thread?: string
+  questions?: Question[]
+  answers?: Answer[]
+}
+
+export interface PrototypeQuestionsRequest {
+  title: string
+  format: string
+  source_paths: string[]
+  hints?: string
 }
 
 // --- PRDs ---
@@ -247,6 +287,15 @@ export interface CreatePRDRequest {
   extra_context_tags?: string[]
   extra_context_paths?: string[]
   project_ids?: string[]
+  questions?: Question[]
+  answers?: Answer[]
+}
+
+export interface PRDQuestionsRequest {
+  pitch_path: string
+  extra_context_tags?: string[]
+  extra_context_paths?: string[]
+  project_ids?: string[]
 }
 
 // --- Persona ---
@@ -256,6 +305,95 @@ export interface PersonaResponse {
   file: string
   content: string
   budget: number
+}
+
+export interface PersonaEnhanceRequest {
+  content: string
+  user_context?: string
+  questions?: Question[]
+  answers?: Answer[]
+}
+
+// --- Dashboard operating view ---
+
+export interface IngestBucket {
+  type: string
+  count: number
+}
+
+export interface IngestDay {
+  date: string // YYYY-MM-DD
+  buckets: IngestBucket[]
+  count: number
+}
+
+export interface IngestWidget {
+  days: IngestDay[] // exactly 30 entries, oldest → newest
+  types: string[] // alphabetical legend
+  total: number
+}
+
+export interface ActionsWidget {
+  open: number
+  in_progress: number
+  blocked: number
+  done: number
+  stalled: number
+  total: number
+}
+
+export interface ProjectTouch {
+  id: string
+  name: string
+  last_touched: string
+}
+
+export interface ProjectsWidget {
+  active: number
+  top: ProjectTouch[]
+}
+
+export interface PipelineStage {
+  stage: string
+  count: number
+  stalled: number
+}
+
+export interface PipelineWidget {
+  stages: PipelineStage[]
+  total: number
+  stalled_total: number
+}
+
+export interface DashboardSnapshot {
+  ingest_activity: IngestWidget
+  actions: ActionsWidget
+  active_projects: ProjectsWidget
+  product_pipeline: PipelineWidget
+  computed_at: string
+  stale: boolean
+  stale_attempt_at?: string
+  stale_reason?: string
+  all_empty: boolean
+}
+
+// --- Questions (shared Q&A pattern) ---
+
+export interface Question {
+  id: string
+  prompt: string
+  kind: "text" | "choice"
+  choices?: string[]
+  default?: string
+}
+
+export interface Answer {
+  id: string
+  value: string
+}
+
+export interface QuestionsResponse {
+  questions: Question[]
 }
 
 // --- Status ---

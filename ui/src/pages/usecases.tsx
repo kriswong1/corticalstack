@@ -16,7 +16,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { QuestionsModal } from "@/components/questions-modal"
 import { api } from "@/lib/api"
+import type { Answer, Question } from "@/types/api"
+
+type FlowKind = "doc" | "text"
 
 export function UseCasesPage() {
   const queryClient = useQueryClient()
@@ -24,29 +28,83 @@ export function UseCasesPage() {
   const [docHint, setDocHint] = useState("")
   const [description, setDescription] = useState("")
   const [actorsHint, setActorsHint] = useState("")
+  const [modalOpen, setModalOpen] = useState(false)
+  const [questions, setQuestions] = useState<Question[] | null>(null)
+  const [activeFlow, setActiveFlow] = useState<FlowKind>("text")
 
   const { data: useCases, isLoading } = useQuery({
     queryKey: ["usecases"],
     queryFn: api.listUseCases,
   })
 
+  const questionsMutation = useMutation({
+    mutationFn: (kind: FlowKind) =>
+      kind === "doc"
+        ? api.useCaseFromDocQuestions({ source_path: sourcePath, hint: docHint })
+        : api.useCaseFromTextQuestions({ description, actors_hint: actorsHint }),
+    onSuccess: (resp) => setQuestions(resp.questions ?? []),
+    onError: () => setQuestions([]),
+  })
+
   const fromDocMutation = useMutation({
-    mutationFn: () => api.generateFromDoc({ source_path: sourcePath, hint: docHint }),
+    mutationFn: (answers: Answer[]) =>
+      api.generateFromDoc({
+        source_path: sourcePath,
+        hint: docHint,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["usecases"] })
       setSourcePath("")
       setDocHint("")
+      setQuestions(null)
+      setModalOpen(false)
     },
   })
 
   const fromTextMutation = useMutation({
-    mutationFn: () => api.generateFromText({ description, actors_hint: actorsHint }),
+    mutationFn: (answers: Answer[]) =>
+      api.generateFromText({
+        description,
+        actors_hint: actorsHint,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["usecases"] })
       setDescription("")
       setActorsHint("")
+      setQuestions(null)
+      setModalOpen(false)
     },
   })
+
+  const startDoc = () => {
+    if (!sourcePath.trim()) return
+    setActiveFlow("doc")
+    setQuestions(null)
+    setModalOpen(true)
+    questionsMutation.mutate("doc")
+  }
+
+  const startText = () => {
+    if (!description.trim()) return
+    setActiveFlow("text")
+    setQuestions(null)
+    setModalOpen(true)
+    questionsMutation.mutate("text")
+  }
+
+  const submit = (answers: Answer[]) => {
+    if (activeFlow === "doc") fromDocMutation.mutate(answers)
+    else fromTextMutation.mutate(answers)
+  }
+
+  const submitting =
+    activeFlow === "doc"
+      ? fromDocMutation.isPending
+      : fromTextMutation.isPending
 
   return (
     <>
@@ -60,7 +118,7 @@ export function UseCasesPage() {
               <TabsTrigger value="from-doc">From Document</TabsTrigger>
             </TabsList>
             <TabsContent value="from-text">
-              <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); fromTextMutation.mutate() }}>
+              <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); startText() }}>
                 <div className="space-y-2">
                   <Label className="text-[var(--stripe-label)] text-sm font-normal">Description</Label>
                   <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="border-border rounded-sm" />
@@ -69,13 +127,17 @@ export function UseCasesPage() {
                   <Label className="text-[var(--stripe-label)] text-sm font-normal">Actors Hint</Label>
                   <Input value={actorsHint} onChange={(e) => setActorsHint(e.target.value)} className="border-border rounded-sm" />
                 </div>
-                <Button type="submit" disabled={fromTextMutation.isPending || !description.trim()} className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal">
+                <Button
+                  type="submit"
+                  disabled={fromTextMutation.isPending || questionsMutation.isPending || !description.trim()}
+                  className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
+                >
                   {fromTextMutation.isPending ? "Generating..." : "Generate"}
                 </Button>
               </form>
             </TabsContent>
             <TabsContent value="from-doc">
-              <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); fromDocMutation.mutate() }}>
+              <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); startDoc() }}>
                 <div className="space-y-2">
                   <Label className="text-[var(--stripe-label)] text-sm font-normal">Source Path</Label>
                   <Input value={sourcePath} onChange={(e) => setSourcePath(e.target.value)} placeholder="notes/..." className="border-border rounded-sm" />
@@ -84,7 +146,11 @@ export function UseCasesPage() {
                   <Label className="text-[var(--stripe-label)] text-sm font-normal">Hint</Label>
                   <Input value={docHint} onChange={(e) => setDocHint(e.target.value)} className="border-border rounded-sm" />
                 </div>
-                <Button type="submit" disabled={fromDocMutation.isPending || !sourcePath.trim()} className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal">
+                <Button
+                  type="submit"
+                  disabled={fromDocMutation.isPending || questionsMutation.isPending || !sourcePath.trim()}
+                  className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
+                >
                   {fromDocMutation.isPending ? "Generating..." : "Generate"}
                 </Button>
               </form>
@@ -130,6 +196,23 @@ export function UseCasesPage() {
           </Table>
         </div>
       )}
+
+      <QuestionsModal
+        open={modalOpen}
+        onOpenChange={(next) => {
+          if (!next && !submitting) {
+            setModalOpen(false)
+            setQuestions(null)
+          }
+        }}
+        title="Generate use cases"
+        description="Answer these so Claude can extract the right scenarios."
+        questions={questions}
+        loading={questionsMutation.isPending}
+        submitting={submitting}
+        onSubmit={submit}
+        onSkip={() => submit([])}
+      />
     </>
   )
 }

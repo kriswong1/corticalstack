@@ -1,5 +1,6 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useSearchParams } from "react-router-dom"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,10 +15,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { QuestionsModal } from "@/components/questions-modal"
 import { api } from "@/lib/api"
-import { Plus, ArrowRight } from "lucide-react"
+import { Plus, ArrowRight, X } from "lucide-react"
+import type {
+  Answer,
+  Artifact,
+  Question,
+  ShapeUpThread,
+} from "@/types/api"
 
 const stages = ["raw", "frame", "shape", "breadboard", "pitch"]
+
+// STALLED_MS matches the backend's dashboard.StalledThreshold (7 days).
+// A thread is stalled when its current-stage artifact's created time
+// is older than this window — meaning the idea has sat in the current
+// stage without advancing. Dashboard Product Pipeline badges deep-link
+// here with /product?stage=X&stalled=true.
+const STALLED_MS = 7 * 24 * 60 * 60 * 1000
+
+// isThreadStalled returns true when the artifact at the thread's current
+// stage is older than the stalled threshold. Returns false if the thread
+// has no artifact matching its current stage (defensive — that shouldn't
+// happen in normal data but we don't want to crash on it).
+function isThreadStalled(t: ShapeUpThread, now: number): boolean {
+  const current = t.artifacts.find((a) => a.stage === t.current_stage)
+  if (!current) return false
+  const created = new Date(current.created).getTime()
+  if (!isFinite(created)) return false
+  return now - created >= STALLED_MS
+}
 
 const stageColors: Record<string, string> = {
   raw: "bg-muted text-muted-foreground",
@@ -29,15 +56,40 @@ const stageColors: Record<string, string> = {
 
 export function ProductPage() {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [showForm, setShowForm] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [projectIds, setProjectIds] = useState("")
 
+  const stageFilter = searchParams.get("stage")
+  const stalledFilter = searchParams.get("stalled") === "true"
+  const hasFilter = !!stageFilter || stalledFilter
+
+  const clearFilter = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete("stage")
+    next.delete("stalled")
+    setSearchParams(next, { replace: true })
+  }
+
   const { data: threads, isLoading } = useQuery({
     queryKey: ["shapeup-threads"],
     queryFn: api.listThreads,
   })
+
+  // Apply URL filters client-side. Cheaper than a new API endpoint since
+  // thread counts are tiny and the list is already loaded.
+  const visibleThreads = useMemo(() => {
+    if (!threads) return threads
+    if (!hasFilter) return threads
+    const now = Date.now()
+    return threads.filter((t) => {
+      if (stageFilter && t.current_stage !== stageFilter) return false
+      if (stalledFilter && !isThreadStalled(t, now)) return false
+      return true
+    })
+  }, [threads, stageFilter, stalledFilter, hasFilter])
 
   const createMutation = useMutation({
     mutationFn: api.createIdea,
@@ -102,15 +154,44 @@ export function ProductPage() {
         </Card>
       )}
 
+      {hasFilter && (
+        <div className="mb-3 flex items-center gap-2 rounded-sm border border-border bg-muted/30 px-3 py-2">
+          <span className="text-xs text-muted-foreground">Filtered:</span>
+          {stageFilter && (
+            <span className="rounded-sm bg-secondary px-1.5 py-0.5 text-[11px] font-normal text-secondary-foreground">
+              stage: {stageFilter}
+            </span>
+          )}
+          {stalledFilter && (
+            <span className="rounded-sm bg-[var(--stripe-lemon)]/20 px-1.5 py-0.5 text-[11px] font-normal text-[var(--stripe-lemon)]">
+              stalled &gt; 7 days
+            </span>
+          )}
+          <span className="ml-2 text-xs text-muted-foreground">
+            {visibleThreads?.length ?? 0} of {threads?.length ?? 0}
+          </span>
+          <button
+            onClick={clearFilter}
+            className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <X className="h-3 w-3" /> Clear
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : (
         <div className="space-y-4">
-          {threads?.map((thread) => (
+          {visibleThreads?.map((thread) => (
             <ThreadCard key={thread.id} thread={thread} />
           ))}
-          {threads?.length === 0 && (
-            <p className="text-sm text-muted-foreground">No threads yet. Create an idea to start.</p>
+          {visibleThreads?.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {hasFilter
+                ? "No threads match the current filter."
+                : "No threads yet. Create an idea to start."}
+            </p>
           )}
         </div>
       )}
@@ -118,19 +199,55 @@ export function ProductPage() {
   )
 }
 
-function ThreadCard({ thread }: { thread: { id: string; title: string; current_stage: string; projects?: string[]; artifacts: { id: string; stage: string; title: string }[] } }) {
+function ThreadCard({ thread }: { thread: ShapeUpThread }) {
   const queryClient = useQueryClient()
   const [targetStage, setTargetStage] = useState("")
   const [hints, setHints] = useState("")
+  const [modalOpen, setModalOpen] = useState(false)
+  const [questions, setQuestions] = useState<Question[] | null>(null)
 
-  const advanceMutation = useMutation({
-    mutationFn: () => api.advanceThread(thread.id, { target_stage: targetStage, hints }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["shapeup-threads"] })
-      setTargetStage("")
-      setHints("")
+  const questionsMutation = useMutation({
+    mutationFn: (stage: string) => api.shapeupQuestions(thread.id, stage),
+    onSuccess: (resp) => {
+      setQuestions(resp.questions ?? [])
+    },
+    onError: () => {
+      // If asking fails, let the user proceed without Q&A.
+      setQuestions([])
     },
   })
+
+  const advanceMutation = useMutation({
+    mutationFn: (answers: Answer[]) =>
+      api.advanceThread(thread.id, {
+        target_stage: targetStage,
+        hints,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
+    onSuccess: async (newArtifact: Artifact) => {
+      queryClient.setQueryData<ShapeUpThread[]>(["shapeup-threads"], (old) => {
+        if (!old) return old
+        return old.map((t) =>
+          t.id === thread.id
+            ? { ...t, current_stage: newArtifact.stage, artifacts: [...t.artifacts, newArtifact] }
+            : t,
+        )
+      })
+      await queryClient.refetchQueries({ queryKey: ["shapeup-threads"] })
+      setTargetStage("")
+      setHints("")
+      setQuestions(null)
+      setModalOpen(false)
+    },
+  })
+
+  const startAdvance = () => {
+    if (!targetStage) return
+    setQuestions(null)
+    setModalOpen(true)
+    questionsMutation.mutate(targetStage)
+  }
 
   const currentIdx = stages.indexOf(thread.current_stage)
   const nextStages = stages.slice(currentIdx + 1)
@@ -197,8 +314,8 @@ function ThreadCard({ thread }: { thread: { id: string; title: string; current_s
             </div>
             <Button
               size="sm"
-              onClick={() => advanceMutation.mutate()}
-              disabled={!targetStage || advanceMutation.isPending}
+              onClick={startAdvance}
+              disabled={!targetStage || advanceMutation.isPending || questionsMutation.isPending}
               className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal text-xs h-7"
             >
               {advanceMutation.isPending ? "Advancing..." : "Advance"}
@@ -206,6 +323,23 @@ function ThreadCard({ thread }: { thread: { id: string; title: string; current_s
           </div>
         )}
       </CardContent>
+
+      <QuestionsModal
+        open={modalOpen}
+        onOpenChange={(next) => {
+          if (!next && !advanceMutation.isPending) {
+            setModalOpen(false)
+            setQuestions(null)
+          }
+        }}
+        title={`Advance to ${targetStage}`}
+        description="Answer these so Claude can produce a better draft."
+        questions={questions}
+        loading={questionsMutation.isPending}
+        submitting={advanceMutation.isPending}
+        onSubmit={(answers) => advanceMutation.mutate(answers)}
+        onSkip={() => advanceMutation.mutate([])}
+      />
     </Card>
   )
 }

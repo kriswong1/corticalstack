@@ -1,14 +1,18 @@
 import { useState, useEffect } from "react"
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PageHeader } from "@/components/layout/page-header"
+import { QuestionsModal } from "@/components/questions-modal"
 import { api } from "@/lib/api"
-import { Save } from "lucide-react"
+import { Save, Sparkles, UserPlus } from "lucide-react"
+import type { Answer, Question } from "@/types/api"
 
 const personaNames = ["soul", "user", "memory"] as const
 const personaTitles: Record<string, string> = {
@@ -22,6 +26,8 @@ export function ConfigPage() {
     queryKey: ["status"],
     queryFn: api.getStatus,
   })
+
+  const [showSetup, setShowSetup] = useState(false)
 
   if (isLoading) {
     return (
@@ -64,10 +70,7 @@ export function ConfigPage() {
                   <span className="ml-2 text-xs text-muted-foreground">({integ.id})</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] font-light rounded-sm px-1.5 py-px"
-                  >
+                  <Badge variant="outline" className="text-[10px] font-light rounded-sm px-1.5 py-px">
                     {integ.configured ? "Configured" : "Not configured"}
                   </Badge>
                   {integ.configured && (
@@ -98,27 +101,19 @@ export function ConfigPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">
-                Transformers
-              </h3>
+              <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">Transformers</h3>
               <div className="flex flex-wrap gap-1.5">
                 {status?.transformers?.map((t) => (
-                  <Badge key={t} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">
-                    {t}
-                  </Badge>
+                  <Badge key={t} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">{t}</Badge>
                 ))}
               </div>
             </div>
             <Separator />
             <div>
-              <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">
-                Destinations
-              </h3>
+              <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">Destinations</h3>
               <div className="flex flex-wrap gap-1.5">
                 {status?.destinations?.map((d) => (
-                  <Badge key={d} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">
-                    {d}
-                  </Badge>
+                  <Badge key={d} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">{d}</Badge>
                 ))}
               </div>
             </div>
@@ -126,18 +121,31 @@ export function ConfigPage() {
         </Card>
 
         <Card className="rounded-md border-border shadow-stripe">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
               Persona Files
             </CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowSetup(!showSetup)}
+              className="border-border rounded-sm font-normal gap-1.5"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              Quick Setup
+            </Button>
           </CardHeader>
           <CardContent>
+            {showSetup && (
+              <div className="mb-6">
+                <PersonaSetupForm onComplete={() => setShowSetup(false)} />
+                <Separator className="mt-6" />
+              </div>
+            )}
             <Tabs defaultValue="soul">
               <TabsList className="mb-4">
                 {personaNames.map((name) => (
-                  <TabsTrigger key={name} value={name} className="uppercase text-xs">
-                    {name}
-                  </TabsTrigger>
+                  <TabsTrigger key={name} value={name} className="uppercase text-xs">{name}</TabsTrigger>
                 ))}
               </TabsList>
               {personaNames.map((name) => (
@@ -153,7 +161,87 @@ export function ConfigPage() {
   )
 }
 
+function PersonaSetupForm({ onComplete }: { onComplete: () => void }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState("")
+  const [role, setRole] = useState("")
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  const [context, setContext] = useState("")
+  const [projects, setProjects] = useState("")
+  const [platforms, setPlatforms] = useState("")
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.setupPersona({
+        name,
+        role,
+        timezone,
+        context,
+        projects: projects.split("\n").map((s) => s.trim()).filter(Boolean),
+        platforms,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["persona", "user"] })
+      onComplete()
+    },
+  })
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!name.trim() || !role.trim()) return
+        mutation.mutate()
+      }}
+    >
+      <h3 className="text-base font-light text-foreground">Quick Profile Setup</h3>
+      <p className="text-xs text-muted-foreground">
+        Fill in the basics to personalize your USER.md. Takes 30 seconds.
+      </p>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="space-y-2">
+          <Label className="text-[var(--stripe-label)] text-sm font-normal">Name *</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="border-border rounded-sm" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-[var(--stripe-label)] text-sm font-normal">Role *</Label>
+          <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Senior Engineer" className="border-border rounded-sm" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-[var(--stripe-label)] text-sm font-normal">Timezone</Label>
+          <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} className="border-border rounded-sm" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label className="text-[var(--stripe-label)] text-sm font-normal">
+          What do you do and why are you using CorticalStack?
+        </Label>
+        <Textarea value={context} onChange={(e) => setContext(e.target.value)} rows={2} placeholder="1-2 sentences" className="border-border rounded-sm" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label className="text-[var(--stripe-label)] text-sm font-normal">Current projects (one per line)</Label>
+          <Textarea value={projects} onChange={(e) => setProjects(e.target.value)} rows={2} className="border-border rounded-sm text-xs" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-[var(--stripe-label)] text-sm font-normal">Tools/platforms you use</Label>
+          <Input value={platforms} onChange={(e) => setPlatforms(e.target.value)} placeholder="e.g. Obsidian, Linear, VS Code" className="border-border rounded-sm" />
+        </div>
+      </div>
+      <Button
+        type="submit"
+        disabled={mutation.isPending || !name.trim() || !role.trim()}
+        className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
+      >
+        {mutation.isPending ? "Saving..." : "Generate USER.md"}
+      </Button>
+    </form>
+  )
+}
+
 function PersonaEditor({ name }: { name: string }) {
+  const queryClient = useQueryClient()
   const title = personaTitles[name] ?? "Persona"
 
   const { data: persona } = useQuery({
@@ -163,6 +251,8 @@ function PersonaEditor({ name }: { name: string }) {
 
   const [content, setContent] = useState("")
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [modalOpen, setModalOpen] = useState(false)
+  const [questions, setQuestions] = useState<Question[] | null>(null)
 
   useEffect(() => {
     if (persona?.content != null) {
@@ -175,10 +265,44 @@ function PersonaEditor({ name }: { name: string }) {
     onMutate: () => setSaveStatus("saving"),
     onSuccess: () => {
       setSaveStatus("saved")
+      queryClient.invalidateQueries({ queryKey: ["persona", name] })
       setTimeout(() => setSaveStatus("idle"), 2000)
     },
     onError: () => setSaveStatus("error"),
   })
+
+  const questionsMutation = useMutation({
+    mutationFn: () => api.personaEnhanceQuestions(name, content),
+    onSuccess: (resp) => setQuestions(resp.questions ?? []),
+    onError: () => setQuestions([]),
+  })
+
+  const enhanceMutation = useMutation({
+    mutationFn: (answers: Answer[]) =>
+      api.enhancePersona(name, {
+        content,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
+    onSuccess: (result) => {
+      setContent(result.content)
+      setSaveStatus("idle")
+      setQuestions(null)
+      setModalOpen(false)
+    },
+    onError: (err) => {
+      alert("Enhance failed: " + (err instanceof Error ? err.message : String(err)))
+    },
+  })
+
+  const startEnhance = () => {
+    if (!content.trim()) return
+    setQuestions(null)
+    setModalOpen(true)
+    questionsMutation.mutate()
+  }
+
+  const enhancing = enhanceMutation.isPending || questionsMutation.isPending
 
   const charCount = content.length
   const budget = persona?.budget ?? 0
@@ -209,6 +333,16 @@ function PersonaEditor({ name }: { name: string }) {
           )}
           <Button
             size="sm"
+            variant="outline"
+            onClick={startEnhance}
+            disabled={enhancing || !content.trim()}
+            className="border-border rounded-sm font-normal gap-1.5"
+          >
+            <Sparkles className={`h-3.5 w-3.5 ${enhancing ? "animate-spin" : ""}`} />
+            {enhancing ? "Enhancing..." : "Enhance with AI"}
+          </Button>
+          <Button
+            size="sm"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
             className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5"
@@ -225,6 +359,23 @@ function PersonaEditor({ name }: { name: string }) {
         rows={18}
         className="border-border rounded-sm font-mono text-xs leading-relaxed"
         placeholder={`Enter ${name.toUpperCase()} content...`}
+      />
+
+      <QuestionsModal
+        open={modalOpen}
+        onOpenChange={(next) => {
+          if (!next && !enhanceMutation.isPending) {
+            setModalOpen(false)
+            setQuestions(null)
+          }
+        }}
+        title={`Enhance ${name.toUpperCase()}`}
+        description="Answer these so Claude can tailor the improvements."
+        questions={questions}
+        loading={questionsMutation.isPending}
+        submitting={enhanceMutation.isPending}
+        onSubmit={(answers) => enhanceMutation.mutate(answers)}
+        onSkip={() => enhanceMutation.mutate([])}
       />
     </div>
   )

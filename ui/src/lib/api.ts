@@ -1,4 +1,5 @@
 import type {
+  DashboardSnapshot,
   StatusResponse,
   IntegrationStatus,
   Job,
@@ -16,11 +17,17 @@ import type {
   FromDocRequest,
   FromTextRequest,
   GenerateUseCasesResponse,
+  UseCaseFromDocQuestionsRequest,
+  UseCaseFromTextQuestionsRequest,
   Prototype,
   CreatePrototypeRequest,
+  PrototypeQuestionsRequest,
   PRD,
   CreatePRDRequest,
+  PRDQuestionsRequest,
   PersonaResponse,
+  PersonaEnhanceRequest,
+  QuestionsResponse,
 } from "@/types/api"
 
 class ApiError extends Error {
@@ -52,6 +59,9 @@ export const api = {
   // Status
   getStatus: () => request<StatusResponse>("/api/status"),
   getIntegrations: () => request<IntegrationStatus[]>("/api/integrations"),
+
+  // Dashboard operating view (single aggregator snapshot)
+  getDashboard: () => request<DashboardSnapshot>("/api/dashboard"),
 
   // Ingest
   ingestText: (body: { text: string; title?: string }) =>
@@ -85,6 +95,8 @@ export const api = {
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
   createProject: (body: CreateProjectRequest) =>
     post<Project>("/api/projects", body),
+  syncProjects: () =>
+    post<{ created: string[]; created_count: number }>("/api/projects/sync", {}),
 
   // Actions
   listActions: (status?: string) =>
@@ -92,6 +104,12 @@ export const api = {
   getActionCounts: () => request<Record<string, number>>("/api/actions/counts"),
   setActionStatus: (id: string, status: string) =>
     post<Action>(`/api/actions/${id}/status`, { status }),
+  updateAction: (id: string, patch: Partial<Action>) =>
+    request<Action>(`/api/actions/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
   reconcileActions: () =>
     post<ReconcileResult>("/api/actions/reconcile", {}),
 
@@ -103,6 +121,10 @@ export const api = {
     post<Artifact>("/api/shapeup/idea", body),
   advanceThread: (id: string, body: AdvanceRequest) =>
     post<Artifact>(`/api/shapeup/threads/${id}/advance`, body),
+  shapeupQuestions: (id: string, targetStage: string) =>
+    post<QuestionsResponse>(`/api/shapeup/threads/${id}/questions`, {
+      target_stage: targetStage,
+    }),
 
   // Use Cases
   listUseCases: () => request<UseCase[]>("/api/usecases"),
@@ -110,19 +132,42 @@ export const api = {
     post<GenerateUseCasesResponse>("/api/usecases/from-doc", body),
   generateFromText: (body: FromTextRequest) =>
     post<GenerateUseCasesResponse>("/api/usecases/from-text", body),
+  useCaseFromDocQuestions: (body: UseCaseFromDocQuestionsRequest) =>
+    post<QuestionsResponse>("/api/usecases/from-doc/questions", body),
+  useCaseFromTextQuestions: (body: UseCaseFromTextQuestionsRequest) =>
+    post<QuestionsResponse>("/api/usecases/from-text/questions", body),
 
   // Prototypes
   listPrototypes: () => request<Prototype[]>("/api/prototypes"),
   createPrototype: (body: CreatePrototypeRequest) =>
     post<Prototype>("/api/prototypes", body),
+  prototypeQuestions: (body: PrototypeQuestionsRequest) =>
+    post<QuestionsResponse>("/api/prototypes/questions", body),
+  prototypeHTMLUrl: (id: string) => `/api/prototypes/${id}/html`,
 
   // PRDs
   listPRDs: () => request<PRD[]>("/api/prds"),
   createPRD: (body: CreatePRDRequest) => post<PRD>("/api/prds", body),
+  prdQuestions: (body: PRDQuestionsRequest) =>
+    post<QuestionsResponse>("/api/prds/questions", body),
 
   // Persona
   getPersona: (name: string) =>
     request<PersonaResponse>(`/api/persona/${name}`),
   savePersona: (name: string, content: string) =>
     post<{ status: string; name: string }>(`/api/persona/${name}`, { content }),
+  setupPersona: (body: {
+    name: string
+    role: string
+    timezone: string
+    context: string
+    projects?: string[]
+    platforms?: string
+  }) => post<{ status: string }>("/api/persona/setup", body),
+  enhancePersona: (name: string, body: PersonaEnhanceRequest) =>
+    post<{ content: string }>(`/api/persona/${name}/enhance`, body),
+  personaEnhanceQuestions: (name: string, content: string) =>
+    post<QuestionsResponse>(`/api/persona/${name}/enhance/questions`, {
+      content,
+    }),
 }

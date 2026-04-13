@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster } from "@/components/ui/sonner"
 import { AppSidebar } from "./app-sidebar"
 import { ErrorBoundary } from "@/components/shared/error-boundary"
 import { Separator } from "@/components/ui/separator"
@@ -23,6 +24,7 @@ export function AppShell() {
             </div>
           </main>
         </SidebarInset>
+        <Toaster position="bottom-right" />
       </SidebarProvider>
     </TooltipProvider>
   )
