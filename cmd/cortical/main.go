@@ -18,6 +18,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/config"
+	"github.com/kriswong/corticalstack/internal/dashboard"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/intent"
 	"github.com/kriswong/corticalstack/internal/persona"
@@ -140,6 +141,10 @@ func main() {
 	bus := sse.NewEventBus()
 	jm := jobs.New(rootCtx, pipe, bus, classifier, projectStore)
 
+	// v4: Dashboard aggregator + 15-minute TTL cache over every store
+	dashAgg := dashboard.NewAggregator(v, actionStore, projectStore, prototypeStore, shapeupStore)
+	dashCache := dashboard.NewCache(dashAgg, dashboard.CacheTTL, nil)
+
 	// Build the handler Deps bundle
 	deps := handlers.Deps{
 		Vault:           v,
@@ -159,6 +164,7 @@ func main() {
 		PrototypeSynth:  prototypeSynth,
 		PRDs:            prdStore,
 		PRDSynth:        prdSynth,
+		Dashboard:       dashCache,
 	}
 
 	srv, err := web.NewServer(deps)

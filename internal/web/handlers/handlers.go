@@ -16,6 +16,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/config"
+	"github.com/kriswong/corticalstack/internal/dashboard"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
@@ -55,6 +56,7 @@ type Deps struct {
 	PrototypeSynth     *prototypes.Synthesizer
 	PRDs               *prds.Store
 	PRDSynth           *prds.Synthesizer
+	Dashboard          *dashboard.Cache
 }
 
 // Handler bundles shared dependencies for all dashboard handlers.
@@ -81,6 +83,9 @@ type Handler struct {
 	PRDs            *prds.Store
 	PRDSynth        *prds.Synthesizer
 
+	// v4: dashboard aggregator
+	Dashboard dashboardProvider
+
 	RenderPage func(w http.ResponseWriter, contentTemplate string, data map[string]interface{})
 }
 
@@ -104,6 +109,7 @@ func New(deps Deps) *Handler {
 		PrototypeSynth:     deps.PrototypeSynth,
 		PRDs:               deps.PRDs,
 		PRDSynth:           deps.PRDSynth,
+		Dashboard:          deps.Dashboard,
 	}
 }
 

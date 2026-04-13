@@ -76,6 +76,37 @@ func (v *Vault) Exists(relPath string) bool {
 	return err == nil
 }
 
+// Walk visits every .md file in the vault, parses it as a Note, and calls
+// fn with the relative path and parsed note. Files that fail to parse are
+// silently skipped. Directories starting with "." are skipped.
+func (v *Vault) Walk(fn func(relPath string, note *Note)) error {
+	return filepath.Walk(v.path, func(fullPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(v.path, fullPath)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		note, err := v.ReadNote(rel)
+		if err != nil {
+			return nil // skip unparseable
+		}
+		fn(rel, note)
+		return nil
+	})
+}
+
 // Slugify converts a string to a URL/filesystem-safe slug.
 func Slugify(s string) string {
 	s = strings.ToLower(s)
