@@ -90,6 +90,18 @@ func MaxClassifierChars() int {
 	return 8000
 }
 
+// WIPLimit returns the max number of actions allowed in "doing" status,
+// defaulting to 3. Set WIP_LIMIT=0 to disable.
+func WIPLimit() int {
+	Load()
+	if v := os.Getenv("WIP_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return 3
+}
+
 // GetSecret reads an arbitrary environment variable.
 // All API keys should go through this helper so future runtime secret
 // stores can be added without touching callers.

@@ -8,26 +8,37 @@ package actions
 
 import "time"
 
-// Status is the state of an action. Multi-state so the user can
-// distinguish "seen but not started" from "actively being worked on".
+// Status is the state of an action. GTD-inspired lifecycle with
+// WIP-limited "doing" and explicit "waiting" and "someday" states.
 type Status string
 
 const (
-	StatusPending   Status = "pending"    // extracted, not yet acknowledged
-	StatusAck       Status = "ack"        // user has seen it
-	StatusDoing     Status = "doing"      // actively in progress
+	StatusInbox     Status = "inbox"      // extracted, needs triage
+	StatusNext      Status = "next"       // triaged as actionable, ready to pick up
+	StatusWaiting   Status = "waiting"    // blocked on external input
+	StatusDoing     Status = "doing"      // actively in progress (WIP-limited)
+	StatusSomeday   Status = "someday"    // interesting but no commitment to timing
+	StatusDeferred  Status = "deferred"   // deliberately postponed to a specific date
 	StatusDone      Status = "done"       // completed
-	StatusDeferred  Status = "deferred"   // pushed back
 	StatusCancelled Status = "cancelled"  // no longer relevant
+
+	// Legacy aliases — kept so external packages and tests compile.
+	// MigrateStatus() converts these to their new equivalents at runtime.
+	StatusPending Status = "pending"
+	StatusAck     Status = "ack"
 )
 
 // AllStatuses returns the full list in a stable order.
 func AllStatuses() []Status {
-	return []Status{StatusPending, StatusAck, StatusDoing, StatusDone, StatusDeferred, StatusCancelled}
+	return []Status{StatusInbox, StatusNext, StatusWaiting, StatusDoing, StatusSomeday, StatusDeferred, StatusDone, StatusCancelled}
 }
 
 // IsValid reports whether s is a supported status.
 func IsValid(s string) bool {
+	// Accept legacy statuses for migration compatibility.
+	if s == "pending" || s == "ack" {
+		return true
+	}
 	for _, v := range AllStatuses() {
 		if string(v) == s {
 			return true
@@ -36,14 +47,60 @@ func IsValid(s string) bool {
 	return false
 }
 
+// MigrateStatus converts legacy statuses to their new equivalents.
+func MigrateStatus(s Status) Status {
+	switch s {
+	case "pending":
+		return StatusInbox
+	case "ack":
+		return StatusNext
+	default:
+		return s
+	}
+}
+
+// Priority is a 3-level priority for action triage.
+type Priority string
+
+const (
+	PriorityHigh   Priority = "p1" // address this week
+	PriorityMedium Priority = "p2" // schedule when p1 is clear
+	PriorityLow    Priority = "p3" // nice-to-have
+)
+
+// AllPriorities returns all priorities in descending importance.
+func AllPriorities() []Priority {
+	return []Priority{PriorityHigh, PriorityMedium, PriorityLow}
+}
+
+// Effort is a t-shirt size for rough estimation.
+type Effort string
+
+const (
+	EffortXS Effort = "xs"
+	EffortS  Effort = "s"
+	EffortM  Effort = "m"
+	EffortL  Effort = "l"
+	EffortXL Effort = "xl"
+)
+
+// AllEfforts returns all effort sizes in ascending order.
+func AllEfforts() []Effort {
+	return []Effort{EffortXS, EffortS, EffortM, EffortL, EffortXL}
+}
+
 // Action is one tracked item across the three locations.
 type Action struct {
 	ID          string    `json:"id"`
+	Title       string    `json:"title,omitempty"`
 	Description string    `json:"description"`
 	Owner       string    `json:"owner"`
 	Deadline    string    `json:"deadline,omitempty"`
 	Status      Status    `json:"status"`
-	SourceNote  string    `json:"source_note"` // e.g., "notes/2026-04-11_slug.md"
+	Priority    Priority  `json:"priority,omitempty"`
+	Effort      Effort    `json:"effort,omitempty"`
+	Context     string    `json:"context,omitempty"`
+	SourceNote  string    `json:"source_note"`
 	SourceTitle string    `json:"source_title,omitempty"`
 	ProjectIDs  []string  `json:"project_ids,omitempty"`
 	Created     time.Time `json:"created"`

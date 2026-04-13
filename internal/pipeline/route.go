@@ -100,10 +100,14 @@ func (d *ActionItemsDestination) Accept(doc *TextDocument, extracted *Extracted)
 	for _, raw := range extracted.Actions {
 		a := &actions.Action{
 			ID:          raw.ID,
+			Title:       raw.Title,
 			Description: raw.Description,
 			Owner:       raw.Owner,
 			Deadline:    raw.Deadline,
-			Status:      actions.StatusPending,
+			Status:      actions.StatusInbox,
+			Priority:    actions.Priority(raw.Priority),
+			Effort:      actions.Effort(raw.Effort),
+			Context:     raw.Context,
 			SourceNote:  sourceNote,
 			SourceTitle: doc.Title,
 			ProjectIDs:  projectIDs,

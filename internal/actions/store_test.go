@@ -93,13 +93,13 @@ func TestSetStatusPropagates(t *testing.T) {
 
 func TestCountByStatus(t *testing.T) {
 	s := newTempStore(t)
-	_, _ = s.Upsert(&Action{Owner: "a", Description: "1", Status: StatusPending})
+	_, _ = s.Upsert(&Action{Owner: "a", Description: "1", Status: StatusPending}) // migrated to inbox
 	_, _ = s.Upsert(&Action{Owner: "b", Description: "2", Status: StatusDone})
 	_, _ = s.Upsert(&Action{Owner: "c", Description: "3", Status: StatusDone})
 
 	counts := s.CountByStatus()
-	if counts[StatusPending] != 1 {
-		t.Errorf("pending: got %d want 1", counts[StatusPending])
+	if counts[StatusInbox] != 1 {
+		t.Errorf("inbox: got %d want 1", counts[StatusInbox])
 	}
 	if counts[StatusDone] != 2 {
 		t.Errorf("done: got %d want 2", counts[StatusDone])

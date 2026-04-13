@@ -11,11 +11,12 @@ import (
 
 // ReconcileResult summarizes what changed during a reconcile pass.
 type ReconcileResult struct {
-	Scanned      int      `json:"scanned"`       // files scanned
-	LinesMatched int      `json:"lines_matched"` // lines carrying a known ID
-	Updated      int      `json:"updated"`       // actions whose status flipped
-	Missing      []string `json:"missing,omitempty"` // IDs present in index but not in any file
-	Unknown      []string `json:"unknown,omitempty"` // IDs in files that are not in the index
+	Scanned       int      `json:"scanned"`        // files scanned
+	LinesMatched  int      `json:"lines_matched"`  // lines carrying a known ID (across all locations)
+	UniqueActions int      `json:"unique_actions"`  // distinct action IDs found
+	Updated       int      `json:"updated"`        // actions whose status flipped
+	Missing       []string `json:"missing,omitempty"` // IDs present in index but not in any file
+	Unknown       []string `json:"unknown,omitempty"` // IDs in files that are not in the index
 }
 
 // Reconcile scans every known location for action lines and compares
@@ -94,6 +95,8 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 			}
 		}
 	}
+
+	res.UniqueActions = len(observed)
 
 	// Apply changes to the index where markdown disagreed.
 	changedIDs := make([]string, 0)

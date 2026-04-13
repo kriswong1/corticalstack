@@ -14,9 +14,13 @@ const actionItemsFile = "ACTION-ITEMS.md"
 // the stable identifier in the canonical markdown line.
 type ActionItem struct {
 	ID          string `json:"id,omitempty"`
+	Title       string `json:"title,omitempty"`
 	Owner       string `json:"owner"`
 	Description string `json:"description"`
 	Deadline    string `json:"deadline,omitempty"`
+	Priority    string `json:"priority,omitempty"`
+	Effort      string `json:"effort,omitempty"`
+	Context     string `json:"context,omitempty"`
 }
 
 // AppendActionItems adds action items to the central tracker,

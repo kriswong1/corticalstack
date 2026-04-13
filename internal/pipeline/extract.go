@@ -91,7 +91,7 @@ func buildExtractionPrompt(doc *TextDocument, cfg ExtractionConfig) string {
 	b.WriteString("```\n{\n")
 	b.WriteString(`  "summary": "2-4 sentence prose summary",` + "\n")
 	b.WriteString(`  "key_points": ["point 1", "point 2"],` + "\n")
-	b.WriteString(`  "actions": [{"owner": "Name", "description": "task", "deadline": "optional"}],` + "\n")
+	b.WriteString(`  "actions": [{"title": "short action title", "owner": "Name", "description": "detailed task description", "deadline": "YYYY-MM-DD or empty", "priority": "p1|p2|p3", "effort": "xs|s|m|l|xl", "context": "deep-work|quick|research|write|review"}],` + "\n")
 	b.WriteString(`  "ideas": ["short, self-contained product or feature idea raised in the content"],` + "\n")
 	b.WriteString(`  "tags": ["topic", "tags"],` + "\n")
 	b.WriteString(`  "domain": "engineering | product | design | operations | finance | ...",` + "\n")
@@ -105,7 +105,7 @@ func buildExtractionPrompt(doc *TextDocument, cfg ExtractionConfig) string {
 
 	b.WriteString("Rules:\n")
 	b.WriteString("- Only extract what's in the document. Never invent.\n")
-	b.WriteString("- For actions, include an owner ('TBD' if unclear).\n")
+	b.WriteString("- For actions: include owner ('TBD' if unclear), deadline as ISO date (normalize 'by Friday' to YYYY-MM-DD), priority (p1=urgent/this week, p2=medium, p3=nice-to-have), effort (xs=minutes, s=<1hr, m=hours, l=day, xl=multi-day), context (deep-work/quick/research/write/review).\n")
 	b.WriteString("- For ideas: capture any product, feature, tool, or workflow idea raised in the content — even offhand ones. Each entry should be one sentence that stands alone without needing the source for context. Omit the field entirely if no ideas were raised.\n")
 	b.WriteString("- Omit empty arrays and empty strings. Only include fields you actually populate.\n")
 	b.WriteString("- Generate 2-5 triggers — specific scenarios where this knowledge should surface.\n")

@@ -8,12 +8,12 @@ func TestFormatParseRoundTrip(t *testing.T) {
 		in   *Action
 	}{
 		{
-			name: "simple pending",
+			name: "simple inbox",
 			in: &Action{
 				ID:          "abc12345-1111-2222-3333-444455556666",
 				Owner:       "Kris",
 				Description: "Review Deepgram pricing tiers",
-				Status:      StatusPending,
+				Status:      StatusInbox,
 			},
 		},
 		{

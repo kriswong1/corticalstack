@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/actions"
+	"github.com/kriswong/corticalstack/internal/config"
 )
 
 // ListActions returns all tracked actions, optionally filtered by ?status=.
@@ -52,12 +54,62 @@ func (h *Handler) SetActionStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid status: "+body.Status, http.StatusBadRequest)
 		return
 	}
-	updated, err := h.Actions.SetStatus(id, actions.Status(body.Status))
+	// WIP limit enforcement: reject transitions to "doing" if at capacity.
+	target := actions.MigrateStatus(actions.Status(body.Status))
+	if target == actions.StatusDoing {
+		limit := config.WIPLimit()
+		if limit > 0 {
+			counts := h.Actions.CountByStatus()
+			if counts[actions.StatusDoing] >= limit {
+				http.Error(w, fmt.Sprintf("WIP limit reached: max %d items in 'doing'", limit), http.StatusConflict)
+				return
+			}
+		}
+	}
+	updated, err := h.Actions.SetStatus(id, target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	// Propagate the change to every markdown location.
+	if err := h.Actions.Sync(updated); err != nil {
+		http.Error(w, "sync: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, updated)
+}
+
+// UpdateAction handles PUT /api/actions/{id} with a partial JSON body.
+func (h *Handler) UpdateAction(w http.ResponseWriter, r *http.Request) {
+	if h.Actions == nil {
+		http.Error(w, "action store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var patch actions.ActionPatch
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	// WIP limit enforcement for status changes to "doing".
+	if patch.Status != "" {
+		target := actions.MigrateStatus(patch.Status)
+		if target == actions.StatusDoing {
+			limit := config.WIPLimit()
+			if limit > 0 {
+				counts := h.Actions.CountByStatus()
+				if counts[actions.StatusDoing] >= limit {
+					http.Error(w, fmt.Sprintf("WIP limit reached: max %d items in 'doing'", limit), http.StatusConflict)
+					return
+				}
+			}
+		}
+	}
+	updated, err := h.Actions.Update(id, patch)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
 	if err := h.Actions.Sync(updated); err != nil {
 		http.Error(w, "sync: "+err.Error(), http.StatusInternalServerError)
 		return

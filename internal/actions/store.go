@@ -152,7 +152,14 @@ func (s *Store) Upsert(a *Action) (*Action, error) {
 	}
 	a.Updated = time.Now()
 	if a.Status == "" {
-		a.Status = StatusPending
+		a.Status = StatusInbox
+	}
+	a.Status = MigrateStatus(a.Status)
+	if a.Priority == "" {
+		a.Priority = PriorityMedium
+	}
+	if a.Effort == "" {
+		a.Effort = EffortM
 	}
 	s.byID[a.ID] = a
 	err := s.flushLocked()
@@ -174,6 +181,55 @@ func (s *Store) SetStatus(id string, status Status) (*Action, error) {
 	a.Status = status
 	a.Updated = time.Now()
 	return a, s.flushLocked()
+}
+
+// Update applies partial changes to an existing action. Only non-zero fields
+// in the patch are applied. Returns the updated action.
+func (s *Store) Update(id string, patch ActionPatch) (*Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.byID[id]
+	if !ok {
+		return nil, fmt.Errorf("action not found: %s", id)
+	}
+	if patch.Title != nil {
+		a.Title = *patch.Title
+	}
+	if patch.Description != "" {
+		a.Description = patch.Description
+	}
+	if patch.Owner != "" {
+		a.Owner = patch.Owner
+	}
+	if patch.Deadline != nil {
+		a.Deadline = *patch.Deadline
+	}
+	if patch.Status != "" && IsValid(string(patch.Status)) {
+		a.Status = MigrateStatus(patch.Status)
+	}
+	if patch.Priority != "" {
+		a.Priority = patch.Priority
+	}
+	if patch.Effort != "" {
+		a.Effort = patch.Effort
+	}
+	if patch.Context != nil {
+		a.Context = *patch.Context
+	}
+	a.Updated = time.Now()
+	return a, s.flushLocked()
+}
+
+// ActionPatch holds optional fields for a partial action update.
+type ActionPatch struct {
+	Title       *string  `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Owner       string   `json:"owner,omitempty"`
+	Deadline    *string  `json:"deadline"`
+	Status      Status   `json:"status,omitempty"`
+	Priority    Priority `json:"priority,omitempty"`
+	Effort      Effort   `json:"effort,omitempty"`
+	Context     *string  `json:"context"`
 }
 
 // CentralFilePath returns the vault-relative path of the central tracker.
