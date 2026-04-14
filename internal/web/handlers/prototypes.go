@@ -43,7 +43,7 @@ func (h *Handler) ListPrototypes(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := h.Prototypes.List()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "prototype.list", err)
 		return
 	}
 	writeJSON(w, list)
@@ -71,8 +71,7 @@ func (h *Handler) QuestionsForPrototype(w http.ResponseWriter, r *http.Request) 
 	}
 	qs, err := h.PrototypeSynth.Questions(r.Context(), h.Vault, req)
 	if err != nil {
-		slog.Error("prototype questions", "error", err)
-		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "prototype.questions", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"questions": qs})
@@ -111,7 +110,11 @@ func (h *Handler) ViewPrototypeHTML(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "this prototype has no HTML file", http.StatusNotFound)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusNotFound)
+		// Non-NotExist errors here may be "permission denied: /abs/path/..."
+		// from the filesystem — log server-side, return a generic 404 so we
+		// don't leak the vault layout to the client.
+		slog.Error("prototype.read_html", "id", id, "error", err)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
@@ -168,13 +171,11 @@ func (h *Handler) CreatePrototype(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		slog.Error("prototype synthesize", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "prototype.synthesize", err)
 		return
 	}
 	if err := h.Prototypes.Write(p); err != nil {
-		slog.Error("prototype write", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "prototype.write", err)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)

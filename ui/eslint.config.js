@@ -20,4 +20,14 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  // shadcn/ui primitives ship component + variants/utilities from the same
+  // file by design. `npx shadcn add` regenerates the combined layout so
+  // splitting them fights the toolchain. Disable the HMR-purity rule just
+  // inside this folder — app code still gets the rule.
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

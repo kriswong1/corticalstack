@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select"
 import { QuestionsModal } from "@/components/questions-modal"
 import { api, getErrorMessage } from "@/lib/api"
+import { useNow } from "@/hooks/use-now"
 import { Plus, ArrowRight, X } from "lucide-react"
 import type {
   Answer,
@@ -91,17 +92,19 @@ export function ProductPage() {
   })
 
   // Apply URL filters client-side. Cheaper than a new API endpoint since
-  // thread counts are tiny and the list is already loaded.
+  // thread counts are tiny and the list is already loaded. `useNow` ticks
+  // once per minute so stalled items flip state without waiting for a
+  // refetch or user interaction.
+  const now = useNow()
   const visibleThreads = useMemo(() => {
     if (!threads) return threads
     if (!hasFilter) return threads
-    const now = Date.now()
     return threads.filter((t) => {
       if (stageFilter && t.current_stage !== stageFilter) return false
       if (stalledFilter && !isThreadStalled(t, now)) return false
       return true
     })
-  }, [threads, stageFilter, stalledFilter, hasFilter])
+  }, [threads, stageFilter, stalledFilter, hasFilter, now])
 
   const createMutation = useMutation({
     mutationFn: api.createIdea,

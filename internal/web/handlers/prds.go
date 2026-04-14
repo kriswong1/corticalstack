@@ -33,7 +33,7 @@ func (h *Handler) ListPRDs(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := h.PRDs.List()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "prd.list", err)
 		return
 	}
 	writeJSON(w, list)
@@ -70,8 +70,7 @@ func (h *Handler) QuestionsForPRD(w http.ResponseWriter, r *http.Request) {
 	}
 	qs, err := h.PRDSynth.Questions(r.Context(), h.Vault, req)
 	if err != nil {
-		slog.Error("prd questions", "error", err)
-		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "prd.questions", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"questions": qs})
@@ -105,13 +104,11 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := h.PRDSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
-		slog.Error("prd synthesize", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "prd.synthesize", err)
 		return
 	}
 	if err := h.PRDs.Write(p); err != nil {
-		slog.Error("prd write", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "prd.write", err)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)

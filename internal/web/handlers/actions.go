@@ -67,12 +67,14 @@ func (h *Handler) SetActionStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		// "action not found: <id>" is user-actionable and contains only the
+		// ID the client already sent, so it's safe to echo back.
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	// Propagate the change to every markdown location.
 	if err := h.Actions.Sync(updated); err != nil {
-		http.Error(w, "sync: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "action.sync_after_status", err)
 		return
 	}
 	writeJSON(w, updated)
@@ -102,7 +104,7 @@ func (h *Handler) UpdateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Actions.Sync(updated); err != nil {
-		http.Error(w, "sync: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "action.sync_after_update", err)
 		return
 	}
 	writeJSON(w, updated)
@@ -116,7 +118,7 @@ func (h *Handler) ReconcileActions(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := h.Actions.Reconcile()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "action.reconcile", err)
 		return
 	}
 	writeJSON(w, res)

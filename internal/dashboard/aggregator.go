@@ -239,6 +239,21 @@ func buildIngestWidget(notes []ingestNote, now time.Time) IngestWidget {
 	typeSet := make(map[string]bool)
 	total := 0
 	for _, n := range notes {
+		// Window bounds are strict calendar-day: reject anything older
+		// than 30 days and anything dated on or after tomorrow 00:00.
+		// Intentionally asymmetric vs the project-touch window in
+		// buildProjectsWidget, which tolerates up to 1 minute of clock
+		// skew. The reason: this widget is a fixed 30-day retrospective
+		// and a note dated "tomorrow" has nowhere to land on the chart
+		// (the day bucket map only holds the last 30 days through
+		// today). The touch window is a rolling freshness check where
+		// treating a 30-second-future timestamp as "just touched" is
+		// sensible. Same-day future-dated notes (skew without rolling
+		// past midnight) are still counted here because they map to
+		// today's bucket — that's the one case where the two windows
+		// diverge, and it's harmless: a lightly-future note on the
+		// ingest chart is the user-friendly outcome.
+		// See docs/code-review-go.md LO-05.
 		if n.created.Before(startDay) || !n.created.Before(endDay) {
 			continue
 		}
@@ -402,6 +417,13 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 	// Map of canonical project id → most recent touch time within the window.
 	lastTouchByID := make(map[string]time.Time)
 	touch := func(id string, when time.Time) {
+		// Rolling 7-day window with 1-minute clock-skew tolerance on the
+		// upper bound. The tolerance is intentional: this is a "did you
+		// touch this project recently" freshness check, and a laptop
+		// whose clock is a few seconds ahead of the server should still
+		// see its own activity reflected. Intentionally asymmetric vs
+		// buildIngestWidget's strict calendar-day upper bound — see
+		// that site's comment and docs/code-review-go.md LO-05.
 		if id == "" || when.Before(cutoff) || when.After(now.Add(time.Minute)) {
 			return
 		}

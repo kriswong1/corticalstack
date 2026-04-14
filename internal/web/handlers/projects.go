@@ -46,7 +46,7 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SyncProjects(w http.ResponseWriter, r *http.Request) {
 	created, err := h.Projects.SyncFromVault()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "projects.sync_from_vault", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{

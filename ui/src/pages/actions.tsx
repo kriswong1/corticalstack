@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog"
 import { api, ApiError, getErrorMessage } from "@/lib/api"
 import type { Action, ActionStatus, ActionPriority, ActionEffort } from "@/types/api"
+import { useNow } from "@/hooks/use-now"
 import { RefreshCw, Pencil } from "lucide-react"
 
 const allStatuses: ActionStatus[] = [
@@ -159,7 +160,7 @@ export function ActionsPage() {
   // filters" button. An unparseable `updated` timestamp is treated as
   // "definitely stale" — broken data is itself a signal the user cares
   // about, and the previous "silently exclude" behavior hid bugs.
-  const now = Date.now()
+  const now = useNow()
   const filtered = actions?.filter((a) => {
     if (filterStatus && a.status !== filterStatus) return false
     if (filterProject && !(a.project_ids ?? []).includes(filterProject)) return false

@@ -254,7 +254,19 @@ function PersonaEditor({ name }: { name: string }) {
     queryFn: () => api.getPersona(name),
   })
 
-  const [content, setContent] = useState("")
+  const [content, setContent] = useState(persona?.content ?? "")
+  // Track the last persona.content we synced into the local buffer so we
+  // can re-sync when the query produces new data (e.g. after save +
+  // refetch, or when the selected persona changes). Adjusting state
+  // during render triggers a re-render before commit so the user never
+  // sees the stale content — React 19's idiomatic pattern for derived
+  // state from an async source. See:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [syncedContent, setSyncedContent] = useState(persona?.content ?? "")
+  if (persona?.content != null && persona.content !== syncedContent) {
+    setSyncedContent(persona.content)
+    setContent(persona.content)
+  }
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
@@ -262,12 +274,6 @@ function PersonaEditor({ name }: { name: string }) {
   // unmount — if the user saves a persona and navigates away in under
   // 2 seconds, we don't want a setState firing on an unmounted component.
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (persona?.content != null) {
-      setContent(persona.content)
-    }
-  }, [persona?.content])
 
   // Clear the save-status timer on unmount so no stale setState runs.
   useEffect(() => {

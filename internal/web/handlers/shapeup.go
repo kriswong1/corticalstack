@@ -39,7 +39,7 @@ func (h *Handler) ListShapeUpThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	threads, err := h.ShapeUp.ListThreads()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "shapeup.list_threads", err)
 		return
 	}
 	writeJSON(w, threads)
@@ -108,8 +108,7 @@ func (h *Handler) QuestionsForShapeUpThread(w http.ResponseWriter, r *http.Reque
 
 	qs, err := h.ShapeUpAdvancer.Questions(r.Context(), thread, shapeup.Stage(req.TargetStage))
 	if err != nil {
-		slog.Error("shapeup questions", "thread", id, "stage", req.TargetStage, "error", err)
-		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "shapeup.questions", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"questions": qs})
@@ -145,8 +144,7 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 
 	body, err := h.ShapeUpAdvancer.Advance(r.Context(), thread, shapeup.Stage(req.TargetStage), req.Hints, req.Questions, req.Answers)
 	if err != nil {
-		slog.Error("shapeup advance", "thread", id, "stage", req.TargetStage, "error", err)
-		http.Error(w, "advance: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "shapeup.advance", err)
 		return
 	}
 
@@ -162,7 +160,7 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 		Body:     body,
 	}
 	if err := h.ShapeUp.WriteArtifact(newArtifact); err != nil {
-		http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "shapeup.write_artifact", err)
 		return
 	}
 

@@ -57,7 +57,7 @@ func (h *Handler) GetPersona(w http.ResponseWriter, r *http.Request) {
 	}
 	content, err := h.Persona.Get(persona.Name(name))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "persona.get", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
@@ -102,7 +102,7 @@ func (h *Handler) SavePersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Persona.Set(persona.Name(name), content); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "persona.set", err)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "saved", "name": name})
@@ -158,7 +158,7 @@ func (h *Handler) SetupPersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Persona.Set(persona.NameUser, b.String()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "persona.setup_user", err)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "saved", "name": "user"})
@@ -189,8 +189,7 @@ func (h *Handler) QuestionsForPersonaEnhance(w http.ResponseWriter, r *http.Requ
 	}
 	qs, err := asker.Ask(r.Context(), goal, blocks)
 	if err != nil {
-		slog.Error("persona enhance questions", "name", name, "error", err)
-		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "persona.enhance_questions", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"questions": qs})
@@ -245,8 +244,7 @@ Respond with ONLY the improved file content (including frontmatter). No explanat
 	}
 	enhanced, err := ag.RunSimple(r.Context(), prompt)
 	if err != nil {
-		slog.Error("persona enhance failed", "name", name, "error", err)
-		http.Error(w, "Claude CLI error: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "persona.enhance", err)
 		return
 	}
 

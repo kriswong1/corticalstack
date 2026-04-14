@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,7 +27,9 @@ type ReconcileResult struct {
 func (s *Store) Reconcile() (*ReconcileResult, error) {
 	res := &ReconcileResult{}
 
-	// Collect every file that might contain action lines.
+	// Collect every file that might contain action lines. Start with the
+	// known set: central tracker + each action's recorded SourceNote +
+	// each associated project's ACTION-ITEMS.md.
 	files := map[string]bool{}
 	files[s.CentralFilePath()] = true
 
@@ -40,6 +43,63 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 		}
 	}
 	s.mu.RUnlock()
+
+	// LO-07: union in any additional .md file in the vault that carries
+	// an action ID marker. This catches source notes the user moved in
+	// Obsidian — the stored SourceNote is now stale but the `<!-- id:
+	// <uuid> -->` line moved with the file, so we discover the new
+	// location and reconcile the user's checkbox edits there.
+	//
+	// A fast byte-level substring gate (`<!-- id:`) keeps the file set
+	// bounded: we only add files that could plausibly contain an action
+	// line, not every note in the vault. Reconcile is user-triggered
+	// (POST /api/actions/reconcile) so one full-vault walk per click is
+	// well within budget for a local app.
+	//
+	// The SourceNote stored on the Action is NOT auto-rebased to the
+	// new location — that's a separate, ambiguous concern (same ID could
+	// show up in multiple files after a copy) and left for a future
+	// "Rebase source note" action if the need becomes concrete. The
+	// next Sync will still write to the stale SourceNote path, which
+	// fails silently at that path but writes correctly to the central
+	// and project files.
+	vaultRoot := s.vault.Path()
+	_ = filepath.Walk(vaultRoot, func(fullPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			// A single unreadable entry shouldn't abort the whole walk.
+			// We already had files set from the known paths — just skip.
+			return nil
+		}
+		if info.IsDir() {
+			// Skip dot-directories: .obsidian, .cortical, .git, .trash, etc.
+			// They may contain files we don't own (plugin state,
+			// cortical's own index, git objects) and scanning them for
+			// action markers is both pointless and risky.
+			if strings.HasPrefix(info.Name(), ".") && fullPath != vaultRoot {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(vaultRoot, fullPath)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if files[rel] {
+			return nil // already in the known set
+		}
+		data, readErr := os.ReadFile(fullPath)
+		if readErr != nil {
+			return nil
+		}
+		if bytes.Contains(data, []byte("<!-- id:")) {
+			files[rel] = true
+		}
+		return nil
+	})
 
 	// Observed state per action ID. If the same ID is seen in multiple
 	// files, the action's canonical SourceNote entry wins over others.

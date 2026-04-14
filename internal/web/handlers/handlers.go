@@ -191,8 +191,7 @@ func (h *Handler) IngestText(w http.ResponseWriter, r *http.Request) {
 		Title:   req.Title,
 	})
 	if err != nil {
-		slog.Warn("ingest text: submit failed", "error", err)
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		serviceUnavailable(w, "ingest.text_submit", err)
 		return
 	}
 	writeJSON(w, ingestResponse{JobID: job.ID})
@@ -214,8 +213,7 @@ func (h *Handler) IngestURL(w http.ResponseWriter, r *http.Request) {
 		URL:  req.URL,
 	})
 	if err != nil {
-		slog.Warn("ingest url: submit failed", "error", err)
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		serviceUnavailable(w, "ingest.url_submit", err)
 		return
 	}
 	writeJSON(w, ingestResponse{JobID: job.ID})
@@ -236,8 +234,7 @@ func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
 
 	content, err := io.ReadAll(file)
 	if err != nil {
-		slog.Error("ingest file: reading upload", "error", err)
-		http.Error(w, "reading upload: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "ingest.read_upload", err)
 		return
 	}
 
@@ -248,8 +245,7 @@ func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
 		MIMEType: header.Header.Get("Content-Type"),
 	})
 	if err != nil {
-		slog.Warn("ingest file: submit failed", "error", err)
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		serviceUnavailable(w, "ingest.file_submit", err)
 		return
 	}
 	writeJSON(w, ingestResponse{JobID: job.ID})

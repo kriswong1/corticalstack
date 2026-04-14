@@ -33,7 +33,7 @@ func (h *Handler) ListUseCases(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := h.UseCases.List()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "usecase.list", err)
 		return
 	}
 	writeJSON(w, list)
@@ -61,8 +61,7 @@ func (h *Handler) QuestionsFromDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	qs, err := h.UseCaseGen.QuestionsFromDoc(r.Context(), h.Vault, req)
 	if err != nil {
-		slog.Error("usecase questions from-doc", "error", err)
-		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "usecase.questions_from_doc", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"questions": qs})
@@ -81,8 +80,7 @@ func (h *Handler) QuestionsFromText(w http.ResponseWriter, r *http.Request) {
 	}
 	qs, err := h.UseCaseGen.QuestionsFromText(r.Context(), req)
 	if err != nil {
-		slog.Error("usecase questions from-text", "error", err)
-		http.Error(w, "questions: "+err.Error(), http.StatusInternalServerError)
+		internalError(w, "usecase.questions_from_text", err)
 		return
 	}
 	writeJSON(w, map[string]interface{}{"questions": qs})
@@ -110,8 +108,7 @@ func (h *Handler) GenerateUseCasesFromDoc(w http.ResponseWriter, r *http.Request
 	}
 	cases, err := h.UseCaseGen.FromDoc(r.Context(), h.Vault, req)
 	if err != nil {
-		slog.Error("usecase from-doc", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "usecase.from_doc", err)
 		return
 	}
 	written := writeAll(h.UseCases, cases)
@@ -131,8 +128,7 @@ func (h *Handler) GenerateUseCasesFromText(w http.ResponseWriter, r *http.Reques
 	}
 	cases, err := h.UseCaseGen.FromText(r.Context(), req)
 	if err != nil {
-		slog.Error("usecase from-text", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		internalError(w, "usecase.from_text", err)
 		return
 	}
 	written := writeAll(h.UseCases, cases)
