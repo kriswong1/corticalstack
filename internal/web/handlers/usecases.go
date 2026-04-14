@@ -50,6 +50,15 @@ func (h *Handler) QuestionsFromDoc(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	if req.SourcePath == "" {
+		http.Error(w, "source_path required", http.StatusBadRequest)
+		return
+	}
+	// Traversal guard (CR-01).
+	if _, err := h.Vault.SafeRelPath(req.SourcePath); err != nil {
+		http.Error(w, "invalid source_path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	qs, err := h.UseCaseGen.QuestionsFromDoc(r.Context(), h.Vault, req)
 	if err != nil {
 		slog.Error("usecase questions from-doc", "error", err)
@@ -88,6 +97,15 @@ func (h *Handler) GenerateUseCasesFromDoc(w http.ResponseWriter, r *http.Request
 	var req usecases.FromDocRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.SourcePath == "" {
+		http.Error(w, "source_path required", http.StatusBadRequest)
+		return
+	}
+	// Traversal guard (CR-01).
+	if _, err := h.Vault.SafeRelPath(req.SourcePath); err != nil {
+		http.Error(w, "invalid source_path: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	cases, err := h.UseCaseGen.FromDoc(r.Context(), h.Vault, req)

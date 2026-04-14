@@ -54,6 +54,20 @@ func (h *Handler) QuestionsForPRD(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pitch_path required", http.StatusBadRequest)
 		return
 	}
+	// Traversal guard — every user-supplied vault path must be validated
+	// at the handler boundary so we return 400 before the synth store
+	// reaches into the filesystem. See internal/vault.SafeRelPath and
+	// docs/code-review-go.md CR-01.
+	if _, err := h.Vault.SafeRelPath(req.PitchPath); err != nil {
+		http.Error(w, "invalid pitch_path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, p := range req.ExtraContextPaths {
+		if _, err := h.Vault.SafeRelPath(p); err != nil {
+			http.Error(w, "invalid extra_context_paths entry: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	qs, err := h.PRDSynth.Questions(r.Context(), h.Vault, req)
 	if err != nil {
 		slog.Error("prd questions", "error", err)
@@ -77,6 +91,17 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 	if req.PitchPath == "" {
 		http.Error(w, "pitch_path required", http.StatusBadRequest)
 		return
+	}
+	// Traversal guard at the handler boundary (CR-01).
+	if _, err := h.Vault.SafeRelPath(req.PitchPath); err != nil {
+		http.Error(w, "invalid pitch_path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, p := range req.ExtraContextPaths {
+		if _, err := h.Vault.SafeRelPath(p); err != nil {
+			http.Error(w, "invalid extra_context_paths entry: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	p, err := h.PRDSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {

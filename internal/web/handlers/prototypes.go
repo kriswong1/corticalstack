@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"html"
 	"log/slog"
 	"net/http"
 	"os"
@@ -60,6 +61,14 @@ func (h *Handler) QuestionsForPrototype(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Traversal guard (CR-01). Every source_paths entry must resolve
+	// inside the vault root.
+	for _, p := range req.SourcePaths {
+		if _, err := h.Vault.SafeRelPath(p); err != nil {
+			http.Error(w, "invalid source_paths entry: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	qs, err := h.PrototypeSynth.Questions(r.Context(), h.Vault, req)
 	if err != nil {
 		slog.Error("prototype questions", "error", err)
@@ -69,8 +78,27 @@ func (h *Handler) QuestionsForPrototype(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]interface{}{"questions": qs})
 }
 
+// escapeForSrcdoc escapes the prototype HTML for safe inclusion inside an
+// HTML attribute value. html.EscapeString covers &, <, >, ', and " — which
+// is exactly what an attribute delimited by " needs.
+//
+// The escaped output is injected into an <iframe srcdoc="..."> that carries
+// sandbox="allow-scripts" — deliberately WITHOUT allow-same-origin,
+// allow-forms, or allow-top-navigation — which gives the prototype a null
+// origin. It can still run JS to demo interactivity, but it cannot:
+//   - read cookies / localStorage from the CorticalStack origin
+//   - fetch() any CorticalStack API as the user (ambient credentials are
+//     unavailable from a null origin)
+//   - navigate the parent frame
+//
+// See docs/code-review-go.md CR-02.
+func escapeForSrcdoc(body []byte) string {
+	return html.EscapeString(string(body))
+}
+
 // ViewPrototypeHTML serves the prototype.html for an interactive-html
-// prototype. URL: GET /api/prototypes/{id}/html.
+// prototype, wrapped in a sandboxed iframe so untrusted script cannot reach
+// CorticalStack's origin. URL: GET /api/prototypes/{id}/html. See CR-02.
 func (h *Handler) ViewPrototypeHTML(w http.ResponseWriter, r *http.Request) {
 	if h.Prototypes == nil {
 		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
@@ -86,11 +114,28 @@ func (h *Handler) ViewPrototypeHTML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+
+	// Strict CSP on the outer shell. The inner iframe's srcdoc gets a
+	// null origin from the sandbox attribute and is not governed by this
+	// CSP, so we only need to lock down the shell itself. 'unsafe-inline'
+	// on style-src covers the tiny <style> block above; everything else
+	// is 'none'.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Allow the HTML to run inline scripts (it's user-generated content from
-	// their own Claude session served on localhost).
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; frame-src 'self' data:; style-src 'unsafe-inline'; sandbox allow-scripts")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Write(body)
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+
+	// Build the shell with the escaped prototype HTML injected into the
+	// srcdoc attribute. The %s is expanded with fmt.Fprintf so the
+	// outer template literal itself is a compile-time constant.
+	_, _ = w.Write([]byte("<!DOCTYPE html>\n"))
+	_, _ = w.Write([]byte(`<html lang="en"><head><meta charset="utf-8"><title>Prototype preview</title>`))
+	_, _ = w.Write([]byte(`<style>html,body{margin:0;padding:0;height:100%;background:#111}iframe{border:0;width:100%;height:100%;display:block;background:#fff}</style>`))
+	_, _ = w.Write([]byte(`</head><body><iframe sandbox="allow-scripts" srcdoc="`))
+	_, _ = w.Write([]byte(escapeForSrcdoc(body)))
+	_, _ = w.Write([]byte(`"></iframe></body></html>`))
 }
 
 // CreatePrototype handles POST /api/prototypes.
@@ -107,6 +152,13 @@ func (h *Handler) CreatePrototype(w http.ResponseWriter, r *http.Request) {
 	if len(req.SourcePaths) == 0 {
 		http.Error(w, "source_paths required", http.StatusBadRequest)
 		return
+	}
+	// Traversal guard (CR-01).
+	for _, p := range req.SourcePaths {
+		if _, err := h.Vault.SafeRelPath(p); err != nil {
+			http.Error(w, "invalid source_paths entry: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
