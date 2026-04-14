@@ -85,6 +85,10 @@ func buildAdvancePrompt(thread *Thread, target Stage, hints, answerBlock string)
 	var b strings.Builder
 
 	b.WriteString("You are a product strategist applying Ryan Singer's Shape Up methodology.\n\n")
+	// MD-11: fence semantics for every embedded user-controlled block
+	// below (hints, prior-stage bodies).
+	b.WriteString(questions.UntrustedFenceNotice)
+	b.WriteString("\n\n")
 	b.WriteString(fmt.Sprintf("## Task\nDraft the `%s` stage for this thread, given all prior stages. Do not repeat prior content verbatim — synthesize.\n\n", target))
 
 	b.WriteString(stageGuidance(target))
@@ -95,7 +99,9 @@ func buildAdvancePrompt(thread *Thread, target Stage, hints, answerBlock string)
 	}
 
 	if hints != "" {
-		b.WriteString(fmt.Sprintf("## Hints from the user\n%s\n\n", hints))
+		b.WriteString("## Hints from the user\n")
+		b.WriteString(questions.FenceUntrustedBlock(hints))
+		b.WriteString("\n")
 	}
 
 	if len(thread.Projects) > 0 {
@@ -105,13 +111,12 @@ func buildAdvancePrompt(thread *Thread, target Stage, hints, answerBlock string)
 	b.WriteString("## Prior stages in this thread\n\n")
 	for _, art := range thread.Artifacts {
 		b.WriteString(fmt.Sprintf("### [%s] %s\n", art.Stage, art.Title))
-		if len(art.Body) > 8000 {
-			b.WriteString(art.Body[:8000])
-			b.WriteString("\n\n[...truncated]\n\n")
-		} else {
-			b.WriteString(art.Body)
+		body := art.Body
+		if len(body) > 8000 {
+			body = body[:8000] + "\n\n[...truncated]"
 		}
-		b.WriteString("\n\n---\n\n")
+		b.WriteString(questions.FenceUntrustedBlock(body))
+		b.WriteString("\n---\n\n")
 	}
 
 	b.WriteString("## Output\n\n")

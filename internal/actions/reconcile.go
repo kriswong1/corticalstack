@@ -99,7 +99,35 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 	res.UniqueActions = len(observed)
 
 	// Apply changes to the index where markdown disagreed.
-	changedIDs := make([]string, 0)
+	//
+	// DFW-01: snapshot each mutated action's prior state before the
+	// mutation so we can roll back if flushLocked fails — same pattern
+	// Upsert uses. Without this, a disk-full / permission error leaves
+	// the in-memory map holding reconciled statuses while the on-disk
+	// index still shows the old ones, so a restart silently reverts
+	// every change.
+	//
+	// MD-09 / DFW-02: snapshot each changed action by VALUE (not just
+	// the pointer) so the subsequent Sync loop writes the state that
+	// was authoritative at reconcile time. Without this snapshot the
+	// Sync loop reads `s.byID[id]` under RLock and picks up whatever
+	// another handler just wrote — producing a last-write-wins race.
+	// With the snapshot, a concurrent handler update takes effect on
+	// the in-memory view but the markdown file reflects the reconciled
+	// status (the user's Obsidian edit) until the concurrent handler's
+	// own Sync runs, at which point IT wins. Both outcomes are
+	// deterministic and visible to the reconcile caller.
+	type rollbackEntry struct {
+		action      *Action
+		prevStatus  Status
+		prevUpdated time.Time
+	}
+	rollbacks := make([]rollbackEntry, 0)
+	// Snapshot the action-VALUE (not just pointer) at reconcile time so
+	// Sync writes the reconciled state even if another handler mutates
+	// the pointer while we're unlocked.
+	changedSnapshots := make([]Action, 0)
+
 	s.mu.Lock()
 	for id, o := range observed {
 		a, ok := s.byID[id]
@@ -108,10 +136,17 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 			continue
 		}
 		if o.status != a.Status {
+			rollbacks = append(rollbacks, rollbackEntry{
+				action:      a,
+				prevStatus:  a.Status,
+				prevUpdated: a.Updated,
+			})
 			a.Status = o.status
 			a.Updated = time.Now()
 			res.Updated++
-			changedIDs = append(changedIDs, id)
+			// Snapshot by VALUE so the Sync loop is not racy against
+			// concurrent Upsert/Update on the same pointer.
+			changedSnapshots = append(changedSnapshots, *a)
 		}
 	}
 	for id := range s.byID {
@@ -120,20 +155,27 @@ func (s *Store) Reconcile() (*ReconcileResult, error) {
 		}
 	}
 	if err := s.flushLocked(); err != nil {
+		// DFW-01: roll back every in-memory mutation so the store's
+		// in-RAM view matches on-disk. Restart would otherwise silently
+		// revert the user's Obsidian edits.
+		for _, rb := range rollbacks {
+			rb.action.Status = rb.prevStatus
+			rb.action.Updated = rb.prevUpdated
+		}
 		s.mu.Unlock()
 		return nil, fmt.Errorf("writing reconciled index: %w", err)
 	}
 	s.mu.Unlock()
 
 	// Re-sync the updated actions so every location agrees.
-	for _, id := range changedIDs {
-		s.mu.RLock()
-		a := s.byID[id]
-		s.mu.RUnlock()
-		if a != nil {
-			if err := s.Sync(a); err != nil {
-				slog.Warn("reconcile: sync failed", "action_id", id, "error", err)
-			}
+	//
+	// We use the VALUE snapshots captured above, not live pointer reads,
+	// so this loop is not racy against concurrent Upsert/Update. See
+	// the MD-09 / DFW-02 note in the mutation block above.
+	for i := range changedSnapshots {
+		snapshot := changedSnapshots[i]
+		if err := s.Sync(&snapshot); err != nil {
+			slog.Warn("reconcile: sync failed", "action_id", snapshot.ID, "error", err)
 		}
 	}
 

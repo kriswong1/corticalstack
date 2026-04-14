@@ -26,10 +26,25 @@ func (t *VTTTransformer) CanHandle(input *pipeline.RawInput) bool {
 	return ext == ".vtt"
 }
 
+// maxVTTRawBytes caps the raw input size of a single VTT transform so a
+// pathological 200MB upload (the current MaxUploadBytes default) doesn't
+// trigger 3x peak memory via ReplaceAll + Split allocations. 16MB is
+// ~6000 hours of single-speaker dialogue at 40 chars/sec — far beyond any
+// legitimate transcript — so the cap is effectively "you have a bug" not
+// "you have a long meeting". LO-01.
+const maxVTTRawBytes = 16 * 1024 * 1024
+
 func (t *VTTTransformer) Transform(input *pipeline.RawInput) (*pipeline.TextDocument, error) {
-	raw := readInputBytes(input)
+	raw, err := readInputBytes(input)
+	if err != nil {
+		return nil, fmt.Errorf("vtt: %w", err)
+	}
 	if raw == "" {
 		return nil, fmt.Errorf("vtt: empty input")
+	}
+	if len(raw) > maxVTTRawBytes {
+		return nil, fmt.Errorf("vtt: input exceeds %d byte cap (got %d); stream-split large transcripts before ingest",
+			maxVTTRawBytes, len(raw))
 	}
 
 	parsed := parseVTT(raw)

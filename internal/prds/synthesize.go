@@ -123,9 +123,17 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 }
 
 // buildPRDPrompt creates the Claude prompt with schema, pitch, and context.
+//
+// MD-11: wraps every block of user-controlled text (the pitch body and
+// each context note body) in an untrusted-content fence so Claude
+// recognizes the fenced content as data-to-analyze rather than
+// instructions-to-follow. The top-of-prompt directive includes
+// UntrustedFenceNotice so the model knows what the fences mean.
 func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote, answerBlock string) string {
 	var b strings.Builder
 	b.WriteString("You are a senior product manager. Turn the pitch below into a full PRD.\n\n")
+	b.WriteString(questions.UntrustedFenceNotice)
+	b.WriteString("\n\n")
 
 	if answerBlock != "" {
 		b.WriteString(answerBlock)
@@ -136,8 +144,8 @@ func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote, answerBloc
 	if len(pitch) > 15000 {
 		pitch = pitch[:15000] + "\n\n[...truncated]"
 	}
-	b.WriteString(pitch)
-	b.WriteString("\n\n")
+	b.WriteString(questions.FenceUntrustedBlock(pitch))
+	b.WriteString("\n")
 
 	if len(context) > 0 {
 		b.WriteString("## Context (cite by path in References section)\n\n")
@@ -147,8 +155,8 @@ func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote, answerBloc
 			if len(body) > 3000 {
 				body = body[:3000] + "\n\n[...truncated]"
 			}
-			b.WriteString(body)
-			b.WriteString("\n\n---\n\n")
+			b.WriteString(questions.FenceUntrustedBlock(body))
+			b.WriteString("\n---\n\n")
 		}
 	}
 

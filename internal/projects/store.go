@@ -1,7 +1,9 @@
 package projects
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +13,11 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/vault"
 )
+
+// ErrProjectExists is returned by Create when a project with the derived
+// slug id already exists. Callers that want idempotent creation should
+// use CreateIfMissing instead of catching this error by string.
+var ErrProjectExists = errors.New("project already exists")
 
 const (
 	projectsFolder  = "projects"
@@ -89,7 +96,12 @@ func (s *Store) Get(id string) *Project {
 }
 
 // Create writes a new project manifest and an empty action items file.
-// Returns ErrExists if the project id already exists.
+// Returns ErrProjectExists if the project id already exists.
+//
+// Create holds the write lock for the full check-and-write so a race
+// between two Create calls produces exactly one success and one
+// ErrProjectExists. Callers that want idempotent "create if not
+// present" semantics should use CreateIfMissing.
 func (s *Store) Create(req CreateRequest) (*Project, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -100,11 +112,16 @@ func (s *Store) Create(req CreateRequest) (*Project, error) {
 		return nil, fmt.Errorf("project name produced empty slug")
 	}
 
-	s.mu.RLock()
-	_, exists := s.cache[id]
-	s.mu.RUnlock()
-	if exists {
-		return nil, fmt.Errorf("project %q already exists", id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.createLocked(id, name, req)
+}
+
+// createLocked is the shared write-under-lock implementation used by both
+// Create and CreateIfMissing. Caller must hold s.mu for writing.
+func (s *Store) createLocked(id, name string, req CreateRequest) (*Project, error) {
+	if _, exists := s.cache[id]; exists {
+		return nil, fmt.Errorf("%w: %q", ErrProjectExists, id)
 	}
 
 	project := &Project{
@@ -123,60 +140,133 @@ func (s *Store) Create(req CreateRequest) (*Project, error) {
 		return nil, err
 	}
 
-	s.mu.Lock()
 	s.cache[id] = project
-	s.mu.Unlock()
-
 	return project, nil
+}
+
+// CreateIfMissing is the idempotent, race-safe variant of Create used by
+// fan-out paths like SyncFromVault and EnsureExists. Returns:
+//   - (project, true, nil)  — a new project was created
+//   - (project, false, nil) — a project with that id already existed
+//   - (nil,     false, err) — slug was invalid or disk write failed
+//
+// The check-and-create runs under a single write lock so concurrent
+// callers for the same project id produce exactly one "created" and one
+// "already existed" — never a "both created" or "silent disk error".
+// MD-06 / MD-07: replaces the old read-unlock-then-create TOCTOU pattern.
+func (s *Store) CreateIfMissing(req CreateRequest) (*Project, bool, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, false, fmt.Errorf("project name required")
+	}
+	id := vault.Slugify(name)
+	if id == "" {
+		return nil, false, fmt.Errorf("project name produced empty slug")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.cache[id]; ok {
+		return existing, false, nil
+	}
+	project, err := s.createLocked(id, name, req)
+	if err != nil {
+		return nil, false, err
+	}
+	return project, true, nil
 }
 
 // EnsureExists creates a project with the given id if it doesn't already exist.
 // Used during ingest to auto-create projects referenced in the preview panel.
+//
+// MD-07: now routes through CreateIfMissing so the existence check and
+// the create run under a single lock, and disk-write failures are logged
+// at Warn level instead of silently dropped. Still returns no value
+// because ingest callers are fire-and-forget — they just want the
+// project to exist by the time they look it up.
 func (s *Store) EnsureExists(id string) {
-	s.mu.RLock()
-	_, exists := s.cache[id]
-	s.mu.RUnlock()
-	if exists {
+	if id == "" {
 		return
 	}
 	// Auto-create with the id as the name; user can rename later.
-	s.Create(CreateRequest{Name: id})
+	if _, _, err := s.CreateIfMissing(CreateRequest{Name: id}); err != nil {
+		slog.Warn("projects: auto-create failed",
+			"project_id", id, "error", err)
+	}
 }
 
 // SyncFromVault scans all markdown notes in the vault for frontmatter
 // `projects:` entries and ensures each referenced project exists in the store.
 // Returns the list of newly created project IDs.
+//
+// MD-06: now uses CreateIfMissing (single-lock check-and-create) and
+// logs disk-write failures at Warn level instead of dropping them. Also
+// accepts both `[]interface{}` (yaml-round-trip) and `[]string`
+// (in-memory writer) shapes for the `projects:` frontmatter field — see
+// MD-04 in aggregator.go for the canonical form of this parse.
 func (s *Store) SyncFromVault() ([]string, error) {
 	var created []string
 	seen := map[string]bool{}
 
 	err := s.vault.Walk(func(relPath string, note *vault.Note) {
-		projects, ok := note.Frontmatter["projects"].([]interface{})
-		if !ok {
-			return
-		}
-		for _, raw := range projects {
-			pid, ok := raw.(string)
-			if !ok || pid == "" {
-				continue
-			}
-			if seen[pid] {
+		for _, pid := range parseProjectsField(note.Frontmatter) {
+			if pid == "" || seen[pid] {
 				continue
 			}
 			seen[pid] = true
 
-			s.mu.RLock()
-			_, exists := s.cache[pid]
-			s.mu.RUnlock()
-			if exists {
+			_, wasCreated, err := s.CreateIfMissing(CreateRequest{Name: pid})
+			if err != nil {
+				slog.Warn("projects: sync-from-vault create failed",
+					"project_id", pid, "note", relPath, "error", err)
 				continue
 			}
-			if _, err := s.Create(CreateRequest{Name: pid}); err == nil {
+			if wasCreated {
 				created = append(created, pid)
 			}
 		}
 	})
 	return created, err
+}
+
+// parseProjectsField returns the `projects:` frontmatter list, accepting
+// every shape produced by callers that write the field:
+//
+//   - []interface{} — yaml.v3's round-trip form (every Walk-based reader)
+//   - []string      — in-memory writer shape (route.go etc.)
+//   - string        — scalar form for user-hand-written frontmatter
+//
+// Empty strings and non-string elements are filtered out. Anything else
+// (int, map, nil) yields nil.
+func parseProjectsField(fm map[string]interface{}) []string {
+	raw, ok := fm["projects"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	}
+	return nil
 }
 
 // ActionItemsPath returns the relative vault path of a project's action items file.
@@ -209,10 +299,26 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 	if desc, ok := note.Frontmatter["description"].(string); ok {
 		p.Description = desc
 	}
-	if tags, ok := note.Frontmatter["tags"].([]interface{}); ok {
-		for _, t := range tags {
-			if s, ok := t.(string); ok {
-				p.Tags = append(p.Tags, s)
+	// MD-04: accept both yaml-round-trip ([]interface{}) and in-memory
+	// ([]string) shapes plus the scalar one-element form. This matches the
+	// dashboard's parseFrontmatterStrings so every reader agrees.
+	if tagsRaw, ok := note.Frontmatter["tags"]; ok {
+		switch v := tagsRaw.(type) {
+		case []interface{}:
+			for _, t := range v {
+				if s, ok := t.(string); ok && s != "" {
+					p.Tags = append(p.Tags, s)
+				}
+			}
+		case []string:
+			for _, s := range v {
+				if s != "" {
+					p.Tags = append(p.Tags, s)
+				}
+			}
+		case string:
+			if v != "" {
+				p.Tags = append(p.Tags, v)
 			}
 		}
 	}

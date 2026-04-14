@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
@@ -30,7 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { api, ApiError, getErrorMessage } from "@/lib/api"
-import type { Action, ActionStatus } from "@/types/api"
+import type { Action, ActionStatus, ActionPriority, ActionEffort } from "@/types/api"
 import { RefreshCw, Pencil } from "lucide-react"
 
 const allStatuses: ActionStatus[] = [
@@ -44,6 +44,12 @@ const allStatuses: ActionStatus[] = [
   "cancelled",
 ]
 
+// statusColors maps an ActionStatus to a literal class string. All
+// values are literal source strings (not template-interpolated) so
+// Tailwind's JIT extractor picks them up during build. If you add new
+// statuses or variants, keep the class names literal here — do not
+// compose them via `${}` interpolation inside the map — and verify the
+// rendered badge still has the expected colors after `npm run build`.
 const statusColors: Record<string, string> = {
   inbox: "bg-muted text-muted-foreground",
   next: "bg-secondary text-secondary-foreground",
@@ -123,18 +129,36 @@ export function ActionsPage() {
     queryFn: api.getActionCounts,
   })
 
-  // Derive unique projects and contexts from actions for filter dropdowns.
-  const uniqueProjects = Array.from(
-    new Set(actions?.flatMap((a) => a.project_ids ?? []) ?? []),
-  ).sort()
-  const uniqueContexts = Array.from(
-    new Set(actions?.map((a) => a.context).filter(Boolean) as string[]),
-  ).sort()
+  // Derive unique projects and contexts from actions for filter
+  // dropdowns. Memoized on `actions` so they don't re-sort on every
+  // unrelated render (filter chip click, etc.). The type guard on
+  // `context` is load-bearing: `filter(Boolean)` loses the nullability
+  // proof in strict-null mode and `as string[]` would lie about it.
+  const uniqueProjects = useMemo(
+    () =>
+      Array.from(
+        new Set(actions?.flatMap((a) => a.project_ids ?? []) ?? []),
+      ).sort(),
+    [actions],
+  )
+  const uniqueContexts = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          actions
+            ?.map((a) => a.context)
+            .filter((c): c is string => typeof c === "string" && c.length > 0) ?? [],
+        ),
+      ).sort(),
+    [actions],
+  )
 
   // Apply client-side filters. Stalled is cross-status (doing + waiting
   // older than STALLED_MS) and not exposed via the normal filter chips —
   // it's triggered by the dashboard link and cleared via the "Clear
-  // filters" button.
+  // filters" button. An unparseable `updated` timestamp is treated as
+  // "definitely stale" — broken data is itself a signal the user cares
+  // about, and the previous "silently exclude" behavior hid bugs.
   const now = Date.now()
   const filtered = actions?.filter((a) => {
     if (filterStatus && a.status !== filterStatus) return false
@@ -143,7 +167,8 @@ export function ActionsPage() {
     if (filterStalled) {
       if (a.status !== "doing" && a.status !== "waiting") return false
       const updatedMs = new Date(a.updated).getTime()
-      if (!isFinite(updatedMs) || now - updatedMs < STALLED_MS) return false
+      if (!isFinite(updatedMs)) return true
+      if (now - updatedMs < STALLED_MS) return false
     }
     return true
   })
@@ -352,7 +377,7 @@ export function ActionsPage() {
                       <span className="text-[10px] text-muted-foreground">@{action.context}</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs font-light text-muted-foreground font-[font-feature-settings:'tnum'] whitespace-nowrap">
+                  <TableCell className="text-xs font-light text-muted-foreground tabular-nums whitespace-nowrap">
                     {action.deadline || "\u2014"}
                   </TableCell>
                   <TableCell>
@@ -405,9 +430,16 @@ function EditActionDialog({
   const [description, setDescription] = useState(action.description)
   const [owner, setOwner] = useState(action.owner)
   const [deadline, setDeadline] = useState(action.deadline ?? "")
-  const [status, setStatus] = useState(action.status)
-  const [priority, setPriority] = useState<string>(action.priority ?? "p2")
-  const [effort, setEffort] = useState<string>(action.effort ?? "m")
+  const [status, setStatus] = useState<ActionStatus>(action.status)
+  // Type the enum states narrowly so TypeScript catches rogue values at
+  // the Select's onValueChange boundary instead of relying on the `as`
+  // cast at PUT-time.
+  const [priority, setPriority] = useState<ActionPriority>(
+    (action.priority as ActionPriority) ?? "p2",
+  )
+  const [effort, setEffort] = useState<ActionEffort>(
+    (action.effort as ActionEffort) ?? "m",
+  )
   const [context, setContext] = useState(action.context ?? "")
   const [saving, setSaving] = useState(false)
 
@@ -424,8 +456,8 @@ function EditActionDialog({
     if (owner !== action.owner) patch.owner = owner
     if (deadline !== (action.deadline ?? "")) patch.deadline = deadline
     if (status !== action.status) patch.status = status
-    if (priority !== (action.priority ?? "p2")) patch.priority = priority as Action["priority"]
-    if (effort !== (action.effort ?? "m")) patch.effort = effort as Action["effort"]
+    if (priority !== (action.priority ?? "p2")) patch.priority = priority
+    if (effort !== (action.effort ?? "m")) patch.effort = effort
     if (context !== (action.context ?? "")) patch.context = context
     return patch
   }
@@ -504,7 +536,7 @@ function EditActionDialog({
             </div>
             <div className="space-y-2">
               <Label className="text-[var(--stripe-label)] text-sm font-normal">Priority</Label>
-              <Select value={priority} onValueChange={setPriority}>
+              <Select value={priority} onValueChange={(v) => setPriority(v as ActionPriority)}>
                 <SelectTrigger className="border-border rounded-sm">
                   <SelectValue />
                 </SelectTrigger>
@@ -517,7 +549,7 @@ function EditActionDialog({
             </div>
             <div className="space-y-2">
               <Label className="text-[var(--stripe-label)] text-sm font-normal">Effort</Label>
-              <Select value={effort} onValueChange={setEffort}>
+              <Select value={effort} onValueChange={(v) => setEffort(v as ActionEffort)}>
                 <SelectTrigger className="border-border rounded-sm">
                   <SelectValue />
                 </SelectTrigger>

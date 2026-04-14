@@ -41,7 +41,11 @@ func (s *Store) EnsureFolders() error {
 // NewThreadID returns a fresh thread UUID.
 func NewThreadID() string { return uuid.NewString() }
 
-// CreateRawIdea writes a new raw idea note, starting a new thread.
+// CreateRawIdea writes a new raw idea note. If req.ThreadID is empty a
+// fresh thread UUID is allocated (the default — each idea starts its
+// own thread). If req.ThreadID is non-empty the new artifact is
+// attached to that thread, letting callers append refined raw ideas to
+// an existing thread without starting a new arc. See LO-04.
 func (s *Store) CreateRawIdea(req CreateIdeaRequest) (*Artifact, error) {
 	if strings.TrimSpace(req.Title) == "" {
 		return nil, fmt.Errorf("title required")
@@ -50,11 +54,16 @@ func (s *Store) CreateRawIdea(req CreateIdeaRequest) (*Artifact, error) {
 		return nil, fmt.Errorf("content required")
 	}
 
+	threadID := strings.TrimSpace(req.ThreadID)
+	if threadID == "" {
+		threadID = NewThreadID()
+	}
+
 	now := time.Now()
 	artifact := &Artifact{
 		ID:       uuid.NewString(),
 		Stage:    StageRaw,
-		Thread:   NewThreadID(),
+		Thread:   threadID,
 		Title:    req.Title,
 		Projects: req.ProjectIDs,
 		Status:   "draft",
@@ -91,6 +100,14 @@ func (s *Store) WriteArtifact(a *Artifact) error {
 }
 
 // GetThread returns every artifact in a thread, ordered by stage.
+//
+// NT-03: Thread.Projects is the UNION of project IDs across every
+// artifact in the thread, not just the raw idea's list. When the pitch
+// stage introduces a new project association (reasonable during
+// shape/breadboard refinement), it surfaces in the thread summary
+// instead of being silently hidden behind the original raw idea's
+// projects. Union preserves backward-compat with threads whose later
+// stages inherit the same projects.
 func (s *Store) GetThread(threadID string) (*Thread, error) {
 	all, err := s.walkArtifacts()
 	if err != nil {
@@ -115,10 +132,32 @@ func (s *Store) GetThread(threadID string) (*Thread, error) {
 	return &Thread{
 		ID:           threadID,
 		Title:        matched[0].Title,
-		Projects:     matched[0].Projects,
+		Projects:     unionArtifactProjects(matched),
 		CurrentStage: latest.Stage,
 		Artifacts:    matched,
 	}, nil
+}
+
+// unionArtifactProjects returns the distinct project IDs across a set of
+// artifacts, preserving the order in which each ID is first seen. Used
+// by GetThread and ListThreads so a thread's top-level `Projects` field
+// reflects every project that any stage touches, not just the raw idea.
+func unionArtifactProjects(arts []*Artifact) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0)
+	for _, a := range arts {
+		for _, pid := range a.Projects {
+			if pid == "" || seen[pid] {
+				continue
+			}
+			seen[pid] = true
+			out = append(out, pid)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ListThreads groups all artifacts by thread UUID and returns one Thread
@@ -146,7 +185,9 @@ func (s *Store) ListThreads() ([]*Thread, error) {
 		threads = append(threads, &Thread{
 			ID:           id,
 			Title:        arts[0].Title,
-			Projects:     arts[0].Projects,
+			// NT-03: union of every artifact's projects so later-stage
+			// additions are visible, not just the raw idea's list.
+			Projects:     unionArtifactProjects(arts),
 			CurrentStage: latest.Stage,
 			Artifacts:    arts,
 		})

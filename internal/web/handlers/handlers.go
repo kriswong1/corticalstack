@@ -383,25 +383,39 @@ func (h *Handler) VaultTree(w http.ResponseWriter, r *http.Request) {
 }
 
 // VaultFile returns the raw content of a single file in the vault.
+//
+// MD-08: routes the caller-supplied relative path through the same
+// vault.SafeRelPath helper used by every v3 synthesis endpoint. This
+// rejects absolute paths, Windows volume-relative forms, null bytes,
+// and traversal climbers at the boundary before any disk read. The
+// previous `filepath.Clean` + `HasPrefix("..")` + `Contains("..")`
+// check was both overly restrictive (rejecting legit filenames like
+// `foo..bar.md`) and fragile on Windows (missed absolute drive-letter
+// paths that filepath.Clean cannot normalize to a climber). We rely on
+// vault.ReadFile to call SafeRelPath internally too, so this is a
+// belt-and-suspenders guard that lets the handler reply 400 with a
+// clear message instead of a generic store error.
 func (h *Handler) VaultFile(w http.ResponseWriter, r *http.Request) {
 	rel := r.URL.Query().Get("path")
 	if rel == "" {
 		http.Error(w, "path query param required", http.StatusBadRequest)
 		return
 	}
-	// Prevent traversal
-	clean := filepath.Clean(rel)
-	if strings.HasPrefix(clean, "..") || strings.Contains(clean, "..") {
+	safe, err := h.Vault.SafeRelPath(rel)
+	if err != nil {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	content, err := h.Vault.ReadFile(clean)
+	content, err := h.Vault.ReadFile(safe)
 	if err != nil {
-		http.Error(w, "reading file: "+err.Error(), http.StatusNotFound)
+		// Don't leak filesystem paths or error internals to the client
+		// (LO-08). Log the real error server-side for debugging.
+		slog.Warn("vault file read failed", "path", safe, "error", err)
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(content))
+	_, _ = w.Write([]byte(content))
 }
 
 // --- API: Integrations ---

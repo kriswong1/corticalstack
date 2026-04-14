@@ -46,6 +46,14 @@ type TextDocument struct {
 	Authors  []string          // Speakers/participants
 	Content  string            // Full text content
 	Metadata map[string]string // Carried metadata
+	// Projects is the typed list of project IDs this document is
+	// associated with. Destinations should prefer this field over
+	// reading Metadata["projects"] because the metadata map is
+	// `map[string]string` and a CSV round-trip loses any project name
+	// that contains a comma (LO-06). The CSV form remains populated
+	// for backward compatibility with legacy destinations, but new
+	// code should read Projects directly.
+	Projects []string
 }
 
 // --- Stage 2: Extract Types ---

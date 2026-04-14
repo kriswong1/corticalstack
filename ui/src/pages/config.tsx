@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -258,6 +258,10 @@ function PersonaEditor({ name }: { name: string }) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
+  // Track the "Saved" banner clear-timer so it can be cancelled on
+  // unmount — if the user saves a persona and navigates away in under
+  // 2 seconds, we don't want a setState firing on an unmounted component.
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (persona?.content != null) {
@@ -265,13 +269,29 @@ function PersonaEditor({ name }: { name: string }) {
     }
   }, [persona?.content])
 
+  // Clear the save-status timer on unmount so no stale setState runs.
+  useEffect(() => {
+    return () => {
+      if (saveStatusTimerRef.current != null) {
+        clearTimeout(saveStatusTimerRef.current)
+        saveStatusTimerRef.current = null
+      }
+    }
+  }, [])
+
   const saveMutation = useMutation({
     mutationFn: () => api.savePersona(name, content),
     onMutate: () => setSaveStatus("saving"),
     onSuccess: () => {
       setSaveStatus("saved")
       queryClient.invalidateQueries({ queryKey: ["persona", name] })
-      setTimeout(() => setSaveStatus("idle"), 2000)
+      if (saveStatusTimerRef.current != null) {
+        clearTimeout(saveStatusTimerRef.current)
+      }
+      saveStatusTimerRef.current = setTimeout(() => {
+        setSaveStatus("idle")
+        saveStatusTimerRef.current = null
+      }, 2000)
     },
     onError: (err) => {
       setSaveStatus("error")

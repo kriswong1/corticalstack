@@ -13,6 +13,14 @@ import { ChevronRight, ChevronDown, File, Folder, X } from "lucide-react"
 // file is under the requested type folder (or no type filter), AND (b)
 // the filename starts with the requested date prefix (or no date filter).
 // Returns null when the whole branch is filtered out.
+//
+// Root-level files: a file directly at the vault root (e.g. README.md)
+// has no "type folder" parent, so the `typeFilter` clause would always
+// exclude it when a type filter is active. We treat root-level files as
+// matching iff the type filter is literally `"root"`; otherwise they
+// pass through as "no type" and get hidden (since the user asked for a
+// specific type). The dashboard deep-links never emit `type=root` today
+// so this preserves existing behavior while documenting the edge case.
 function filterTree(
   node: VaultTreeNode,
   dateFilter: string | null,
@@ -20,8 +28,16 @@ function filterTree(
   parentFolder: string | null,
 ): VaultTreeNode | null {
   if (!node.is_dir) {
-    // Type filter: the leaf's immediate parent folder must match.
-    if (typeFilter && parentFolder !== typeFilter) return null
+    // Root-level files (parentFolder === null) match a literal
+    // "root" type filter, otherwise fall through to the standard
+    // "parent folder must equal type filter" check.
+    if (typeFilter) {
+      if (parentFolder === null) {
+        if (typeFilter !== "root") return null
+      } else if (parentFolder !== typeFilter) {
+        return null
+      }
+    }
     // Date filter: filenames follow "YYYY-MM-DD_slug.md" convention so a
     // simple prefix check is enough. Notes without a date-prefixed name
     // are hidden under a date filter.

@@ -23,10 +23,13 @@ import type {
   Answer,
   Artifact,
   Question,
+  ShapeUpStage,
   ShapeUpThread,
 } from "@/types/api"
 
-const stages = ["raw", "frame", "shape", "breadboard", "pitch"]
+// Type the stages array against ShapeUpStage so a drift between this
+// list and the backend's allowed stages is caught at compile time.
+const stages: ShapeUpStage[] = ["raw", "frame", "shape", "breadboard", "pitch"]
 
 // STALLED_MS matches the backend's dashboard.StalledThreshold (7 days).
 // A thread is stalled when its current-stage artifact's created time
@@ -67,11 +70,19 @@ export function ProductPage() {
   const stalledFilter = searchParams.get("stalled") === "true"
   const hasFilter = !!stageFilter || stalledFilter
 
+  // Use the functional updater so we read the *latest* search params
+  // each time — avoids the same stale-closure hazard described in H6
+  // for actions.tsx.
   const clearFilter = () => {
-    const next = new URLSearchParams(searchParams)
-    next.delete("stage")
-    next.delete("stalled")
-    setSearchParams(next, { replace: true })
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete("stage")
+        next.delete("stalled")
+        return next
+      },
+      { replace: true },
+    )
   }
 
   const { data: threads, isLoading } = useQuery({
@@ -233,20 +244,19 @@ function ThreadCard({ thread }: { thread: ShapeUpThread }) {
         questions: questions ?? undefined,
         answers: answers.length > 0 ? answers : undefined,
       }),
-    onSuccess: async (newArtifact: Artifact) => {
-      queryClient.setQueryData<ShapeUpThread[]>(["shapeup-threads"], (old) => {
-        if (!old) return old
-        return old.map((t) =>
-          t.id === thread.id
-            ? { ...t, current_stage: newArtifact.stage, artifacts: [...t.artifacts, newArtifact] }
-            : t,
-        )
-      })
-      await queryClient.refetchQueries({ queryKey: ["shapeup-threads"] })
+    onSuccess: (newArtifact: Artifact) => {
+      // Reset the form first so the dialog closes immediately —
+      // don't block the UI on the background refetch. `invalidateQueries`
+      // marks the thread list as stale; React Query will transition it
+      // to loading and re-fetch in the background, which is exactly
+      // what we want. The previous optimistic `setQueryData` +
+      // `await refetchQueries` combo did the optimistic write only to
+      // overwrite it a few ms later AND made the dialog feel slow.
       setTargetStage("")
       setHints("")
       setQuestions(null)
       setModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["shapeup-threads"] })
       toast.success(`Advanced to ${newArtifact.stage}`)
     },
     onError: (err) => {
@@ -283,7 +293,7 @@ function ThreadCard({ thread }: { thread: ShapeUpThread }) {
         <div className="flex items-center gap-1 mb-3">
           {stages.map((s, i) => (
             <span key={s} className="flex items-center gap-1">
-              <span className={`text-xs ${stages.indexOf(thread.current_stage) >= i ? "text-primary font-normal" : "text-muted-foreground font-light"}`}>
+              <span className={`text-xs ${currentIdx >= i ? "text-primary font-normal" : "text-muted-foreground font-light"}`}>
                 {s}
               </span>
               {i < stages.length - 1 && <ArrowRight className="h-3 w-3 text-muted-foreground" />}

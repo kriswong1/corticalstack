@@ -168,6 +168,12 @@ func buildSynthesisPrompt(format Format, sources, hints, answerBlock string) str
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("You are a senior product designer. Turn the source documents below into a **%s** design spec.\n\n", format.Name()))
+	// MD-11: tell Claude how to treat fenced untrusted content before we
+	// start embedding it, so a prompt-injection attempt inside a source
+	// document or a user hint can't re-interpret itself as a system
+	// instruction.
+	b.WriteString(questions.UntrustedFenceNotice)
+	b.WriteString("\n\n")
 	b.WriteString(fmt.Sprintf("## Format: %s\n%s\n\n", format.Name(), format.Description()))
 
 	if answerBlock != "" {
@@ -176,13 +182,13 @@ func buildSynthesisPrompt(format Format, sources, hints, answerBlock string) str
 
 	if hints != "" {
 		b.WriteString("## User hints\n")
-		b.WriteString(hints)
-		b.WriteString("\n\n")
+		b.WriteString(questions.FenceUntrustedBlock(hints))
+		b.WriteString("\n")
 	}
 
 	b.WriteString("## Source documents\n")
-	b.WriteString(sources)
-	b.WriteString("\n\n")
+	b.WriteString(questions.FenceUntrustedBlock(sources))
+	b.WriteString("\n")
 
 	// Raw formats (interactive-html) get a different output block — no JSON.
 	if rawFmt, ok := format.(RawFormat); ok && rawFmt.IsRaw() {

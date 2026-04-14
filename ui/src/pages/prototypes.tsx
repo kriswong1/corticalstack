@@ -135,11 +135,11 @@ export function PrototypesPage() {
   }
 
   const openForm = () => {
-    setShowForm((prev) => {
-      if (prev) return false
-      // Default the title to the selected thread's title when opening fresh.
-      return true
-    })
+    // Toggle the form card open/closed. The title is seeded from the
+    // selected thread inside the Select's `onValueChange` below, not
+    // here — opening the form with no thread selected keeps the title
+    // input empty until the user picks one.
+    setShowForm((prev) => !prev)
   }
 
   const noReadyThreads = (threads ?? []).length > 0 && readyThreads.length === 0

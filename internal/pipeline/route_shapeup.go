@@ -36,7 +36,14 @@ func (d *ShapeUpIdeasDestination) Accept(doc *TextDocument, extracted *Extracted
 	if doc.Metadata != nil {
 		sourceNote = doc.Metadata["note_path"]
 	}
-	projectIDs := splitAndTrim(safeMeta(doc, "projects"), ",")
+	// LO-06: prefer the typed Projects field. Fall back to the CSV form
+	// in Metadata["projects"] only if the typed field is empty, so
+	// legacy callers that still populate the metadata map continue to
+	// work. Once every caller migrates, the CSV branch can be removed.
+	projectIDs := doc.Projects
+	if len(projectIDs) == 0 {
+		projectIDs = splitAndTrim(safeMeta(doc, "projects"), ",")
+	}
 
 	var lastPath string
 	for _, idea := range extracted.Ideas {

@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/layout/page-header"
@@ -78,17 +78,31 @@ function relativeTime(iso: string): string {
 }
 
 // Friendly label for the chart x-axis. The backend returns YYYY-MM-DD in
-// the server's local TZ; we render as "Mon DD" to save space.
+// the server's local TZ; we render as "Mon DD" to save space. Parse
+// explicitly rather than relying on `new Date("YYYY-MM-DDTHH:mm:ss")`,
+// which Safari treats as UTC and Chrome as local — this guarantees the
+// label matches the server's date string regardless of client TZ.
 function shortDate(yyyyMmDd: string): string {
-  const d = new Date(yyyyMmDd + "T00:00:00")
-  return d.toLocaleDateString([], { month: "short", day: "numeric" })
+  if (!yyyyMmDd) return ""
+  const [y, m, d] = yyyyMmDd.split("-").map(Number)
+  if (!y || !m || !d) return yyyyMmDd
+  return new Date(y, m - 1, d).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  })
 }
 
 export function DashboardPage() {
+  // The dashboard's "as of Xm ago" freshness marker and stale banner
+  // both imply the view is being actively refreshed. Poll the aggregator
+  // every 60s so the markers don't silently go stale. Window-focus
+  // refetch is kept off because the aggregator is relatively expensive —
+  // the 60s interval is the single source of truth for freshness.
   const { data: snapshot, isLoading, error } = useQuery({
     queryKey: ["dashboard"],
     queryFn: api.getDashboard,
     staleTime: 60_000,
+    refetchInterval: 60_000,
     refetchOnWindowFocus: false,
   })
 
@@ -199,8 +213,12 @@ interface TooltipState {
 }
 
 function IngestActivityCard({ widget }: { widget: IngestWidget }) {
-  const days = widget.days ?? []
-  const types = widget.types ?? []
+  const navigate = useNavigate()
+  // Wrap the `?? []` fallbacks in their own useMemo so the downstream
+  // hooks don't see a fresh array identity every render (the lint rule
+  // `react-hooks/exhaustive-deps` warns about the bare logical-or form).
+  const days = useMemo(() => widget.days ?? [], [widget.days])
+  const types = useMemo(() => widget.types ?? [], [widget.types])
   const emptyDays = useMemo(
     () => days.filter((d) => d.count === 0).length,
     [days],
@@ -208,6 +226,13 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
   const maxCount = useMemo(
     () => Math.max(1, ...days.map((d) => d.count)),
     [days],
+  )
+  // Pre-compute type → color so we don't rehash per-bucket per render.
+  // `types` is stable across renders (comes from a memoized query
+  // result), so the map is effectively constant after the first render.
+  const typeColors = useMemo(
+    () => Object.fromEntries(types.map((t) => [t, colorFor(t)])),
+    [types],
   )
 
   const [tooltip, setTooltip] = useState<TooltipState>({
@@ -217,14 +242,36 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
     day: null,
   })
   const chartRef = useRef<HTMLDivElement>(null)
+  const rafRef = useRef<number | null>(null)
 
   const showTooltip = (day: IngestDay, e: React.MouseEvent) => {
     setTooltip({ visible: true, x: e.clientX, y: e.clientY, day })
   }
+  // Throttle move events via requestAnimationFrame so a fast mouse drag
+  // across 30 bars doesn't fire hundreds of state updates per second.
   const moveTooltip = (e: React.MouseEvent) => {
-    setTooltip((t) => (t.visible ? { ...t, x: e.clientX, y: e.clientY } : t))
+    const x = e.clientX
+    const y = e.clientY
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null
+      setTooltip((t) => (t.visible ? { ...t, x, y } : t))
+    })
   }
-  const hideTooltip = () => setTooltip((t) => ({ ...t, visible: false }))
+  const hideTooltip = () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    setTooltip((t) => ({ ...t, visible: false }))
+  }
+  // Cancel any pending rAF on unmount so we don't flush a setTooltip on
+  // a dead component.
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   const isEmpty = widget.total === 0
 
@@ -279,14 +326,33 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
                   const totalDay = day.count
                   const buckets = day.buckets ?? []
                   const isEmptyDay = totalDay === 0
+                  // Use a <div role="link"> rather than a <Link> because
+                  // the per-bucket segments below are themselves links —
+                  // nesting <a> in <a> is invalid HTML and the browser
+                  // auto-closes the outer anchor, breaking keyboard nav.
+                  // The outer element is still keyboard-focusable via
+                  // tabIndex + Enter/Space handlers.
+                  const outerLabel = `${day.date}: ${totalDay} note${
+                    totalDay === 1 ? "" : "s"
+                  }`
+                  const outerNavigate = () =>
+                    navigate(`/library?date=${day.date}`)
                   return (
-                    <Link
+                    <div
                       key={day.date}
-                      to={`/library?date=${day.date}`}
-                      className="flex-1 h-full flex flex-col justify-end min-w-0 rounded-t hover:bg-accent/50 transition-colors px-[1px]"
+                      role="link"
+                      tabIndex={0}
+                      onClick={outerNavigate}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          outerNavigate()
+                        }
+                      }}
+                      className="flex-1 h-full flex flex-col justify-end min-w-0 rounded-t hover:bg-accent/50 transition-colors px-[1px] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       onMouseEnter={(e) => showTooltip(day, e)}
                       onMouseMove={moveTooltip}
-                      aria-label={`${day.date}: ${totalDay} note${totalDay === 1 ? "" : "s"}`}
+                      aria-label={outerLabel}
                     >
                       {isEmptyDay ? (
                         <div
@@ -305,15 +371,16 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
                               onClick={(e) => e.stopPropagation()}
                               style={{
                                 flex: b.count,
-                                background: colorFor(b.type),
+                                background: typeColors[b.type] ?? colorFor(b.type),
                                 minHeight: "2px",
                               }}
                               className="w-full block hover:brightness-110 transition-[filter]"
+                              aria-label={`${day.date} ${b.type}: ${b.count}`}
                             />
                           ))}
                         </div>
                       )}
-                    </Link>
+                    </div>
                   )
                 })}
               </div>
@@ -354,19 +421,42 @@ function ChartTooltip({
   y: number
   day: IngestDay
 }) {
-  // Clamp to viewport so the tooltip never flows off-screen.
-  const pad = 14
-  const tw = 200
-  const th = 140
-  const left = x + pad + tw > window.innerWidth ? x - tw - pad : x + pad
-  const top = y + pad + th > window.innerHeight ? y - th - pad : y + pad
+  // Clamp the tooltip position to the viewport using the element's
+  // actual rendered size (content may be taller/wider than the old
+  // 200x140 constants). We use useLayoutEffect + a ref to imperatively
+  // set `style.left`/`style.top` on the DOM node rather than calling
+  // setState — the react-hooks/set-state-in-effect lint rule rejects
+  // setState inside effects, and measuring-and-re-positioning is a
+  // textbook case where the imperative form is actually cleaner.
+  const tooltipRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const el = tooltipRef.current
+    if (!el) return
+    const pad = 14
+    const rect = el.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const leftRaw =
+      x + pad + rect.width > vw ? x - rect.width - pad : x + pad
+    const topRaw =
+      y + pad + rect.height > vh ? y - rect.height - pad : y + pad
+    // Guard against negative coordinates (e.g. tooltip bigger than
+    // viewport) so it never clips the top/left edge.
+    el.style.left = `${Math.max(4, leftRaw)}px`
+    el.style.top = `${Math.max(4, topRaw)}px`
+  }, [x, y, day])
+
   const buckets = day.buckets ?? []
   const isEmpty = day.count === 0
 
   return (
     <div
+      ref={tooltipRef}
       className="fixed pointer-events-none z-[100] min-w-[180px] rounded-lg bg-[#18181b] px-3 py-2.5 text-[11.5px] text-zinc-300 shadow-2xl"
-      style={{ left, top }}
+      // Seed with the raw pointer position; the layout effect above
+      // snaps it to the clamped position before the browser paints.
+      style={{ left: x + 14, top: y + 14 }}
     >
       <div className="mb-1.5 text-[12px] font-semibold text-white">
         {shortDate(day.date)}

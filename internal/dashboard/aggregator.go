@@ -348,12 +348,46 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 	// project store. Note references that match (ignoring case) collapse
 	// onto the canonical ID — so "Surveil" and "surveil" both resolve to
 	// the one registered "surveil" project.
+	//
+	// MD-05: ID matches win over Name matches. A project whose Name
+	// happens to lowercase-collide with another project's ID (e.g.
+	// project A has ID="alpha", project B has Name="alpha") no longer
+	// silently absorbs the first into the second — the ID binding is
+	// authoritative. Name-based lookups only populate keys that don't
+	// already have an ID binding, and any skipped collision is logged at
+	// Warn so the operator can see the name clash instead of blaming the
+	// widget for mis-grouping.
 	canonicalID := make(map[string]string) // lowercased-key → canonical id
 	nameByID := make(map[string]string)    // canonical id → display name
+	// First pass: register every project's ID as the authoritative key.
 	for _, p := range a.projects.List() {
-		canonicalID[strings.ToLower(p.ID)] = p.ID
-		canonicalID[strings.ToLower(p.Name)] = p.ID
+		key := strings.ToLower(p.ID)
+		if existing, ok := canonicalID[key]; ok && existing != p.ID {
+			slog.Warn("dashboard: project ID collision after lowercasing",
+				"key", key, "first", existing, "second", p.ID,
+				"widget", "active_projects")
+		}
+		canonicalID[key] = p.ID
 		nameByID[p.ID] = p.Name
+	}
+	// Second pass: register Name→ID bindings only where no ID already owns
+	// the key. This preserves the convenience of matching "Surveil" against
+	// project ID "surveil", without letting a later project's Name steal an
+	// earlier project's ID.
+	for _, p := range a.projects.List() {
+		key := strings.ToLower(p.Name)
+		if key == "" {
+			continue
+		}
+		if existing, ok := canonicalID[key]; ok {
+			if existing != p.ID {
+				slog.Warn("dashboard: project name collides with another project's id",
+					"key", key, "id_owner", existing, "name_owner", p.ID,
+					"widget", "active_projects")
+			}
+			continue
+		}
+		canonicalID[key] = p.ID
 	}
 
 	normalize := func(raw string) string {
@@ -421,8 +455,16 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 		}
 		w.Top = append(w.Top, ProjectTouch{ID: id, Name: name, LastTouched: when})
 	}
+	// NT-04: secondary sort by ID so two projects with identical
+	// LastTouched (plausible after a batch ingest) get a deterministic
+	// order across dashboard refreshes. Without this, map iteration
+	// order leaks into the sort and the user sees projects flipping
+	// positions between polls.
 	sort.Slice(w.Top, func(i, j int) bool {
-		return w.Top[i].LastTouched.After(w.Top[j].LastTouched)
+		if !w.Top[i].LastTouched.Equal(w.Top[j].LastTouched) {
+			return w.Top[i].LastTouched.After(w.Top[j].LastTouched)
+		}
+		return w.Top[i].ID < w.Top[j].ID
 	})
 	if len(w.Top) > topProjectsN {
 		w.Top = w.Top[:topProjectsN]
@@ -489,22 +531,30 @@ func (a *Aggregator) buildPipelineWidget(now time.Time, warnings *[]string) Pipe
 
 // --- frontmatter parsing helpers ---
 
-// parseFrontmatterTime accepts both RFC3339 and YYYY-MM-DD strings. Returns
-// zero time if the field is missing or unparseable.
+// parseFrontmatterTime accepts both RFC3339 and YYYY-MM-DD strings, plus
+// native time.Time values that yaml.v3 may unmarshal directly when the
+// scalar carries a timestamp tag. Returns zero time if the field is
+// missing or unparseable.
+//
+// LO-03: the previous implementation only handled the string case, so a
+// yaml frontmatter block with an auto-typed timestamp (`ingested:
+// 2026-04-11T09:00:00Z` without explicit tagging) would silently yield
+// zero time on some yaml.v3 builds.
 func parseFrontmatterTime(fm map[string]interface{}, key string) time.Time {
 	raw, ok := fm[key]
 	if !ok {
 		return time.Time{}
 	}
-	s, ok := raw.(string)
-	if !ok {
-		return time.Time{}
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t
-	}
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t
+	switch v := raw.(type) {
+	case time.Time:
+		return v
+	case string:
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			return t
+		}
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			return t
+		}
 	}
 	return time.Time{}
 }

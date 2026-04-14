@@ -71,19 +71,24 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// readInputBytes returns the input as a UTF-8 string, reading from Path if needed.
-func readInputBytes(input *pipeline.RawInput) string {
+// readInputBytes returns the input as a UTF-8 string, reading from Path if
+// needed. LO-02: propagates file read errors so callers can distinguish
+// "empty file" from "permission denied / EOF / etc." — the old behavior
+// of returning "" on any error made those two cases indistinguishable
+// downstream (every transformer reported "no content" regardless of the
+// real reason).
+func readInputBytes(input *pipeline.RawInput) (string, error) {
 	if len(input.Content) > 0 {
-		return string(input.Content)
+		return string(input.Content), nil
 	}
 	if input.Path != "" {
 		data, err := os.ReadFile(input.Path)
 		if err != nil {
-			return ""
+			return "", fmt.Errorf("read %s: %w", input.Path, err)
 		}
-		return string(data)
+		return string(data), nil
 	}
-	return ""
+	return "", nil
 }
 
 // fileModTime returns the mod time of a file, or time.Now() on error.

@@ -104,18 +104,24 @@ func (g *Generator) runClaude(ctx context.Context, prompt string) (string, error
 func buildFromDocPrompt(sourcePath, body, hint, answerBlock string) string {
 	var b strings.Builder
 	b.WriteString("You are a product analyst. Read the source document and extract one or more standardized UseCases.\n\n")
+	// MD-11: tell Claude the fence semantics before we embed any
+	// untrusted content.
+	b.WriteString(questions.UntrustedFenceNotice)
+	b.WriteString("\n\n")
 	if answerBlock != "" {
 		b.WriteString(answerBlock)
 	}
 	if hint != "" {
-		b.WriteString(fmt.Sprintf("## User hint\n%s\n\n", hint))
+		b.WriteString("## User hint\n")
+		b.WriteString(questions.FenceUntrustedBlock(hint))
+		b.WriteString("\n")
 	}
 	b.WriteString(fmt.Sprintf("## Source document (`%s`)\n\n", sourcePath))
 	if len(body) > 20000 {
 		body = body[:20000] + "\n\n[...truncated]"
 	}
-	b.WriteString(body)
-	b.WriteString("\n\n")
+	b.WriteString(questions.FenceUntrustedBlock(body))
+	b.WriteString("\n")
 	b.WriteString(commonUseCasePromptTail())
 	return b.String()
 }
@@ -123,15 +129,20 @@ func buildFromDocPrompt(sourcePath, body, hint, answerBlock string) string {
 func buildFromTextPrompt(description, actorsHint, answerBlock string) string {
 	var b strings.Builder
 	b.WriteString("You are a product analyst. A user has described a scenario in free text; turn it into one or more standardized UseCases.\n\n")
+	// MD-11: fence semantics.
+	b.WriteString(questions.UntrustedFenceNotice)
+	b.WriteString("\n\n")
 	if answerBlock != "" {
 		b.WriteString(answerBlock)
 	}
 	if actorsHint != "" {
-		b.WriteString(fmt.Sprintf("## Actors hint\n%s\n\n", actorsHint))
+		b.WriteString("## Actors hint\n")
+		b.WriteString(questions.FenceUntrustedBlock(actorsHint))
+		b.WriteString("\n")
 	}
 	b.WriteString("## User description\n\n")
-	b.WriteString(description)
-	b.WriteString("\n\n")
+	b.WriteString(questions.FenceUntrustedBlock(description))
+	b.WriteString("\n")
 	b.WriteString(commonUseCasePromptTail())
 	return b.String()
 }

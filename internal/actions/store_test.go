@@ -478,3 +478,83 @@ func randSuffix(i int) string {
 	const alphabet = "abcdefghijklmnopqrstuvwxyz"
 	return string(alphabet[i%len(alphabet)])
 }
+
+// TestActionsEqualProjectIDsNilVsEmpty covers DFW-03: nil ProjectIDs and
+// a zero-length slice are both semantically "no projects" and must
+// compare equal in actionsEqual so an idempotent re-upsert that passes
+// one shape against a stored entry with the other does NOT bump Updated.
+func TestActionsEqualProjectIDsNilVsEmpty(t *testing.T) {
+	base := &Action{ID: "x", Title: "t", Description: "d"}
+
+	a := *base
+	a.ProjectIDs = nil
+	b := *base
+	b.ProjectIDs = []string{}
+	if !actionsEqual(&a, &b) {
+		t.Errorf("nil vs empty slice should compare equal for ProjectIDs")
+	}
+
+	c := *base
+	c.ProjectIDs = []string{"alpha"}
+	if actionsEqual(&a, &c) {
+		t.Errorf("nil vs non-empty slice should compare unequal")
+	}
+
+	d := *base
+	d.ProjectIDs = []string{"alpha"}
+	e := *base
+	e.ProjectIDs = []string{"alpha"}
+	if !actionsEqual(&d, &e) {
+		t.Errorf("identical single-element slices should compare equal")
+	}
+
+	f := *base
+	f.ProjectIDs = []string{"alpha", "beta"}
+	g := *base
+	g.ProjectIDs = []string{"alpha", "beta"}
+	if !actionsEqual(&f, &g) {
+		t.Errorf("identical multi-element slices should compare equal")
+	}
+
+	h := *base
+	h.ProjectIDs = []string{"alpha", "beta"}
+	i := *base
+	i.ProjectIDs = []string{"beta", "alpha"}
+	if actionsEqual(&h, &i) {
+		t.Errorf("slices with different order should compare unequal")
+	}
+}
+
+// TestUpsertIdempotentOnNilVsEmptyProjectIDs verifies DFW-03 end-to-end
+// via the Upsert path: re-upserting an action with ProjectIDs switched
+// between nil and []string{} must NOT bump Updated.
+func TestUpsertIdempotentOnNilVsEmptyProjectIDs(t *testing.T) {
+	s := newTempStore(t)
+
+	first, err := s.Upsert(&Action{
+		ID:          "dfw03-id",
+		Description: "task",
+		Status:      StatusInbox,
+		ProjectIDs:  nil,
+	})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	t1 := first.Updated
+
+	time.Sleep(5 * time.Millisecond)
+
+	second, err := s.Upsert(&Action{
+		ID:          "dfw03-id",
+		Description: "task",
+		Status:      StatusInbox,
+		ProjectIDs:  []string{}, // semantically identical to nil
+	})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if !second.Updated.Equal(t1) {
+		t.Errorf("Updated changed on nil→empty ProjectIDs upsert: t1=%v t2=%v",
+			t1, second.Updated)
+	}
+}

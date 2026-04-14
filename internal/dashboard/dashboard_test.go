@@ -702,3 +702,90 @@ func mustUpsert(t *testing.T, store *actions.Store, a *actions.Action) {
 // test file to continue touching.
 var _ = prototypes.NewRegistry
 var _ = projects.New
+
+// TestParseFrontmatterTime_nativeTimeValue covers LO-03: yaml.v3 can
+// unmarshal an ISO-8601 scalar directly into a time.Time rather than a
+// string depending on tagging, so parseFrontmatterTime must accept both.
+func TestParseFrontmatterTime_nativeTimeValue(t *testing.T) {
+	want := time.Date(2026, 4, 11, 9, 0, 0, 0, time.UTC)
+	fm := map[string]interface{}{
+		"ingested": want,
+	}
+	got := parseFrontmatterTime(fm, "ingested")
+	if !got.Equal(want) {
+		t.Errorf("parseFrontmatterTime(time.Time) = %v, want %v", got, want)
+	}
+}
+
+func TestParseFrontmatterTime_stringRFC3339(t *testing.T) {
+	fm := map[string]interface{}{
+		"ingested": "2026-04-11T09:00:00Z",
+	}
+	got := parseFrontmatterTime(fm, "ingested")
+	if got.IsZero() {
+		t.Errorf("parseFrontmatterTime should parse RFC3339 string")
+	}
+}
+
+func TestParseFrontmatterTime_unsupportedType(t *testing.T) {
+	fm := map[string]interface{}{
+		"ingested": 12345, // int — unsupported
+	}
+	got := parseFrontmatterTime(fm, "ingested")
+	if !got.IsZero() {
+		t.Errorf("parseFrontmatterTime should return zero for int, got %v", got)
+	}
+}
+
+// TestBuildProjectsWidget_deterministicTieBreak covers NT-04: two
+// projects sharing an identical LastTouched must sort by ID for
+// stability across repeated snapshots.
+func TestBuildProjectsWidget_deterministicTieBreak(t *testing.T) {
+	v := newTestVault(t)
+	ps := projects.New(v)
+	if _, err := ps.Create(projects.CreateRequest{Name: "Zebra"}); err != nil {
+		t.Fatalf("create zebra: %v", err)
+	}
+	if _, err := ps.Create(projects.CreateRequest{Name: "Apple"}); err != nil {
+		t.Fatalf("create apple: %v", err)
+	}
+
+	as := actions.New(v)
+	// Both actions get the same Updated timestamp to force the tie-break.
+	same := fixedTime.Add(-1 * time.Hour)
+	mustUpsert(t, as, &actions.Action{
+		Description: "zebra task",
+		Status:      actions.StatusNext,
+		Updated:     same,
+		ProjectIDs:  []string{"zebra"},
+	})
+	mustUpsert(t, as, &actions.Action{
+		Description: "apple task",
+		Status:      actions.StatusNext,
+		Updated:     same,
+		ProjectIDs:  []string{"apple"},
+	})
+	// Post-upsert backdating because Upsert stamps Updated=now on insert.
+	for _, a := range as.List() {
+		a.Updated = same
+	}
+
+	agg := &Aggregator{actions: as, projects: ps}
+	var warnings []string
+	w := agg.buildProjectsWidget(nil, fixedTime, &warnings)
+	if len(w.Top) != 2 {
+		t.Fatalf("Top len = %d, want 2", len(w.Top))
+	}
+	// Apple should sort before Zebra by ID after the LastTouched tie.
+	if w.Top[0].ID != "apple" || w.Top[1].ID != "zebra" {
+		t.Errorf("tie-break order wrong: got %v, want [apple zebra]", w.Top)
+	}
+
+	// Re-run to confirm stability across refresh.
+	for i := 0; i < 3; i++ {
+		w2 := agg.buildProjectsWidget(nil, fixedTime, &warnings)
+		if w2.Top[0].ID != w.Top[0].ID || w2.Top[1].ID != w.Top[1].ID {
+			t.Errorf("refresh %d flipped order", i)
+		}
+	}
+}

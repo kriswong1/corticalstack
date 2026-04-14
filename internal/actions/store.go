@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -259,6 +258,13 @@ func (s *Store) Upsert(a *Action) (*Action, error) {
 // Upsert considers meaningful. Created and Updated are intentionally
 // excluded: Created is monotonic, Updated is the output of the comparison
 // itself.
+//
+// DFW-03: ProjectIDs is compared with length-plus-element-wise equality
+// rather than reflect.DeepEqual so a caller who passes `ProjectIDs:
+// []string{}` on re-upsert of an action whose stored form was
+// `ProjectIDs: nil` (or vice versa) does NOT trip the "field changed"
+// branch. Both shapes are semantically "no projects" and an idempotent
+// re-ingest should not bump Updated over this distinction.
 func actionsEqual(a, b *Action) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -276,7 +282,21 @@ func actionsEqual(a, b *Action) bool {
 		a.SourceTitle != b.SourceTitle {
 		return false
 	}
-	return reflect.DeepEqual(a.ProjectIDs, b.ProjectIDs)
+	return stringSlicesEqual(a.ProjectIDs, b.ProjectIDs)
+}
+
+// stringSlicesEqual compares two string slices treating nil and
+// zero-length slices as equivalent. Element order matters.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // SetStatus updates the status of an existing action.

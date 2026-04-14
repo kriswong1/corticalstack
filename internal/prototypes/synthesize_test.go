@@ -66,18 +66,23 @@ func TestParseJSONResponse(t *testing.T) {
 func TestBuildSynthesisPrompt(t *testing.T) {
 	format := &ScreenFlow{}
 	got := buildSynthesisPrompt(format, "source document content", "make it mobile first", "")
+	// NT-02: dropped "SchemaHint" — the previous wantHas entry was a
+	// dead expectation paired with an explicit skip in the loop below.
+	// We now verify the SchemaHint-derived content ("screens",
+	// "transitions") is present instead, which is the real thing we
+	// care about.
 	wantHas := []string{
 		"senior product designer",
 		"screen-flow",
 		"source document content",
 		"make it mobile first",
 		"User hints",
-		"SchemaHint",
+		// Content that leaks from ScreenFlow.SchemaHint():
+		"screens",
+		"transitions",
 	}
-	// SchemaHint content leaks into prompt:
-	wantHas = append(wantHas, "screens", "transitions")
 	for _, sub := range wantHas {
-		if !strings.Contains(got, sub) && sub != "SchemaHint" {
+		if !strings.Contains(got, sub) {
 			t.Errorf("prompt missing %q", sub)
 		}
 	}

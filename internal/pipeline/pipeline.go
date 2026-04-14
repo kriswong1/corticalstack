@@ -98,6 +98,11 @@ func (p *Pipeline) ExtractAndRoute(ctx context.Context, doc *TextDocument, cfg E
 		doc.Metadata = map[string]string{}
 	}
 	if len(cfg.Projects) > 0 {
+		// LO-06: set both the typed field (new, preferred) and the CSV
+		// form (legacy, backward-compat). New destinations should read
+		// doc.Projects; the CSV form exists only so existing callers
+		// don't break mid-refactor.
+		doc.Projects = append(doc.Projects[:0:0], cfg.Projects...)
 		doc.Metadata["projects"] = strings.Join(cfg.Projects, ",")
 	}
 	if cfg.Why != "" {

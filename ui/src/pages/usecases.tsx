@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
@@ -32,6 +32,14 @@ export function UseCasesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
   const [activeFlow, setActiveFlow] = useState<FlowKind>("text")
+  // Mirror `activeFlow` into a ref so `submit` and the QuestionsModal
+  // callbacks always read the current value, even if the user opens
+  // one flow, closes the modal, opens the other flow, and submits
+  // before the first mutation settles. Without the ref the closure
+  // would capture whichever value was current at the render when the
+  // mutation was kicked off.
+  const activeFlowRef = useRef<FlowKind>("text")
+  activeFlowRef.current = activeFlow
 
   const { data: useCases, isLoading } = useQuery({
     queryKey: ["usecases"],
@@ -113,7 +121,7 @@ export function UseCasesPage() {
   }
 
   const submit = (answers: Answer[]) => {
-    if (activeFlow === "doc") fromDocMutation.mutate(answers)
+    if (activeFlowRef.current === "doc") fromDocMutation.mutate(answers)
     else fromTextMutation.mutate(answers)
   }
 
@@ -193,7 +201,7 @@ export function UseCasesPage() {
                 <TableRow key={uc.id}>
                   <TableCell className="text-sm font-light">{uc.title}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{uc.actors?.join(", ")}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground font-[feature-settings:'tnum']">{uc.main_flow?.length ?? 0}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground tabular-nums">{uc.main_flow?.length ?? 0}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {uc.tags?.map((tag) => (

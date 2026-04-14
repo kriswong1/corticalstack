@@ -51,7 +51,10 @@ export interface JobEvent {
 
 // --- Actions ---
 
-export type ActionStatus =
+// CurrentActionStatus is the set of statuses the UI actively shows in
+// dropdowns and filter chips. Everything in this union has a color and
+// label defined in actions.tsx.
+export type CurrentActionStatus =
   | "inbox"
   | "next"
   | "waiting"
@@ -60,9 +63,13 @@ export type ActionStatus =
   | "deferred"
   | "done"
   | "cancelled"
-  // Legacy statuses accepted by API for migration
-  | "pending"
-  | "ack"
+
+// LegacyActionStatus covers values still accepted by the API for
+// migration from older data, but not surfaced in the UI. Keep them in
+// the main ActionStatus union so incoming API responses still type-check.
+export type LegacyActionStatus = "pending" | "ack"
+
+export type ActionStatus = CurrentActionStatus | LegacyActionStatus
 
 export type ActionPriority = "p1" | "p2" | "p3"
 

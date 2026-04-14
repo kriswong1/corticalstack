@@ -74,10 +74,18 @@ type Thread struct {
 }
 
 // CreateIdeaRequest is POST /api/shapeup/idea.
+//
+// LO-04: ThreadID is optional. If empty, a fresh thread UUID is
+// allocated (default behavior, matches what ShapeUpIdeasDestination
+// does for every freshly-extracted idea). If set, the new raw idea is
+// attached to an existing thread — useful when re-ingesting the same
+// source and wanting the refined idea to appear as an additional raw
+// note in the original thread rather than starting a new one.
 type CreateIdeaRequest struct {
 	Title      string   `json:"title"`
 	Content    string   `json:"content"`
 	ProjectIDs []string `json:"project_ids,omitempty"`
+	ThreadID   string   `json:"thread_id,omitempty"`
 }
 
 // AdvanceRequest is POST /api/shapeup/threads/{thread}/advance.

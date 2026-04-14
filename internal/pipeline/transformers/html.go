@@ -30,7 +30,10 @@ func (t *HTMLTransformer) CanHandle(input *pipeline.RawInput) bool {
 }
 
 func (t *HTMLTransformer) Transform(input *pipeline.RawInput) (*pipeline.TextDocument, error) {
-	raw := readInputBytes(input)
+	raw, err := readInputBytes(input)
+	if err != nil {
+		return nil, fmt.Errorf("html: %w", err)
+	}
 	if raw == "" {
 		return nil, fmt.Errorf("html: empty input")
 	}

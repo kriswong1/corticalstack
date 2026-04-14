@@ -95,7 +95,11 @@ func (d *ActionItemsDestination) Accept(doc *TextDocument, extracted *Extracted)
 	}
 
 	sourceNote := doc.Metadata["note_path"]
-	projectIDs := splitAndTrim(doc.Metadata["projects"], ",")
+	// LO-06: prefer the typed Projects field; fall back to CSV metadata.
+	projectIDs := doc.Projects
+	if len(projectIDs) == 0 {
+		projectIDs = splitAndTrim(doc.Metadata["projects"], ",")
+	}
 
 	for _, raw := range extracted.Actions {
 		a := &actions.Action{

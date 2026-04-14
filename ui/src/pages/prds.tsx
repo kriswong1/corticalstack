@@ -97,21 +97,28 @@ export function PRDsPage() {
   const selectedThread = filteredThreads.find((t) => t.id === threadId)
   const currentPitchPath = selectedThread ? pitchPath(selectedThread) : ""
 
-  const requestBody = () => ({
-    pitch_path: currentPitchPath,
-    extra_context_paths: extraPaths
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean),
-    extra_context_tags: extraTags
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-    project_ids: selectedThread?.projects ?? [],
-  })
+  // Memoize the request body so mutation fns don't re-derive it every
+  // render (cleaner React Query DevTools, no new array identity per
+  // keystroke) and so both the questions and create mutations see the
+  // same snapshot when the user clicks "Synthesize".
+  const requestBody = useMemo(
+    () => ({
+      pitch_path: currentPitchPath,
+      extra_context_paths: extraPaths
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      extra_context_tags: extraTags
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      project_ids: selectedThread?.projects ?? [],
+    }),
+    [currentPitchPath, extraPaths, extraTags, selectedThread],
+  )
 
   const questionsMutation = useMutation({
-    mutationFn: () => api.prdQuestions(requestBody()),
+    mutationFn: () => api.prdQuestions(requestBody),
     onSuccess: (resp) => setQuestions(resp.questions ?? []),
     // Pre-flight questions call — fall through to empty list so the
     // user can still synthesize, but surface a toast so they know the
@@ -125,7 +132,7 @@ export function PRDsPage() {
   const createMutation = useMutation({
     mutationFn: (answers: Answer[]) =>
       api.createPRD({
-        ...requestBody(),
+        ...requestBody,
         questions: questions ?? undefined,
         answers: answers.length > 0 ? answers : undefined,
       }),
@@ -323,10 +330,10 @@ export function PRDsPage() {
                       {prd.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground font-[feature-settings:'tnum']">
+                  <TableCell className="text-xs text-muted-foreground tabular-nums">
                     v{prd.version}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground font-[feature-settings:'tnum']">
+                  <TableCell className="text-xs text-muted-foreground tabular-nums">
                     {prd.open_questions_count}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground font-mono">

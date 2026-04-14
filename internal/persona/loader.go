@@ -18,11 +18,21 @@ var embeddedTemplates embed.FS
 
 // Loader reads and caches the three persona files, bootstrapping them from
 // embedded templates on first install. It's safe for concurrent use.
+//
+// Holds two caches:
+//   - cache: per-file content keyed by mtime so repeated Get calls avoid
+//     re-reading unchanged files from disk.
+//   - promptCache / promptFP: the fully-rendered BuildContextPrompt
+//     output, invalidated by content-length fingerprint mismatch against
+//     the per-file cache. NT-06 — avoids redoing the markdown
+//     concatenation on every Extract/synthesis call.
 type Loader struct {
 	vault *vault.Vault
 
-	mu    sync.RWMutex
-	cache map[Name]cachedEntry
+	mu          sync.RWMutex
+	cache       map[Name]cachedEntry
+	promptCache string
+	promptFP    map[Name]int
 }
 
 type cachedEntry struct {
@@ -101,9 +111,12 @@ func (l *Loader) Set(name Name, content string) error {
 	if err := l.vault.WriteFile(name.File(), content); err != nil {
 		return err
 	}
-	// Invalidate cache so the next Get() reloads with the fresh mtime.
+	// Invalidate both the per-file cache AND the built-prompt cache
+	// (NT-06) so the next Get/BuildContextPrompt reloads from disk.
 	l.mu.Lock()
 	delete(l.cache, name)
+	l.promptCache = ""
+	l.promptFP = nil
 	l.mu.Unlock()
 	return nil
 }

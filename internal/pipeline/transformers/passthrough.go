@@ -31,7 +31,10 @@ func (t *PassthroughTransformer) CanHandle(input *pipeline.RawInput) bool {
 }
 
 func (t *PassthroughTransformer) Transform(input *pipeline.RawInput) (*pipeline.TextDocument, error) {
-	content := readInputBytes(input)
+	content, err := readInputBytes(input)
+	if err != nil {
+		return nil, fmt.Errorf("passthrough: %w", err)
+	}
 	if content == "" {
 		return nil, fmt.Errorf("passthrough: empty input")
 	}
