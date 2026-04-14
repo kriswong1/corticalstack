@@ -6,6 +6,7 @@
 /docs/
 /.claude/
 /.playwright-mcp/
+/REVIEW.md
 
 # Frontend
 ui/node_modules/
