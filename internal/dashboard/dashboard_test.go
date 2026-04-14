@@ -2,9 +2,9 @@ package dashboard
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -123,9 +123,19 @@ func TestBuildActionsWidget_countsAndStalled(t *testing.T) {
 	mustUpsert(t, store, &actions.Action{Description: "someday", Status: actions.StatusSomeday, Updated: fresh})
 	mustUpsert(t, store, &actions.Action{Description: "cancelled", Status: actions.StatusCancelled, Updated: fresh})
 
-	// Upsert() sets Updated to time.Now(), clobbering our test timestamps.
-	// Work around by reaching through the store's persisted list and
-	// rewriting Updated manually for stalled-sensitive actions.
+	// NOTE: actions.Store.Upsert stamps Updated=now on the insert path,
+	// which clobbers the Updated field we pass in above. That's correct
+	// for production (new actions track the moment they were created)
+	// but wrong for tests that need to simulate aged items for stalled
+	// detection. We reach through List() — which returns live pointers
+	// — and rewrite Updated in place for the stalled-sensitive actions.
+	//
+	// This is NOT the MD-02 workaround (which was about Upsert bumping
+	// Updated on idempotent re-ingest). MD-02 was fixed in Wave 2 via
+	// the field-equality candidate check in store.go. This workaround
+	// is orthogonal and still required because the insert path unconditionally
+	// sets Updated=now (store.go:189-191), and the tests have no other
+	// way to backdate a freshly-inserted action.
 	for _, a := range store.List() {
 		switch a.Description {
 		case "d-stale":
@@ -172,7 +182,8 @@ func TestBuildActionsWidget_nilStore(t *testing.T) {
 
 func TestBuildPipelineWidget_stageEnumAlignment(t *testing.T) {
 	agg := &Aggregator{}
-	w := agg.buildPipelineWidget(fixedTime)
+	var warnings []string
+	w := agg.buildPipelineWidget(fixedTime, &warnings)
 
 	// Must have exactly one row per shapeup stage, in canonical order,
 	// even when no threads exist.
@@ -183,6 +194,9 @@ func TestBuildPipelineWidget_stageEnumAlignment(t *testing.T) {
 		if w.Stages[i].Stage != string(stage) {
 			t.Errorf("stages[%d] = %q, want %q", i, w.Stages[i].Stage, stage)
 		}
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected zero warnings with nil shapeup store, got %v", warnings)
 	}
 }
 
@@ -215,120 +229,447 @@ func TestCompute_allEmptyFlagFalseWhenAnyWidgetHasData(t *testing.T) {
 }
 
 // --- cache TTL behavior ---
+//
+// The tests below drive the cache via a fake aggregator that can be
+// flipped between success and failure modes on demand. This is the
+// only way to exercise the stale-fallback path deterministically: the
+// real Aggregator.Compute errors out only on a genuine vault failure,
+// and making that happen in-process is both flaky and irrelevant to
+// what we're testing — we want to prove the CACHE semantics, not the
+// aggregator's internal I/O.
 
-func TestCache_servesFromCacheWithinTTL(t *testing.T) {
-	agg := &stubAggregator{}
-	nowCalls := 0
-	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	clock := func() time.Time {
-		nowCalls++
-		return now
+// fakeAggregator implements aggregatorIface for cache tests. Every call
+// to Compute bumps ComputeCount (so tests can assert recompute vs cache
+// hit) and either returns a Snapshot stamped with the given `now`, or
+// returns the configured failure error.
+type fakeAggregator struct {
+	computeCount int
+	fail         bool
+	failErr      error
+}
+
+func (f *fakeAggregator) Compute(now time.Time) (*Snapshot, error) {
+	f.computeCount++
+	if f.fail {
+		return nil, f.failErr
 	}
-	cache := NewCache(nil, 15*time.Minute, clock)
-	cache.agg = &Aggregator{} // bypass nil deref — stub is wrapped differently below
-	_ = agg
+	return &Snapshot{ComputedAt: now}, nil
+}
 
-	// Drive the first compute manually to seed the cache.
-	snap1, err := cache.agg.Compute(now)
-	if err != nil {
-		t.Fatalf("compute: %v", err)
-	}
-	cache.last = snap1
+func TestCache_freshComputeSuccess(t *testing.T) {
+	// Case 1: fresh cache → successful compute → Stale=false,
+	// ComputeCount advances to 1.
+	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	current := baseTime
+	clock := func() time.Time { return current }
 
-	got, err := cache.Snapshot()
+	fake := &fakeAggregator{}
+	cache := newCache(fake, 5*time.Minute, clock)
+
+	snap, err := cache.Snapshot()
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
-	if got != snap1 {
-		t.Errorf("expected cached snapshot returned verbatim")
+	if snap.Stale {
+		t.Errorf("fresh snapshot should not be stale")
+	}
+	if !snap.ComputedAt.Equal(baseTime) {
+		t.Errorf("ComputedAt = %v, want %v", snap.ComputedAt, baseTime)
+	}
+	if fake.computeCount != 1 {
+		t.Errorf("computeCount = %d, want 1 after first call", fake.computeCount)
+	}
+}
+
+func TestCache_withinTTLNoRecompute(t *testing.T) {
+	// Case 2: within TTL, subsequent calls must NOT recompute, even
+	// multiple times, and must return the same cached pointer.
+	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	current := baseTime
+	clock := func() time.Time { return current }
+
+	fake := &fakeAggregator{}
+	cache := newCache(fake, 5*time.Minute, clock)
+
+	first, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+
+	// Advance clock but stay within TTL (5min).
+	current = baseTime.Add(1 * time.Minute)
+	second, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	current = baseTime.Add(4 * time.Minute)
+	third, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("third: %v", err)
+	}
+
+	if first != second || second != third {
+		t.Errorf("within-TTL calls must return identical pointer, got %p %p %p", first, second, third)
+	}
+	if fake.computeCount != 1 {
+		t.Errorf("computeCount = %d, want 1 (no recomputes within TTL)", fake.computeCount)
 	}
 }
 
 func TestCache_recomputesAfterTTL(t *testing.T) {
-	agg := NewAggregator(nil, nil, nil, nil, nil)
+	// Case 3: after TTL expiry, the next call must recompute and
+	// return a snapshot whose ComputedAt has advanced.
 	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	current := baseTime
 	clock := func() time.Time { return current }
 
-	cache := NewCache(agg, 5*time.Minute, clock)
+	fake := &fakeAggregator{}
+	cache := newCache(fake, 5*time.Minute, clock)
 
 	first, err := cache.Snapshot()
 	if err != nil {
-		t.Fatalf("first snapshot: %v", err)
+		t.Fatalf("first: %v", err)
 	}
-	firstAt := first.ComputedAt
 
-	// Advance past TTL and request again — must recompute (ComputedAt moves).
 	current = baseTime.Add(10 * time.Minute)
 	second, err := cache.Snapshot()
 	if err != nil {
-		t.Fatalf("second snapshot: %v", err)
+		t.Fatalf("second: %v", err)
 	}
-	if !second.ComputedAt.After(firstAt) {
-		t.Errorf("expected second snapshot to recompute after TTL, got same computed_at")
+
+	if !second.ComputedAt.After(first.ComputedAt) {
+		t.Errorf("post-TTL snapshot should recompute: first=%v second=%v", first.ComputedAt, second.ComputedAt)
+	}
+	if fake.computeCount != 2 {
+		t.Errorf("computeCount = %d, want 2", fake.computeCount)
 	}
 }
 
-func TestCache_withinTTLReturnsSameInstance(t *testing.T) {
-	agg := NewAggregator(nil, nil, nil, nil, nil)
+func TestCache_staleFallbackOnRecomputeError(t *testing.T) {
+	// Case 4: TTL expired, recompute fails, prior cache exists
+	// → return cached value with Stale=true, StaleReason populated,
+	// StaleAttemptAt set. ComputeCount advances.
 	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	current := baseTime
 	clock := func() time.Time { return current }
 
-	cache := NewCache(agg, 5*time.Minute, clock)
+	fake := &fakeAggregator{}
+	cache := newCache(fake, 5*time.Minute, clock)
+
+	// Seed a good snapshot.
 	first, err := cache.Snapshot()
 	if err != nil {
-		t.Fatalf("first snapshot: %v", err)
-	}
-
-	current = baseTime.Add(1 * time.Minute)
-	second, err := cache.Snapshot()
-	if err != nil {
-		t.Fatalf("second snapshot: %v", err)
-	}
-	if first != second {
-		t.Errorf("within TTL, cache should return the same snapshot pointer")
-	}
-}
-
-// --- cache degraded fallback ---
-
-func TestCache_degradedFallbackOnRecomputeError(t *testing.T) {
-	// Seed a good snapshot, then swap the aggregator for a failing one
-	// and advance past TTL so the cache attempts a recompute.
-	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	current := baseTime
-	clock := func() time.Time { return current }
-
-	good := NewAggregator(nil, nil, nil, nil, nil)
-	cache := NewCache(good, 5*time.Minute, clock)
-	first, err := cache.Snapshot()
-	if err != nil {
-		t.Fatalf("seed snapshot: %v", err)
+		t.Fatalf("seed: %v", err)
 	}
 	if first.Stale {
-		t.Fatalf("seed snapshot should not be stale")
+		t.Fatalf("seed snapshot must not be stale")
+	}
+	seedComputedAt := first.ComputedAt
+
+	// Flip the aggregator to failing mode and advance past TTL.
+	fake.fail = true
+	fake.failErr = errors.New("boom")
+	current = baseTime.Add(10 * time.Minute)
+
+	second, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("stale fallback returned unexpected error: %v", err)
+	}
+	if !second.Stale {
+		t.Errorf("expected Stale=true on fallback path")
+	}
+	if !second.ComputedAt.Equal(seedComputedAt) {
+		t.Errorf("stale snapshot must preserve original ComputedAt: got %v want %v", second.ComputedAt, seedComputedAt)
+	}
+	if !second.StaleAttemptAt.Equal(current) {
+		t.Errorf("StaleAttemptAt = %v, want %v (time of failed retry)", second.StaleAttemptAt, current)
+	}
+	if second.StaleReason == "" {
+		t.Errorf("StaleReason should include the compute error")
+	}
+	if fake.computeCount != 2 {
+		t.Errorf("computeCount = %d, want 2 (seed + failed retry)", fake.computeCount)
+	}
+}
+
+func TestCache_staleFallbackNoPriorCacheReturnsError(t *testing.T) {
+	// Case 5: TTL expired, recompute fails, NO prior cache → error
+	// bubbles up to caller (handler will 503).
+	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	current := baseTime
+	clock := func() time.Time { return current }
+
+	fake := &fakeAggregator{
+		fail:    true,
+		failErr: errors.New("cold-start failure"),
+	}
+	cache := newCache(fake, 5*time.Minute, clock)
+
+	snap, err := cache.Snapshot()
+	if err == nil {
+		t.Fatalf("expected error on cold-start failure, got snap=%v", snap)
+	}
+	if snap != nil {
+		t.Errorf("expected nil snapshot on cold-start failure, got %v", snap)
+	}
+	if !errors.Is(err, fake.failErr) {
+		t.Errorf("error should wrap underlying failErr, got %v", err)
+	}
+}
+
+func TestCache_staleEntryReturnedFromCacheWithinTTL(t *testing.T) {
+	// Case 6 (the core HI-05 regression test): once we've served a
+	// stale entry, subsequent calls WITHIN the new TTL window must
+	// return the same stale value from cache WITHOUT triggering yet
+	// another recompute. The old code defeated this by forcing a
+	// recompute on every request whenever lastErr was non-nil, which
+	// DOS'd the aggregator under sustained failure.
+	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	current := baseTime
+	clock := func() time.Time { return current }
+
+	fake := &fakeAggregator{}
+	cache := newCache(fake, 5*time.Minute, clock)
+
+	// Seed success.
+	if _, err := cache.Snapshot(); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
 
-	// Swap in a failing aggregator. We implement this by using a nil
-	// aggregator under a closure that forces an error path — but our
-	// real Aggregator.Compute never errors today, so we test this path
-	// by directly simulating the cache state instead.
+	// Fail + advance past TTL → get back a stale snapshot.
+	fake.fail = true
+	fake.failErr = errors.New("boom")
 	current = baseTime.Add(10 * time.Minute)
-	cache.mu.Lock()
-	cache.lastErr = errors.New("boom")
-	cache.mu.Unlock()
+	stale1, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("stale1: %v", err)
+	}
+	if !stale1.Stale {
+		t.Fatalf("stale1 should be Stale=true")
+	}
+	if fake.computeCount != 2 {
+		t.Fatalf("computeCount after stale1 = %d, want 2", fake.computeCount)
+	}
 
-	// The cache currently treats a failed recompute by storing lastErr
-	// and returning a stale copy of `last` — but our Snapshot() only
-	// checks for TTL+error on fresh entry. Since Compute always succeeds
-	// in the current stub, we verify the stale-branch wiring directly.
-	cache.mu.Lock()
-	haveLast := cache.last != nil
-	haveErr := cache.lastErr != nil
-	cache.mu.Unlock()
-	if !haveLast || !haveErr {
-		t.Skip("cannot exercise degraded path — Compute never errors; direct state check suffices")
+	// Advance within the NEW TTL window — should NOT recompute.
+	current = baseTime.Add(10*time.Minute + 1*time.Minute)
+	stale2, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("stale2: %v", err)
+	}
+	if !stale2.Stale {
+		t.Errorf("stale2 should still be Stale=true from cache")
+	}
+	if fake.computeCount != 2 {
+		t.Errorf("computeCount = %d after in-TTL call, want 2 (no recompute)", fake.computeCount)
+	}
+
+	// Advance within TTL again — still no recompute.
+	current = baseTime.Add(10*time.Minute + 4*time.Minute)
+	if _, err := cache.Snapshot(); err != nil {
+		t.Fatalf("stale3: %v", err)
+	}
+	if fake.computeCount != 2 {
+		t.Errorf("computeCount = %d after second in-TTL call, want 2", fake.computeCount)
+	}
+}
+
+func TestCache_recoveryAfterStaleFallback(t *testing.T) {
+	// Case 7: once the underlying store recovers, the NEXT post-TTL
+	// call must produce a fresh (Stale=false) snapshot and reset the
+	// cache to the healthy path — we don't want transient failures to
+	// leave the cache in a "stale forever" state.
+	baseTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	current := baseTime
+	clock := func() time.Time { return current }
+
+	fake := &fakeAggregator{}
+	cache := newCache(fake, 5*time.Minute, clock)
+
+	// Seed healthy → fail+TTL → stale fallback → recover → fresh.
+	if _, err := cache.Snapshot(); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	fake.fail = true
+	fake.failErr = errors.New("boom")
+	current = baseTime.Add(10 * time.Minute)
+	if snap, _ := cache.Snapshot(); !snap.Stale {
+		t.Fatalf("expected stale on first failed retry")
+	}
+
+	// Store recovers; advance past the NEW TTL so a retry fires.
+	fake.fail = false
+	current = baseTime.Add(20 * time.Minute)
+	fresh, err := cache.Snapshot()
+	if err != nil {
+		t.Fatalf("recovery: %v", err)
+	}
+	if fresh.Stale {
+		t.Errorf("after recovery, new snapshot must not be stale")
+	}
+	if !fresh.ComputedAt.Equal(current) {
+		t.Errorf("ComputedAt = %v, want %v", fresh.ComputedAt, current)
+	}
+	if fake.computeCount != 3 {
+		t.Errorf("computeCount = %d, want 3 (seed + failed retry + successful recover)", fake.computeCount)
+	}
+
+	// And a call within the NEW (healthy) TTL must serve from cache
+	// without recomputing — proving the cache is back to the happy path.
+	current = baseTime.Add(21 * time.Minute)
+	if _, err := cache.Snapshot(); err != nil {
+		t.Fatalf("post-recovery cache hit: %v", err)
+	}
+	if fake.computeCount != 3 {
+		t.Errorf("computeCount = %d after post-recovery in-TTL call, want 3", fake.computeCount)
+	}
+}
+
+// --- HI-06 regression: vault walk errors surface on the widget ---
+
+// TestCompute_vaultWalkErrorSurfacesOnWidget verifies that when
+// collectIngestNotes fails (e.g. filesystem error under the vault root),
+// Compute:
+//   - does NOT fail the whole snapshot,
+//   - stamps IngestActivity.Error with a human-readable reason,
+//   - still returns 30 zero-padded day buckets so the frontend shape is
+//     stable,
+//   - still computes the other widgets (they aren't blocked by the
+//     ingest degradation).
+//
+// We use the collectIngestNotesFn test seam to inject a failing walk
+// because the real vault.Walk wrapper silently absorbs root-level stat
+// errors and never returns an error to its caller — so a nonexistent-
+// path trick at the vault layer cannot reach this branch.
+func TestCompute_vaultWalkErrorSurfacesOnWidget(t *testing.T) {
+	agg := NewAggregator(nil, nil, nil, nil, nil)
+	agg.collectIngestNotesFn = func() ([]ingestNote, error) {
+		return nil, errors.New("simulated vault walk failure")
+	}
+
+	snap, err := agg.Compute(fixedTime)
+	if err != nil {
+		t.Fatalf("Compute should not fail on degraded vault walk: %v", err)
+	}
+	if snap.IngestActivity.Error == "" {
+		t.Errorf("IngestActivity.Error should be populated on vault walk failure")
+	}
+	if len(snap.IngestActivity.Days) != 30 {
+		t.Errorf("IngestActivity.Days = %d, want 30 (even on error, shape must be stable)", len(snap.IngestActivity.Days))
+	}
+	if snap.IngestActivity.Total != 0 {
+		t.Errorf("Total = %d, want 0 on degraded path", snap.IngestActivity.Total)
+	}
+}
+
+// TestCompute_vaultWalkSuccessLeavesErrorEmpty is the happy-path
+// counterpart: when collectIngestNotes returns notes cleanly, Compute
+// must leave IngestActivity.Error empty so the frontend doesn't show a
+// false-alarm banner.
+func TestCompute_vaultWalkSuccessLeavesErrorEmpty(t *testing.T) {
+	agg := NewAggregator(nil, nil, nil, nil, nil)
+	agg.collectIngestNotesFn = func() ([]ingestNote, error) {
+		return []ingestNote{
+			{folder: "articles", created: fixedTime},
+		}, nil
+	}
+
+	snap, err := agg.Compute(fixedTime)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if snap.IngestActivity.Error != "" {
+		t.Errorf("IngestActivity.Error = %q, want empty on happy path", snap.IngestActivity.Error)
+	}
+	if snap.IngestActivity.Total != 1 {
+		t.Errorf("Total = %d, want 1", snap.IngestActivity.Total)
+	}
+}
+
+// --- MD-04 regression: parseFrontmatterStrings accepts multiple shapes ---
+
+func TestParseFrontmatterStrings_shapes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   interface{}
+		want []string
+	}{
+		{
+			name: "yaml round-trip shape []interface{}",
+			in:   []interface{}{"alpha", "beta"},
+			want: []string{"alpha", "beta"},
+		},
+		{
+			name: "in-memory shape []string",
+			in:   []string{"alpha", "beta"},
+			want: []string{"alpha", "beta"},
+		},
+		{
+			name: "scalar string → one-element slice",
+			in:   "alpha",
+			want: []string{"alpha"},
+		},
+		{
+			name: "[]interface{} with empty strings filtered",
+			in:   []interface{}{"alpha", "", "beta"},
+			want: []string{"alpha", "beta"},
+		},
+		{
+			name: "[]string with empty strings filtered",
+			in:   []string{"alpha", "", "beta"},
+			want: []string{"alpha", "beta"},
+		},
+		{
+			name: "[]interface{} with non-string entries dropped",
+			in:   []interface{}{"alpha", 42, true, "beta"},
+			want: []string{"alpha", "beta"},
+		},
+		{
+			name: "empty []interface{}",
+			in:   []interface{}{},
+			want: nil,
+		},
+		{
+			name: "empty []string",
+			in:   []string{},
+			want: nil,
+		},
+		{
+			name: "empty scalar string",
+			in:   "",
+			want: nil,
+		},
+		{
+			name: "unsupported type (int)",
+			in:   42,
+			want: nil,
+		},
+		{
+			name: "unsupported type (map)",
+			in:   map[string]interface{}{"a": 1},
+			want: nil,
+		},
+		{
+			name: "nil",
+			in:   nil,
+			want: nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fm := map[string]interface{}{"projects": tc.in}
+			got := parseFrontmatterStrings(fm, "projects")
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("parseFrontmatterStrings(%v) = %#v, want %#v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseFrontmatterStrings_missingKey(t *testing.T) {
+	got := parseFrontmatterStrings(map[string]interface{}{"other": "x"}, "projects")
+	if got != nil {
+		t.Errorf("missing key should return nil, got %#v", got)
 	}
 }
 
@@ -355,15 +696,9 @@ func mustUpsert(t *testing.T, store *actions.Store, a *actions.Action) {
 	}
 }
 
-// stubAggregator is a placeholder to satisfy type references in tests that
-// exercise wiring without touching real stores. Kept to make the intent
-// explicit even though we currently use NewAggregator(nil,...) directly.
-type stubAggregator struct{}
-
-var _ = stubAggregator{}
-var _ = fmt.Sprintf // keep fmt import for the sentinel error tests
-
-// unused helper reference to avoid an import-cycle on types exposed only
-// in sibling files.
+// Blank-import placeholders kept to prevent unused-import errors when
+// sibling tests are selectively commented out during debugging. The
+// referenced symbols are otherwise stable public surface we want the
+// test file to continue touching.
 var _ = prototypes.NewRegistry
 var _ = projects.New

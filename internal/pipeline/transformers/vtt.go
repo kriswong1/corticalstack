@@ -154,7 +154,14 @@ func parseVTT(raw string) vttParseResult {
 			}
 			continue
 		}
-		if strings.HasPrefix(trimmed, "NOTE") {
+		// Per the WebVTT spec, a NOTE block can only appear between cues,
+		// never inside one. A NOTE line is either the bare word "NOTE" on a
+		// line by itself (followed by a multi-line comment body terminated by
+		// a blank line) or "NOTE" followed by whitespace and inline comment
+		// text. Lines starting with "NOTES", "NOTEBOOK", "NOTE-" etc. are
+		// not comment markers — they're ordinary cue text and must pass
+		// through the cue-text extraction path below.
+		if !inCue && isVTTNoteLine(trimmed) {
 			inNote = true
 			continue
 		}
@@ -236,6 +243,29 @@ func extractVTTCueText(line string) (text, speaker string) {
 		}
 	}
 	return line, speaker
+}
+
+// isVTTNoteLine reports whether a line is the start of a WebVTT NOTE
+// comment block. Per the spec (https://www.w3.org/TR/webvtt1/#webvtt-comment-block)
+// a NOTE line is either the bare word "NOTE" on a line by itself (followed
+// by a multi-line comment body up to the next blank line) or "NOTE"
+// followed by whitespace and inline comment text. Any other prefix
+// ("NOTES", "NOTEBOOK", "NOTE-", "NOTE:", etc.) is not a comment marker
+// and must be treated as cue text by the caller.
+//
+// Callers must also gate on `!inCue` before calling this — the spec
+// restricts NOTE blocks to the top level, between cues.
+func isVTTNoteLine(trimmed string) bool {
+	if !strings.HasPrefix(trimmed, "NOTE") {
+		return false
+	}
+	if len(trimmed) == 4 {
+		// Bare "NOTE" on a line by itself begins a multi-line comment body.
+		return true
+	}
+	// "NOTE " or "NOTE\t" begins an inline comment.
+	next := trimmed[4]
+	return next == ' ' || next == '\t'
 }
 
 // isLikelyCueIdentifier returns true if line i looks like a cue identifier:

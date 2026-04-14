@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -42,6 +43,14 @@ type Aggregator struct {
 	projects   *projects.Store
 	prototypes *prototypes.Store
 	shapeup    *shapeup.Store
+
+	// collectIngestNotesFn is an optional test-only override for the
+	// vault-walk step. When non-nil, Compute calls it instead of the
+	// real collectIngestNotes method. Production code never sets this
+	// field; tests use it to inject deterministic error paths that the
+	// real vault.Walk wrapper silently absorbs (it returns nil even on
+	// root-level stat errors).
+	collectIngestNotesFn func() ([]ingestNote, error)
 }
 
 // NewAggregator wires an aggregator with every store it needs. Any of
@@ -68,6 +77,37 @@ func NewAggregator(
 // can pin time and so the whole snapshot shares one consistent "now" —
 // avoiding the subtle bug where a computation spanning midnight disagrees
 // on which day a note belongs to.
+//
+// Error-propagation policy (HI-05 / HI-06):
+//
+// Compute distinguishes FATAL errors from DEGRADED errors.
+//
+//   - FATAL = the resulting snapshot would be actively misleading. The
+//     only current fatal case is a panic/internal bug; every store
+//     failure is treated as degraded. Fatal errors return (nil, err) so
+//     the Cache's stale-fallback branch can serve the previous good
+//     snapshot.
+//
+//   - DEGRADED = one widget's data is missing or partial but the other
+//     widgets are still correct. Compute logs the error at Warn/Error
+//     level with structured fields, stamps the affected widget with an
+//     Error/Warning string so the frontend can render a banner, and
+//     returns a partial snapshot with nil error. This keeps the
+//     dashboard useful even when one underlying store is sick.
+//
+// Specifically:
+//   - vault.Walk failure → IngestActivity widget marked with Error
+//     (user sees "ingest pipeline unavailable" banner over the chart).
+//     Pipeline- and project-touched lookups lose their ingest input but
+//     the other sources (actions, prototypes, shapeup) still feed them.
+//   - prototypes.List failure → project-touched lookup loses prototype
+//     signal. Warning attached at snapshot level. Widget otherwise
+//     continues.
+//   - shapeup.ListThreads failure → Product Pipeline widget renders
+//     stage rows with zero counts and a snapshot-level warning. Other
+//     widgets unaffected.
+//   - actions.Store / projects.Store expose only non-erroring List
+//     methods so there is nothing to propagate there.
 func (a *Aggregator) Compute(now time.Time) (*Snapshot, error) {
 	snap := &Snapshot{
 		ComputedAt: now,
@@ -78,18 +118,38 @@ func (a *Aggregator) Compute(now time.Time) (*Snapshot, error) {
 	// every content-folder note's (folder, created, projects) tuple
 	// once, then fan out into both widgets. Non-content folders short-
 	// circuit during Walk so we don't parse every PRD/pitch on disk.
-	ingestNotes, err := a.collectIngestNotes()
-	if err != nil {
-		// Vault walk errors degrade the widget but should not fail the
-		// whole snapshot — the dashboard still has value with three
-		// widgets working.
+	collect := a.collectIngestNotes
+	if a.collectIngestNotesFn != nil {
+		collect = a.collectIngestNotesFn
+	}
+	ingestNotes, ingestErr := collect()
+	if ingestErr != nil {
+		// Degraded: surface the error on the widget and in logs so the
+		// user has a visible signal, but keep computing the other three
+		// widgets so the dashboard remains useful.
+		slog.Error("dashboard: vault walk failed",
+			"error", ingestErr,
+			"widget", "ingest_activity")
 		ingestNotes = nil
 	}
 
 	snap.IngestActivity = buildIngestWidget(ingestNotes, now)
+	if ingestErr != nil {
+		snap.IngestActivity.Error = "ingest activity unavailable: vault walk failed"
+	}
+
 	snap.Actions = a.buildActionsWidget(now)
-	snap.ActiveProjects = a.buildProjectsWidget(ingestNotes, now)
-	snap.ProductPipeline = a.buildPipelineWidget(now)
+
+	// buildProjectsWidget and buildPipelineWidget accept a warning sink
+	// so they can report degraded store fetches without panicking the
+	// whole Compute. Each appended warning is already sanitized — no
+	// internal paths or PII.
+	var warnings []string
+	snap.ActiveProjects = a.buildProjectsWidget(ingestNotes, now, &warnings)
+	snap.ProductPipeline = a.buildPipelineWidget(now, &warnings)
+	if len(warnings) > 0 {
+		snap.Warnings = warnings
+	}
 
 	snap.AllEmpty = snap.IngestActivity.Total == 0 &&
 		snap.Actions.Total == 0 &&
@@ -114,12 +174,18 @@ type ingestNote struct {
 // RFC3339 timestamp and `date` as a YYYY-MM-DD string; we try both plus
 // `created` (used by some internal stores) to survive a mix of sources
 // in the same vault.
+//
+// Returns the error from vault.Walk verbatim (wrapped with context).
+// vault.Walk itself swallows per-file read errors — only a top-level
+// filesystem failure propagates. That's the exact signal the caller
+// should surface on the widget: "the vault root is unreadable" is real,
+// "one note has a bad date" is not worth a banner.
 func (a *Aggregator) collectIngestNotes() ([]ingestNote, error) {
 	if a.vault == nil {
 		return nil, nil
 	}
 	var out []ingestNote
-	err := a.vault.Walk(func(relPath string, note *vault.Note) {
+	if err := a.vault.Walk(func(relPath string, note *vault.Note) {
 		folder := topFolder(relPath)
 		if !ingestContentFolders[folder] {
 			return
@@ -133,8 +199,10 @@ func (a *Aggregator) collectIngestNotes() ([]ingestNote, error) {
 			created:  ts,
 			projects: parseFrontmatterStrings(note.Frontmatter, "projects"),
 		})
-	})
-	return out, err
+	}); err != nil {
+		return nil, fmt.Errorf("vault walk: %w", err)
+	}
+	return out, nil
 }
 
 // firstNonZeroTime returns the first non-zero parsed time across a
@@ -266,7 +334,11 @@ func (a *Aggregator) buildActionsWidget(now time.Time) ActionsWidget {
 // project is referenced as both "Surveil" and "surveil" across notes.
 // We normalize every incoming ID through canonicalProjectID so a single
 // real project surfaces as one row, not N.
-func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time) ProjectsWidget {
+//
+// Appends to `warnings` (never nil — caller owns the slice) when a store
+// fetch degrades. A degraded prototype fetch means the widget undercounts
+// touches from prototypes, but actions + ingest notes still feed it.
+func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time, warnings *[]string) ProjectsWidget {
 	if a.projects == nil {
 		return ProjectsWidget{}
 	}
@@ -314,10 +386,23 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 	}
 
 	if a.prototypes != nil {
-		list, _ := a.prototypes.List()
-		for _, p := range list {
-			for _, pid := range p.Projects {
-				touch(pid, p.Created)
+		list, err := a.prototypes.List()
+		if err != nil {
+			// Degraded: log + surface a warning so the operator knows
+			// prototype signal is missing from the widget this cycle.
+			// Do NOT fail the whole widget — actions and ingest notes
+			// still populate lastTouchByID correctly.
+			slog.Warn("dashboard: prototypes.List failed",
+				"error", err,
+				"widget", "active_projects")
+			if warnings != nil {
+				*warnings = append(*warnings, "active projects: prototype signal unavailable")
+			}
+		} else {
+			for _, p := range list {
+				for _, pid := range p.Projects {
+					touch(pid, p.Created)
+				}
 			}
 		}
 	}
@@ -348,7 +433,11 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 // buildPipelineWidget groups shapeup threads by current_stage and counts
 // stalled threads — threads whose latest artifact is older than the
 // 7-day threshold.
-func (a *Aggregator) buildPipelineWidget(now time.Time) PipelineWidget {
+//
+// Appends to `warnings` (caller owns the slice) when ListThreads fails.
+// We still render the full set of stage rows with zero counts rather
+// than returning an empty widget: the UI expects a stable 5-row shape.
+func (a *Aggregator) buildPipelineWidget(now time.Time, warnings *[]string) PipelineWidget {
 	stages := shapeup.AllStages()
 	w := PipelineWidget{
 		Stages: make([]PipelineStage, 0, len(stages)),
@@ -357,18 +446,29 @@ func (a *Aggregator) buildPipelineWidget(now time.Time) PipelineWidget {
 	stalledByStage := make(map[shapeup.Stage]int)
 
 	if a.shapeup != nil {
-		threads, _ := a.shapeup.ListThreads()
-		for _, t := range threads {
-			countByStage[t.CurrentStage]++
-			// Find the artifact at the current stage — that's the one we
-			// check for staleness. Artifacts are immutable per stage, so
-			// Created is effectively the advance-into-stage timestamp.
-			for _, art := range t.Artifacts {
-				if art.Stage == t.CurrentStage {
-					if isStalled(art.Created, now) {
-						stalledByStage[t.CurrentStage]++
+		threads, err := a.shapeup.ListThreads()
+		if err != nil {
+			// Degraded: log + warn; leave count/stalled maps empty so
+			// the widget still emits all stage rows with zero counts.
+			slog.Warn("dashboard: shapeup.ListThreads failed",
+				"error", err,
+				"widget", "product_pipeline")
+			if warnings != nil {
+				*warnings = append(*warnings, "product pipeline: shapeup store unavailable")
+			}
+		} else {
+			for _, t := range threads {
+				countByStage[t.CurrentStage]++
+				// Find the artifact at the current stage — that's the one we
+				// check for staleness. Artifacts are immutable per stage, so
+				// Created is effectively the advance-into-stage timestamp.
+				for _, art := range t.Artifacts {
+					if art.Stage == t.CurrentStage {
+						if isStalled(art.Created, now) {
+							stalledByStage[t.CurrentStage]++
+						}
+						break
 					}
-					break
 				}
 			}
 		}
@@ -409,25 +509,59 @@ func parseFrontmatterTime(fm map[string]interface{}, key string) time.Time {
 	return time.Time{}
 }
 
-// parseFrontmatterStrings extracts a []string from a frontmatter array
-// field. Handles the yaml→interface{} round-trip where arrays come back
-// as []interface{} of string values.
+// parseFrontmatterStrings extracts a []string from a frontmatter field.
+//
+// Accepts three shapes because the value can arrive through different
+// code paths:
+//   - []interface{} — the shape produced by yaml.v3 unmarshal after a
+//     round-trip through disk; this is what every Walk() caller sees.
+//   - []string — the shape produced by in-memory writers in the ingest
+//     pipeline (see route.go) when a note is read back inside the same
+//     request without a disk round-trip. Dropping this shape silently
+//     masked the project-touched lookup for freshly-ingested notes.
+//   - string — the scalar form a user may hand-write for a single-value
+//     list field (e.g. `projects: alpha`). Returned as a one-element
+//     slice so the single-project happy path works without a type
+//     assertion at every call site.
+//
+// Anything else (ints, maps, nil) yields nil.
 func parseFrontmatterStrings(fm map[string]interface{}, key string) []string {
 	raw, ok := fm[key]
 	if !ok {
 		return nil
 	}
-	arr, ok := raw.([]interface{})
-	if !ok {
-		return nil
-	}
-	var out []string
-	for _, v := range arr {
-		if s, ok := v.(string); ok && s != "" {
-			out = append(out, s)
+	switch v := raw.(type) {
+	case []string:
+		// Defensive copy + empty-string filter so callers get a clean
+		// slice even if the source accidentally holds empty entries.
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			if s != "" {
+				out = append(out, s)
+			}
 		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
 	}
-	return out
+	return nil
 }
 
 // topFolder returns the first path component of relPath (empty string
@@ -448,6 +582,3 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 }
 
-// Sentinel error for the cache error-path test. Kept as a typed value so
-// the cache can return it consistently.
-var errNoSnapshot = fmt.Errorf("dashboard: no snapshot available yet")

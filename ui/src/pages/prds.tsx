@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { QuestionsModal } from "@/components/questions-modal"
-import { api } from "@/lib/api"
+import { api, getErrorMessage } from "@/lib/api"
 import { Plus } from "lucide-react"
 import type { Answer, Question, ShapeUpThread } from "@/types/api"
 
@@ -112,7 +113,13 @@ export function PRDsPage() {
   const questionsMutation = useMutation({
     mutationFn: () => api.prdQuestions(requestBody()),
     onSuccess: (resp) => setQuestions(resp.questions ?? []),
-    onError: () => setQuestions([]),
+    // Pre-flight questions call — fall through to empty list so the
+    // user can still synthesize, but surface a toast so they know the
+    // Q&A prompt won't appear and can retry by reopening.
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch PRD questions: ${getErrorMessage(err)}`)
+    },
   })
 
   const createMutation = useMutation({
@@ -130,6 +137,14 @@ export function PRDsPage() {
       setExtraTags("")
       setQuestions(null)
       setModalOpen(false)
+      toast.success("PRD synthesized")
+    },
+    onError: (err) => {
+      // Close the Q&A modal on failure so the user isn't stuck on a
+      // frozen spinner. They can reopen the form and retry.
+      setQuestions(null)
+      setModalOpen(false)
+      toast.error(`PRD synthesis failed: ${getErrorMessage(err)}`)
     },
   })
 

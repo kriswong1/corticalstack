@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { QuestionsModal } from "@/components/questions-modal"
-import { api } from "@/lib/api"
+import { api, getErrorMessage } from "@/lib/api"
 import { Plus, ExternalLink } from "lucide-react"
 import type { Answer, Question, ShapeUpThread } from "@/types/api"
 
@@ -89,8 +90,12 @@ export function PrototypesPage() {
     onSuccess: (resp) => {
       setQuestions(resp.questions ?? [])
     },
-    onError: () => {
+    // Pre-flight — fall through to empty list so the user can still
+    // generate, but surface the error so they know why the prompt is
+    // missing.
+    onError: (err) => {
       setQuestions([])
+      toast.error(`Failed to fetch prototype questions: ${getErrorMessage(err)}`)
     },
   })
 
@@ -113,6 +118,12 @@ export function PrototypesPage() {
       setHints("")
       setQuestions(null)
       setModalOpen(false)
+      toast.success("Prototype generated")
+    },
+    onError: (err) => {
+      setQuestions(null)
+      setModalOpen(false)
+      toast.error(`Prototype generation failed: ${getErrorMessage(err)}`)
     },
   })
 

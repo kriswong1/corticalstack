@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
+import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { QuestionsModal } from "@/components/questions-modal"
-import { api } from "@/lib/api"
+import { api, getErrorMessage } from "@/lib/api"
 import { Plus, ArrowRight, X } from "lucide-react"
 import type {
   Answer,
@@ -99,6 +100,10 @@ export function ProductPage() {
       setTitle("")
       setContent("")
       setProjectIds("")
+      toast.success("Idea created")
+    },
+    onError: (err) => {
+      toast.error(`Create idea failed: ${getErrorMessage(err)}`)
     },
   })
 
@@ -211,9 +216,12 @@ function ThreadCard({ thread }: { thread: ShapeUpThread }) {
     onSuccess: (resp) => {
       setQuestions(resp.questions ?? [])
     },
-    onError: () => {
-      // If asking fails, let the user proceed without Q&A.
+    onError: (err) => {
+      // If asking fails, fall through to no Q&A so the user can still
+      // advance, but surface a toast so they know the prompt was
+      // skipped for a reason.
       setQuestions([])
+      toast.error(`Failed to fetch advance questions: ${getErrorMessage(err)}`)
     },
   })
 
@@ -239,6 +247,15 @@ function ThreadCard({ thread }: { thread: ShapeUpThread }) {
       setHints("")
       setQuestions(null)
       setModalOpen(false)
+      toast.success(`Advanced to ${newArtifact.stage}`)
+    },
+    onError: (err) => {
+      // Close the Q&A modal on failure so the user isn't stuck staring
+      // at a frozen "Advancing..." spinner. Retry by reopening the
+      // advance form.
+      setQuestions(null)
+      setModalOpen(false)
+      toast.error(`Advance failed: ${getErrorMessage(err)}`)
     },
   })
 

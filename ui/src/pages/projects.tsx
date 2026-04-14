@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { api } from "@/lib/api"
+import { api, getErrorMessage } from "@/lib/api"
 import { Plus, RefreshCw } from "lucide-react"
 
 export function ProjectsPage() {
@@ -34,6 +35,10 @@ export function ProjectsPage() {
       setOpen(false)
       setName("")
       setDescription("")
+      toast.success("Project created")
+    },
+    onError: (err) => {
+      toast.error(getErrorMessage(err))
     },
   })
 
@@ -42,10 +47,15 @@ export function ProjectsPage() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] })
       if (result.created_count > 0) {
-        alert(`Synced: created ${result.created_count} project(s): ${result.created.join(", ")}`)
+        toast.success(
+          `Synced: created ${result.created_count} project(s): ${result.created.join(", ")}`,
+        )
       } else {
-        alert("All projects already in sync.")
+        toast.info("All projects already in sync.")
       }
+    },
+    onError: (err) => {
+      toast.error(getErrorMessage(err))
     },
   })
 

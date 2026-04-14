@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { api } from "@/lib/api"
+import { api, ApiError, getErrorMessage } from "@/lib/api"
 import type { Action, ActionStatus } from "@/types/api"
 import { RefreshCw, Pencil } from "lucide-react"
 
@@ -95,18 +95,23 @@ export function ActionsPage() {
 
   // Sync filter state back to the URL so the address bar reflects the
   // current view. `replace: true` keeps history tidy — every chip click
-  // shouldn't push a new history entry.
+  // shouldn't push a new history entry. Use the functional updater so
+  // we read the latest URLSearchParams each run and don't clobber
+  // unrelated params that other sources may have set (e.g. a dashboard
+  // deep link adding ?note=foo).
   useEffect(() => {
-    const next = new URLSearchParams(searchParams)
-    if (filterStatus) next.set("status", filterStatus)
-    else next.delete("status")
-    if (filterStalled) next.set("stalled", "true")
-    else next.delete("stalled")
-    setSearchParams(next, { replace: true })
-    // searchParams intentionally omitted — including it creates an
-    // update loop since setSearchParams produces a new instance.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus, filterStalled])
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (filterStatus) next.set("status", filterStatus)
+        else next.delete("status")
+        if (filterStalled) next.set("stalled", "true")
+        else next.delete("stalled")
+        return next
+      },
+      { replace: true },
+    )
+  }, [filterStatus, filterStalled, setSearchParams])
 
   const { data: actions, isLoading } = useQuery({
     queryKey: ["actions"],
@@ -157,8 +162,22 @@ export function ActionsPage() {
       invalidate()
       toast.success("Status updated")
     },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Status update failed")
+    onError: (err, variables) => {
+      // The backend enforces a WIP limit on the "doing" status and
+      // returns 409 Conflict when the limit is reached. Surface a
+      // clearer message so the user understands why the move was
+      // rejected, rather than a generic "Status update failed".
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        variables?.status === "doing"
+      ) {
+        toast.error(
+          `WIP limit reached — can't move more items into "doing". Finish or defer one first.`,
+        )
+        return
+      }
+      toast.error(getErrorMessage(err))
     },
   })
 
@@ -171,6 +190,9 @@ export function ActionsPage() {
       } else {
         toast.info(`${result.unique_actions} actions across ${result.scanned} files — all in sync`)
       }
+    },
+    onError: (err) => {
+      toast.error(`Reconcile failed: ${getErrorMessage(err)}`)
     },
   })
 
@@ -389,23 +411,41 @@ function EditActionDialog({
   const [context, setContext] = useState(action.context ?? "")
   const [saving, setSaving] = useState(false)
 
+  // Build a minimal patch containing only fields the user actually
+  // changed. Sending every field (including empty strings) can clobber
+  // existing backend values — a Go PUT handler using json.Decode treats
+  // "" as "set this to empty". Comparing to the original action and
+  // including only diverged fields matches the Partial<Action> shape
+  // expected by the API.
+  function buildPatch(): Partial<Action> {
+    const patch: Partial<Action> = {}
+    if (title !== (action.title ?? "")) patch.title = title
+    if (description !== action.description) patch.description = description
+    if (owner !== action.owner) patch.owner = owner
+    if (deadline !== (action.deadline ?? "")) patch.deadline = deadline
+    if (status !== action.status) patch.status = status
+    if (priority !== (action.priority ?? "p2")) patch.priority = priority as Action["priority"]
+    if (effort !== (action.effort ?? "m")) patch.effort = effort as Action["effort"]
+    if (context !== (action.context ?? "")) patch.context = context
+    return patch
+  }
+
+  const patch = buildPatch()
+  const hasChanges = Object.keys(patch).length > 0
+
   async function handleSave() {
+    if (!hasChanges) {
+      // Nothing changed — avoid a no-op PUT.
+      onClose()
+      return
+    }
     setSaving(true)
     try {
-      await api.updateAction(action.id, {
-        title,
-        description,
-        owner,
-        deadline,
-        status,
-        priority: priority as Action["priority"],
-        effort: effort as Action["effort"],
-        context,
-      })
+      await api.updateAction(action.id, patch)
       toast.success("Action updated")
       onSaved()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed")
+      toast.error(getErrorMessage(err))
     } finally {
       setSaving(false)
     }
@@ -515,7 +555,8 @@ function EditActionDialog({
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={saving || !description.trim()}
+                disabled={saving || !description.trim() || !hasChanges}
+                title={!hasChanges ? "No changes to save" : undefined}
                 className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
               >
                 {saving ? "Saving..." : "Save Changes"}

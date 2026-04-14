@@ -11,7 +11,17 @@ import (
 // exist: source note, every associated project's ACTION-ITEMS.md, and the
 // central tracker. Existing lines with the same ID are replaced; new IDs
 // are appended under the "## Open Items" marker.
+//
+// HI-03: the entire read-modify-write cycle is serialized on s.syncMu so
+// that two concurrent Sync calls touching the same markdown file cannot
+// race — the second sync observes the first's writes. This is a global
+// serialization on markdown sync, which is acceptable for a local app.
+// Purely in-memory readers (List/Get/CountByStatus) take s.mu and are
+// unaffected by the sync lock.
 func (s *Store) Sync(a *Action) error {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+
 	if err := s.EnsureCentralFile(); err != nil {
 		return err
 	}

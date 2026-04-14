@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { QuestionsModal } from "@/components/questions-modal"
-import { api } from "@/lib/api"
+import { api, getErrorMessage } from "@/lib/api"
 import type { Answer, Question } from "@/types/api"
 
 type FlowKind = "doc" | "text"
@@ -43,7 +44,10 @@ export function UseCasesPage() {
         ? api.useCaseFromDocQuestions({ source_path: sourcePath, hint: docHint })
         : api.useCaseFromTextQuestions({ description, actors_hint: actorsHint }),
     onSuccess: (resp) => setQuestions(resp.questions ?? []),
-    onError: () => setQuestions([]),
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch use-case questions: ${getErrorMessage(err)}`)
+    },
   })
 
   const fromDocMutation = useMutation({
@@ -60,6 +64,12 @@ export function UseCasesPage() {
       setDocHint("")
       setQuestions(null)
       setModalOpen(false)
+      toast.success("Use cases generated")
+    },
+    onError: (err) => {
+      setQuestions(null)
+      setModalOpen(false)
+      toast.error(`Use-case generation failed: ${getErrorMessage(err)}`)
     },
   })
 
@@ -77,6 +87,12 @@ export function UseCasesPage() {
       setActorsHint("")
       setQuestions(null)
       setModalOpen(false)
+      toast.success("Use cases generated")
+    },
+    onError: (err) => {
+      setQuestions(null)
+      setModalOpen(false)
+      toast.error(`Use-case generation failed: ${getErrorMessage(err)}`)
     },
   })
 

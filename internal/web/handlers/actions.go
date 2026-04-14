@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -54,19 +55,17 @@ func (h *Handler) SetActionStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid status: "+body.Status, http.StatusBadRequest)
 		return
 	}
-	// WIP limit enforcement: reject transitions to "doing" if at capacity.
+	// HI-02: push the WIP-limit check into the store so the count + status
+	// change happen under a single lock. Previously, a separate CountByStatus
+	// + SetStatus pair could let N concurrent requests all pass the check
+	// and all transition to "doing", overshooting the cap.
 	target := actions.MigrateStatus(actions.Status(body.Status))
-	if target == actions.StatusDoing {
-		limit := config.WIPLimit()
-		if limit > 0 {
-			counts := h.Actions.CountByStatus()
-			if counts[actions.StatusDoing] >= limit {
-				http.Error(w, fmt.Sprintf("WIP limit reached: max %d items in 'doing'", limit), http.StatusConflict)
-				return
-			}
-		}
+	limit := config.WIPLimit()
+	updated, err := h.Actions.SetStatusWithLimit(id, target, limit)
+	if errors.Is(err, actions.ErrWIPLimit) {
+		http.Error(w, fmt.Sprintf("WIP limit reached: max %d items in 'doing'", limit), http.StatusConflict)
+		return
 	}
-	updated, err := h.Actions.SetStatus(id, target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -91,21 +90,13 @@ func (h *Handler) UpdateAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// WIP limit enforcement for status changes to "doing".
-	if patch.Status != "" {
-		target := actions.MigrateStatus(patch.Status)
-		if target == actions.StatusDoing {
-			limit := config.WIPLimit()
-			if limit > 0 {
-				counts := h.Actions.CountByStatus()
-				if counts[actions.StatusDoing] >= limit {
-					http.Error(w, fmt.Sprintf("WIP limit reached: max %d items in 'doing'", limit), http.StatusConflict)
-					return
-				}
-			}
-		}
+	// HI-02: atomic check+update under the store's lock.
+	limit := config.WIPLimit()
+	updated, err := h.Actions.UpdateWithLimit(id, patch, limit)
+	if errors.Is(err, actions.ErrWIPLimit) {
+		http.Error(w, fmt.Sprintf("WIP limit reached: max %d items in 'doing'", limit), http.StatusConflict)
+		return
 	}
-	updated, err := h.Actions.Update(id, patch)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

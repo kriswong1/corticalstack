@@ -233,3 +233,119 @@ func TestVTTTransformHeaderOnlyErrors(t *testing.T) {
 		t.Error("expected error for header-only input")
 	}
 }
+
+// TestParseVTTCueStartingWithNOTE — MD-01 regression.
+// A cue whose voice-span body starts with the literal word "NOTE" must be
+// preserved as cue text, not silently swallowed as a comment block.
+func TestParseVTTCueStartingWithNOTE(t *testing.T) {
+	input := `WEBVTT
+
+00:00.000 --> 00:05.000
+<v Alice>NOTE this is important</v>
+`
+	res := parseVTT(input)
+	if !strings.Contains(res.Text, "Alice: NOTE this is important") {
+		t.Errorf("expected cue text preserved; got: %q", res.Text)
+	}
+	if len(res.Speakers) != 1 || res.Speakers[0] != "Alice" {
+		t.Errorf("expected [Alice] speaker, got %v", res.Speakers)
+	}
+}
+
+// TestParseVTTCueContainingNOTE — MD-01 regression.
+// A multi-line cue whose second line starts with "NOTE" must keep both
+// lines as cue text; the NOTE-block guard only applies between cues.
+func TestParseVTTCueContainingNOTE(t *testing.T) {
+	input := `WEBVTT
+
+00:00.000 --> 00:10.000
+<v Alice>First sentence from Alice.
+NOTE the second point is critical.</v>
+`
+	res := parseVTT(input)
+	if !strings.Contains(res.Text, "Alice: First sentence from Alice") {
+		t.Errorf("first cue line missing; got: %q", res.Text)
+	}
+	if !strings.Contains(res.Text, "NOTE the second point is critical") {
+		t.Errorf("second cue line swallowed by NOTE guard; got: %q", res.Text)
+	}
+}
+
+// TestParseVTTBoundaryNotes — MD-01 regression.
+// Words like "NOTES:", "NOTEBOOK", "NOTE-" share the "NOTE" prefix but are
+// not comment markers per the spec. They must pass through the cue-text
+// extraction path.
+func TestParseVTTBoundaryNotes(t *testing.T) {
+	input := `WEBVTT
+
+00:00.000 --> 00:05.000
+<v Alice>NOTES: meeting starts now.</v>
+
+00:05.000 --> 00:10.000
+<v Bob>NOTEBOOK is open on page three.</v>
+
+00:10.000 --> 00:15.000
+<v Carol>NOTE-taking is allowed.</v>
+`
+	res := parseVTT(input)
+	for _, want := range []string{
+		"NOTES: meeting starts now",
+		"NOTEBOOK is open on page three",
+		"NOTE-taking is allowed",
+	} {
+		if !strings.Contains(res.Text, want) {
+			t.Errorf("expected %q preserved; got: %q", want, res.Text)
+		}
+	}
+}
+
+// TestParseVTTValidNOTEBetweenCues — MD-01 regression.
+// A legit WebVTT NOTE block between two cues (at the top level) must still
+// be stripped. This proves the fix didn't break the intended comment path.
+func TestParseVTTValidNOTEBetweenCues(t *testing.T) {
+	input := `WEBVTT
+
+00:00.000 --> 00:05.000
+<v Alice>First cue.</v>
+
+NOTE this is a real comment between cues
+
+00:05.000 --> 00:10.000
+<v Bob>Second cue.</v>
+`
+	res := parseVTT(input)
+	if strings.Contains(res.Text, "real comment between cues") {
+		t.Errorf("NOTE block between cues should be stripped; got: %q", res.Text)
+	}
+	if !strings.Contains(res.Text, "Alice: First cue") {
+		t.Errorf("first cue missing; got: %q", res.Text)
+	}
+	if !strings.Contains(res.Text, "Bob: Second cue") {
+		t.Errorf("second cue missing; got: %q", res.Text)
+	}
+}
+
+// TestParseVTTBareNOTEBetweenCues — MD-01 regression.
+// The spec allows the bare word "NOTE" on a line by itself to introduce
+// a multi-line comment body that runs until the next blank line.
+func TestParseVTTBareNOTEBetweenCues(t *testing.T) {
+	input := `WEBVTT
+
+00:00.000 --> 00:05.000
+<v Alice>First cue.</v>
+
+NOTE
+multi-line
+comment body
+
+00:05.000 --> 00:10.000
+<v Bob>Second cue.</v>
+`
+	res := parseVTT(input)
+	if strings.Contains(res.Text, "multi-line") || strings.Contains(res.Text, "comment body") {
+		t.Errorf("bare-NOTE block body should be stripped; got: %q", res.Text)
+	}
+	if !strings.Contains(res.Text, "Alice: First cue") || !strings.Contains(res.Text, "Bob: Second cue") {
+		t.Errorf("surrounding cues missing; got: %q", res.Text)
+	}
+}

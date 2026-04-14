@@ -2,9 +2,11 @@ package actions
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -13,6 +15,10 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/vault"
 )
+
+// ErrWIPLimit is returned when a transition into StatusDoing would exceed
+// the configured WIP limit. Handlers should translate this to HTTP 409.
+var ErrWIPLimit = errors.New("WIP limit reached")
 
 const (
 	indexDir      = ".cortical"
@@ -37,8 +43,27 @@ purpose: Central action item tracker (multi-location sync)
 type Store struct {
 	vault *vault.Vault
 
-	mu    sync.RWMutex
-	byID  map[string]*Action
+	mu   sync.RWMutex
+	byID map[string]*Action
+
+	// syncMu serializes all markdown read-modify-write cycles performed
+	// by Sync(). It is intentionally separate from `mu` so that concurrent
+	// readers of the in-memory index (List/Get/CountByStatus) don't have
+	// to wait for a disk-bound markdown write to complete. Acquired for
+	// the full duration of a Sync() call.
+	//
+	// This is the HI-03 fix: before this mutex existed, two concurrent
+	// handlers calling Sync() on different actions that shared a markdown
+	// file (e.g. the central ACTION-ITEMS.md or a project tracker) could
+	// both read the old file body, both append, and the second writer
+	// would clobber the first.
+	//
+	// We use a single global mutex rather than a per-file map because
+	// (a) this is a local-only app with modest write volume, (b) the
+	// central ACTION-ITEMS.md is touched by nearly every sync anyway,
+	// and (c) the simpler approach has zero risk of map-growth races
+	// or forgotten-unlock bugs.
+	syncMu sync.Mutex
 }
 
 // New creates an action store bound to a vault.
@@ -142,15 +167,31 @@ func (s *Store) Get(id string) *Action {
 }
 
 // Upsert inserts or updates an action. If a.ID is empty a new UUID is assigned.
+//
+// Semantics:
+//   - On insert, the supplied pointer is stored and becomes the canonical
+//     *Action returned by Get/List.
+//   - On update, fields are copied into the EXISTING stored pointer so any
+//     caller that previously held a Get() pointer sees the new state.
+//     The supplied `a` pointer is NOT stored; callers should use the
+//     returned pointer.
+//   - Updated is only bumped when a meaningful field actually changed.
+//     If the incoming action is byte-for-byte identical to what's already
+//     stored (ignoring Created/Updated), Updated is left alone. This
+//     protects dashboard stalled-item detection from re-ingest churn.
+//   - flushLocked runs BEFORE the map is considered authoritative. On
+//     flush failure, the in-memory state is rolled back to the pre-call
+//     snapshot so a disk error doesn't leak an unpersisted action.
 func (s *Store) Upsert(a *Action) (*Action, error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if a.ID == "" {
 		a.ID = uuid.NewString()
 	}
 	if a.Created.IsZero() {
 		a.Created = time.Now()
 	}
-	a.Updated = time.Now()
 	if a.Status == "" {
 		a.Status = StatusInbox
 	}
@@ -161,16 +202,132 @@ func (s *Store) Upsert(a *Action) (*Action, error) {
 	if a.Effort == "" {
 		a.Effort = EffortM
 	}
-	s.byID[a.ID] = a
-	err := s.flushLocked()
-	s.mu.Unlock()
-	return a, err
+
+	existing, existed := s.byID[a.ID]
+	if !existed {
+		// Insert path: stamp Updated on creation and store the new pointer.
+		// Rollback on flush failure: delete the newly-added entry.
+		a.Updated = time.Now()
+		s.byID[a.ID] = a
+		if err := s.flushLocked(); err != nil {
+			delete(s.byID, a.ID)
+			return nil, err
+		}
+		return a, nil
+	}
+
+	// Update path: mutate `existing` in place so held pointers stay valid.
+	// Snapshot the previous field values so we can rewind on flush failure.
+	snapshot := *existing
+
+	// Compute a candidate next state and compare field-by-field against
+	// the existing state. If nothing meaningful changed, return the live
+	// pointer untouched — Updated is preserved so stalled-item detection
+	// isn't clobbered by idempotent re-ingests.
+	candidate := *existing
+	candidate.Title = a.Title
+	candidate.Description = a.Description
+	candidate.Owner = a.Owner
+	candidate.Deadline = a.Deadline
+	candidate.Status = a.Status
+	candidate.Priority = a.Priority
+	candidate.Effort = a.Effort
+	candidate.Context = a.Context
+	candidate.SourceNote = a.SourceNote
+	candidate.SourceTitle = a.SourceTitle
+	candidate.ProjectIDs = a.ProjectIDs
+
+	if actionsEqual(existing, &candidate) {
+		// No-op upsert: nothing changed, no flush needed, Updated untouched.
+		return existing, nil
+	}
+
+	// Apply the candidate and bump Updated.
+	*existing = candidate
+	existing.Updated = time.Now()
+
+	if err := s.flushLocked(); err != nil {
+		// Restore pre-call state so in-memory view doesn't leak the
+		// unpersisted update.
+		*existing = snapshot
+		return nil, err
+	}
+	return existing, nil
+}
+
+// actionsEqual returns true if two actions are equal in every field that
+// Upsert considers meaningful. Created and Updated are intentionally
+// excluded: Created is monotonic, Updated is the output of the comparison
+// itself.
+func actionsEqual(a, b *Action) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.ID != b.ID ||
+		a.Title != b.Title ||
+		a.Description != b.Description ||
+		a.Owner != b.Owner ||
+		a.Deadline != b.Deadline ||
+		a.Status != b.Status ||
+		a.Priority != b.Priority ||
+		a.Effort != b.Effort ||
+		a.Context != b.Context ||
+		a.SourceNote != b.SourceNote ||
+		a.SourceTitle != b.SourceTitle {
+		return false
+	}
+	return reflect.DeepEqual(a.ProjectIDs, b.ProjectIDs)
 }
 
 // SetStatus updates the status of an existing action.
+//
+// Note: this does NOT enforce the WIP limit. Handlers that need to
+// enforce the limit atomically should call SetStatusWithLimit instead.
 func (s *Store) SetStatus(id string, status Status) (*Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.setStatusLocked(id, status)
+}
+
+// SetStatusWithLimit atomically enforces the WIP-limit-for-doing and
+// updates the action's status in a single critical section. If the
+// target status is StatusDoing and the store already contains wipLimit
+// actions in StatusDoing, ErrWIPLimit is returned without mutating
+// anything. A zero wipLimit disables enforcement.
+//
+// This closes the TOCTOU window that existed when handlers called
+// CountByStatus() and SetStatus() as separate operations.
+func (s *Store) SetStatusWithLimit(id string, status Status, wipLimit int) (*Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	target := MigrateStatus(status)
+	if target == StatusDoing && wipLimit > 0 {
+		// Only enforce the cap if THIS transition would add another
+		// action to the "doing" bucket. If the action is already in
+		// "doing", the status change is a no-op for the count.
+		existing, ok := s.byID[id]
+		if !ok {
+			return nil, fmt.Errorf("action not found: %s", id)
+		}
+		if existing.Status != StatusDoing {
+			n := 0
+			for _, a := range s.byID {
+				if a.Status == StatusDoing {
+					n++
+				}
+			}
+			if n >= wipLimit {
+				return nil, ErrWIPLimit
+			}
+		}
+	}
+	return s.setStatusLocked(id, status)
+}
+
+// setStatusLocked is the shared implementation. Caller must hold s.mu.
+// On flushLocked failure, rolls back the in-memory status change.
+func (s *Store) setStatusLocked(id string, status Status) (*Action, error) {
 	a, ok := s.byID[id]
 	if !ok {
 		return nil, fmt.Errorf("action not found: %s", id)
@@ -178,20 +335,68 @@ func (s *Store) SetStatus(id string, status Status) (*Action, error) {
 	if !IsValid(string(status)) {
 		return nil, fmt.Errorf("invalid status: %s", status)
 	}
-	a.Status = status
+	prevStatus := a.Status
+	prevUpdated := a.Updated
+	a.Status = MigrateStatus(status)
 	a.Updated = time.Now()
-	return a, s.flushLocked()
+	if err := s.flushLocked(); err != nil {
+		a.Status = prevStatus
+		a.Updated = prevUpdated
+		return nil, err
+	}
+	return a, nil
 }
 
 // Update applies partial changes to an existing action. Only non-zero fields
 // in the patch are applied. Returns the updated action.
+//
+// Note: this does NOT enforce the WIP limit. Handlers that need to
+// enforce the limit atomically should call UpdateWithLimit instead.
 func (s *Store) Update(id string, patch ActionPatch) (*Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.updateLocked(id, patch)
+}
+
+// UpdateWithLimit atomically enforces the WIP-limit-for-doing when the
+// patch contains a status transition into StatusDoing. Otherwise it
+// behaves exactly like Update. A zero wipLimit disables enforcement.
+func (s *Store) UpdateWithLimit(id string, patch ActionPatch, wipLimit int) (*Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if patch.Status != "" && wipLimit > 0 {
+		target := MigrateStatus(patch.Status)
+		if target == StatusDoing {
+			existing, ok := s.byID[id]
+			if !ok {
+				return nil, fmt.Errorf("action not found: %s", id)
+			}
+			if existing.Status != StatusDoing {
+				n := 0
+				for _, a := range s.byID {
+					if a.Status == StatusDoing {
+						n++
+					}
+				}
+				if n >= wipLimit {
+					return nil, ErrWIPLimit
+				}
+			}
+		}
+	}
+	return s.updateLocked(id, patch)
+}
+
+// updateLocked is the shared implementation. Caller must hold s.mu.
+// On flushLocked failure, rolls back every field the patch touched so the
+// in-memory view doesn't leak an unpersisted change.
+func (s *Store) updateLocked(id string, patch ActionPatch) (*Action, error) {
 	a, ok := s.byID[id]
 	if !ok {
 		return nil, fmt.Errorf("action not found: %s", id)
 	}
+	snapshot := *a
 	if patch.Title != nil {
 		a.Title = *patch.Title
 	}
@@ -217,7 +422,11 @@ func (s *Store) Update(id string, patch ActionPatch) (*Action, error) {
 		a.Context = *patch.Context
 	}
 	a.Updated = time.Now()
-	return a, s.flushLocked()
+	if err := s.flushLocked(); err != nil {
+		*a = snapshot
+		return nil, err
+	}
+	return a, nil
 }
 
 // ActionPatch holds optional fields for a partial action update.

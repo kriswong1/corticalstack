@@ -1,13 +1,15 @@
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
+// Hard-coded to "dark" to match the app's dark-only Stripe palette.
+// The previous version pulled `useTheme()` from next-themes, but the app
+// tree has no `ThemeProvider` — the hook returned `{}` and the default
+// "system" kicked in. Dropping next-themes entirely removes a ~12 KB
+// dependency and avoids committing the app to an unused React Context.
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
-
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme="dark"
       className="toaster group"
       icons={{
         success: (

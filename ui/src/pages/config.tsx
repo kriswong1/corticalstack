@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -10,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PageHeader } from "@/components/layout/page-header"
 import { QuestionsModal } from "@/components/questions-modal"
-import { api } from "@/lib/api"
+import { api, getErrorMessage } from "@/lib/api"
 import { Save, Sparkles, UserPlus } from "lucide-react"
 import type { Answer, Question } from "@/types/api"
 
@@ -182,7 +183,11 @@ function PersonaSetupForm({ onComplete }: { onComplete: () => void }) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["persona", "user"] })
+      toast.success("USER.md generated")
       onComplete()
+    },
+    onError: (err) => {
+      toast.error(getErrorMessage(err))
     },
   })
 
@@ -268,13 +273,22 @@ function PersonaEditor({ name }: { name: string }) {
       queryClient.invalidateQueries({ queryKey: ["persona", name] })
       setTimeout(() => setSaveStatus("idle"), 2000)
     },
-    onError: () => setSaveStatus("error"),
+    onError: (err) => {
+      setSaveStatus("error")
+      toast.error(getErrorMessage(err))
+    },
   })
 
   const questionsMutation = useMutation({
     mutationFn: () => api.personaEnhanceQuestions(name, content),
     onSuccess: (resp) => setQuestions(resp.questions ?? []),
-    onError: () => setQuestions([]),
+    // Fetching questions is allowed to fail silently — we fall through
+    // to an empty-questions list so the user can still proceed — but we
+    // still surface a toast so they know the pre-flight hiccupped.
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch enhance questions: ${getErrorMessage(err)}`)
+    },
   })
 
   const enhanceMutation = useMutation({
@@ -289,9 +303,15 @@ function PersonaEditor({ name }: { name: string }) {
       setSaveStatus("idle")
       setQuestions(null)
       setModalOpen(false)
+      toast.success(`Enhanced ${name.toUpperCase()}`)
     },
     onError: (err) => {
-      alert("Enhance failed: " + (err instanceof Error ? err.message : String(err)))
+      // Close the modal so the user isn't stuck staring at a frozen
+      // spinner. The original content is preserved in the textarea and
+      // they can re-open Enhance to retry.
+      setQuestions(null)
+      setModalOpen(false)
+      toast.error(`Enhance failed: ${getErrorMessage(err)}`)
     },
   })
 

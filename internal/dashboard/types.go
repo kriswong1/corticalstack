@@ -34,6 +34,14 @@ type Snapshot struct {
 	// uses this to switch /dashboard to the onboarding surface instead of
 	// rendering four empty widgets.
 	AllEmpty bool `json:"all_empty"`
+	// Warnings collects non-fatal degradations hit during Compute — e.g.
+	// prototypes.List failed so the pipeline widget is approximate, but
+	// the other widgets are still correct. Each entry is a short
+	// human-readable string already stripped of internal paths. Populated
+	// on the happy path when individual stores fail but a partial
+	// snapshot is still worth returning; propagate hard via the cache's
+	// error channel only when the snapshot would be misleading.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // IngestWidget holds the 30-day ingest activity chart.
@@ -47,6 +55,12 @@ type IngestWidget struct {
 	Types []string `json:"types"`
 	// Total is the sum of all bucket counts across the 30 days.
 	Total int `json:"total"`
+	// Error is a short human-readable reason this widget could not be
+	// populated (e.g. vault walk failed). Empty on the happy path. The
+	// frontend renders a banner over the widget when non-empty so the
+	// user can distinguish "no ingest activity" from "ingest pipeline
+	// broken" — silently returning zero days was the bug we're fixing.
+	Error string `json:"error,omitempty"`
 }
 
 // IngestDay is one day of the 30-day chart.

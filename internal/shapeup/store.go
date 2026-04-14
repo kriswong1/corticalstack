@@ -235,7 +235,27 @@ func (s *Store) readArtifact(relPath string) (*Artifact, error) {
 }
 
 // artifactRelPath returns the relative vault path for an artifact based on
-// its stage, date, and title.
+// its stage, date, title, and a short suffix derived from the artifact ID.
+//
+// The ID suffix is what makes the path collision-proof: before HI-04 the
+// filename was just `<date>_<slug>.md`, which silently clobbered whenever
+// two raw ideas happened to share a title on the same day (the
+// ShapeUpIdeasDestination emits one raw idea per extracted idea, so
+// re-ingests and multi-idea documents hit this collision routinely). We
+// derive the suffix from `a.ID` (the artifact UUID) rather than `a.Thread`
+// so every artifact in a thread — raw, frame, shape, breadboard, pitch —
+// lands on a distinct filename even though they share a thread UUID.
+//
+// Backward compatibility: `walkArtifacts` reads every `.md` file under the
+// stage directory without parsing the filename, so existing files written
+// with the old `<date>_<slug>.md` format continue to read back correctly
+// alongside the new format. No migration is required.
+//
+// Callers must ensure `a.ID` is populated before calling this (both
+// CreateRawIdea and WriteArtifact set ID before calling us). If ID is
+// empty we fall back to a stable "noid" placeholder rather than panic,
+// so a misuse produces an inspectable on-disk artifact instead of a
+// crash — but the calling path is expected to assign a UUID first.
 func artifactRelPath(a *Artifact) string {
 	date := a.Created.Format("2006-01-02")
 	slug := vault.Slugify(a.Title)
@@ -245,7 +265,22 @@ func artifactRelPath(a *Artifact) string {
 	if len(slug) > 60 {
 		slug = slug[:60]
 	}
-	return filepath.ToSlash(filepath.Join(productDir, string(a.Stage), fmt.Sprintf("%s_%s.md", date, slug)))
+	idShort := shortArtifactID(a.ID)
+	return filepath.ToSlash(filepath.Join(productDir, string(a.Stage), fmt.Sprintf("%s_%s_%s.md", date, slug, idShort)))
+}
+
+// shortArtifactID returns the first 8 characters of an artifact UUID for
+// use as a filename suffix. If the ID is shorter than 8 chars (should
+// never happen for a real uuid.NewString() output but defends against
+// tests / misuse) we return the whole ID or a placeholder.
+func shortArtifactID(id string) string {
+	if id == "" {
+		return "noid"
+	}
+	if len(id) < 8 {
+		return id
+	}
+	return id[:8]
 }
 
 // renderArtifact turns an Artifact into a vault.Note. The renderer is simple
