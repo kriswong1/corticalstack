@@ -51,6 +51,18 @@ func ClaudeModel() string {
 	return os.Getenv("CLAUDE_MODEL")
 }
 
+// UsageLogPath returns the path to the JSONL file where every Claude
+// CLI invocation is recorded. Default: <VAULT_PATH>/.cortical/usage.jsonl
+// (the dot-prefix keeps Obsidian from indexing it). Override with
+// USAGE_LOG_PATH env var.
+func UsageLogPath() string {
+	Load()
+	if v := os.Getenv("USAGE_LOG_PATH"); v != "" {
+		return v
+	}
+	return filepath.Join(VaultPath(), ".cortical", "usage.jsonl")
+}
+
 // DeepgramAPIKey returns the Deepgram API key from the environment.
 func DeepgramAPIKey() string {
 	Load()

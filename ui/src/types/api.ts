@@ -422,3 +422,80 @@ export interface StatusResponse {
   server_time: string
   content_types: string[]
 }
+
+// --- Usage telemetry ---
+
+// Field names use snake_case to match the Go json tags exactly so the
+// JSON payload deserializes cleanly without a remapping layer. Mirrors
+// agent.Invocation in internal/agent/telemetry.go.
+export interface UsageInvocation {
+  timestamp: string
+  model?: string
+  session_id?: string
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  web_search_requests?: number
+  cost_usd: number
+  duration_ms: number
+  duration_api_ms?: number
+  num_turns?: number
+  subtype?: string
+  working_dir?: string
+  max_turns?: number
+  caller_hint?: string
+  prompt_len: number
+  result_len: number
+  error?: string
+}
+
+export interface UsageModelTotals {
+  calls: number
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+}
+
+export interface UsageDayTotals {
+  day: string // YYYY-MM-DD (UTC)
+  calls: number
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+}
+
+export interface UsageSummary {
+  start: string
+  end: string
+  total_calls: number
+  total_cost_usd: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_cache_creation_tokens: number
+  total_cache_read_tokens: number
+  by_model: Record<string, UsageModelTotals>
+  by_day: UsageDayTotals[]
+}
+
+export type UsageRecentResponse = UsageInvocation[]
+
+// --- Meetings (transcript → summary pipeline) ---
+
+export type MeetingStage = "transcript" | "summary"
+
+export interface Meeting {
+  id: string
+  title: string
+  stage: MeetingStage
+  path: string
+  source_id?: string
+  source_path?: string
+  projects?: string[]
+  created: string
+  updated?: string
+}

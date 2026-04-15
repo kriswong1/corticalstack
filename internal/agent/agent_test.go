@@ -121,3 +121,119 @@ func TestIsInstalled(t *testing.T) {
 	got := IsInstalled()
 	_ = got // use the value to avoid any linter complaint
 }
+
+// Real CLI shape: assistant content + usage are nested under .message.
+// The earlier flat-shape tests are kept for the legacy fallback path.
+func TestParseStreamCapturesUsageNested(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"abc-123","model":"claude-sonnet-4-5","cwd":"/tmp","tools":["Read"]}
+{"type":"assistant","message":{"id":"msg_01XYZ","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"Hello "},{"type":"text","text":"world"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"cache_creation_input_tokens":1024,"cache_read_input_tokens":2048,"output_tokens":7,"service_tier":"standard"}},"session_id":"abc-123"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1820,"duration_api_ms":1654,"num_turns":1,"result":"Hello world","session_id":"abc-123","total_cost_usd":0.00345,"usage":{"input_tokens":12,"cache_creation_input_tokens":1024,"cache_read_input_tokens":2048,"output_tokens":7,"server_tool_use":{"web_search_requests":0}}}
+`
+	got := parseStream(strings.NewReader(input))
+
+	if got.Model != "claude-sonnet-4-5" {
+		t.Errorf("model = %q", got.Model)
+	}
+	if got.SessionID != "abc-123" {
+		t.Errorf("session = %q", got.SessionID)
+	}
+	if got.Text != "Hello world" {
+		t.Errorf("text = %q", got.Text)
+	}
+	if got.InputTokens != 12 {
+		t.Errorf("input_tokens = %d, want 12", got.InputTokens)
+	}
+	if got.OutputTokens != 7 {
+		t.Errorf("output_tokens = %d, want 7", got.OutputTokens)
+	}
+	if got.CacheCreationTokens != 1024 {
+		t.Errorf("cache_creation_tokens = %d, want 1024", got.CacheCreationTokens)
+	}
+	if got.CacheReadTokens != 2048 {
+		t.Errorf("cache_read_tokens = %d, want 2048", got.CacheReadTokens)
+	}
+	if got.CostUSD != 0.00345 {
+		t.Errorf("cost_usd = %v, want 0.00345", got.CostUSD)
+	}
+	if got.DurationMS != 1820 {
+		t.Errorf("duration_ms = %d, want 1820", got.DurationMS)
+	}
+	if got.DurationAPIMS != 1654 {
+		t.Errorf("duration_api_ms = %d, want 1654", got.DurationAPIMS)
+	}
+	if got.NumTurns != 1 {
+		t.Errorf("num_turns = %d, want 1", got.NumTurns)
+	}
+	if got.Subtype != "success" {
+		t.Errorf("subtype = %q, want success", got.Subtype)
+	}
+	if got.IsError {
+		t.Error("is_error should be false")
+	}
+}
+
+// Issue #1920 hang case: the CLI closes stdout before emitting a result
+// event. Per-assistant accumulators must become the authoritative totals.
+func TestParseStreamNoResultEvent(t *testing.T) {
+	input := `{"type":"system","subtype":"init","session_id":"hung-1","model":"claude-sonnet-4-5"}
+{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-4-5","content":[{"type":"text","text":"partial"}],"usage":{"input_tokens":5,"output_tokens":3,"cache_creation_input_tokens":100,"cache_read_input_tokens":200}},"session_id":"hung-1"}
+`
+	got := parseStream(strings.NewReader(input))
+
+	if got.SessionID != "hung-1" {
+		t.Errorf("session = %q", got.SessionID)
+	}
+	if got.Text != "partial" {
+		t.Errorf("text = %q", got.Text)
+	}
+	if got.InputTokens != 5 {
+		t.Errorf("input_tokens = %d, want 5 (assistant fallback)", got.InputTokens)
+	}
+	if got.OutputTokens != 3 {
+		t.Errorf("output_tokens = %d, want 3 (assistant fallback)", got.OutputTokens)
+	}
+	if got.CacheCreationTokens != 100 {
+		t.Errorf("cache_creation_tokens = %d, want 100 (assistant fallback)", got.CacheCreationTokens)
+	}
+	if got.CacheReadTokens != 200 {
+		t.Errorf("cache_read_tokens = %d, want 200 (assistant fallback)", got.CacheReadTokens)
+	}
+}
+
+// When both assistant and result events carry usage, result wins.
+// The result event's totals already include all assistant turns, so
+// trusting it is the only way to avoid double-counting.
+func TestParseStreamResultPrecedence(t *testing.T) {
+	input := `{"type":"assistant","message":{"model":"m","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":999,"output_tokens":999,"cache_creation_input_tokens":999,"cache_read_input_tokens":999}}}
+{"type":"result","subtype":"success","result":"x","total_cost_usd":0.5,"usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":30,"cache_read_input_tokens":40}}
+`
+	got := parseStream(strings.NewReader(input))
+
+	if got.InputTokens != 10 {
+		t.Errorf("input_tokens = %d, want 10 (result should override assistant)", got.InputTokens)
+	}
+	if got.OutputTokens != 20 {
+		t.Errorf("output_tokens = %d, want 20", got.OutputTokens)
+	}
+	if got.CacheCreationTokens != 30 {
+		t.Errorf("cache_creation_tokens = %d, want 30", got.CacheCreationTokens)
+	}
+	if got.CacheReadTokens != 40 {
+		t.Errorf("cache_read_tokens = %d, want 40", got.CacheReadTokens)
+	}
+	if got.CostUSD != 0.5 {
+		t.Errorf("cost = %v, want 0.5", got.CostUSD)
+	}
+}
+
+// Web-search tool use surfaces under server_tool_use in the usage block.
+// CorticalStack doesn't currently use tools, but the field is captured
+// so it's there if someone adds a tool-using agent later.
+func TestParseStreamWebSearchRequests(t *testing.T) {
+	input := `{"type":"result","subtype":"success","result":"x","usage":{"input_tokens":1,"output_tokens":1,"server_tool_use":{"web_search_requests":3}}}
+`
+	got := parseStream(strings.NewReader(input))
+	if got.WebSearchRequests != 3 {
+		t.Errorf("web_search_requests = %d, want 3", got.WebSearchRequests)
+	}
+}

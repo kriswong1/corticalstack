@@ -57,6 +57,8 @@ type Deps struct {
 	PRDs               *prds.Store
 	PRDSynth           *prds.Synthesizer
 	Dashboard          *dashboard.Cache
+	Usage              usageProvider
+	Meetings           meetingsProvider
 }
 
 // Handler bundles shared dependencies for all dashboard handlers.
@@ -86,6 +88,12 @@ type Handler struct {
 	// v4: dashboard aggregator
 	Dashboard dashboardProvider
 
+	// v5: usage telemetry
+	Usage usageProvider
+
+	// v5: meetings (transcript → summary pipeline)
+	Meetings meetingsProvider
+
 	RenderPage func(w http.ResponseWriter, contentTemplate string, data map[string]interface{})
 }
 
@@ -110,6 +118,8 @@ func New(deps Deps) *Handler {
 		PRDs:               deps.PRDs,
 		PRDSynth:           deps.PRDSynth,
 		Dashboard:          deps.Dashboard,
+		Usage:              deps.Usage,
+		Meetings:           deps.Meetings,
 	}
 }
 

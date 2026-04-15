@@ -142,6 +142,27 @@ func TestMaxClassifierChars(t *testing.T) {
 	}
 }
 
+func TestUsageLogPath(t *testing.T) {
+	t.Run("default builds under vault", func(t *testing.T) {
+		t.Setenv("USAGE_LOG_PATH", "")
+		t.Setenv("VAULT_PATH", "/some/vault")
+		got := UsageLogPath()
+		// filepath.Join uses OS separator — assert with both possibilities.
+		want1 := "/some/vault/.cortical/usage.jsonl"
+		want2 := `\some\vault\.cortical\usage.jsonl`
+		if got != want1 && got != want2 {
+			t.Errorf("UsageLogPath() = %q, want one of %q / %q", got, want1, want2)
+		}
+	})
+
+	t.Run("env override", func(t *testing.T) {
+		t.Setenv("USAGE_LOG_PATH", "/custom/usage.jsonl")
+		if got := UsageLogPath(); got != "/custom/usage.jsonl" {
+			t.Errorf("UsageLogPath() = %q", got)
+		}
+	})
+}
+
 func TestGetSecret(t *testing.T) {
 	t.Setenv("MY_SECRET_VAR", "secret-value")
 	if got := GetSecret("MY_SECRET_VAR"); got != "secret-value" {

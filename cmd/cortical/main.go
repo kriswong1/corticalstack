@@ -21,6 +21,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/dashboard"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/intent"
+	"github.com/kriswong/corticalstack/internal/meetings"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/pipeline/transformers"
@@ -28,6 +29,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/prototypes"
 	"github.com/kriswong/corticalstack/internal/shapeup"
+	"github.com/kriswong/corticalstack/internal/telemetry"
 	"github.com/kriswong/corticalstack/internal/usecases"
 	"github.com/kriswong/corticalstack/internal/vault"
 	"github.com/kriswong/corticalstack/internal/web"
@@ -52,6 +54,20 @@ func main() {
 		slog.Error("creating vault dir", "path", vaultPath, "error", err)
 		os.Exit(1)
 	}
+
+	// Telemetry: capture every Claude CLI invocation to a JSONL file.
+	// Recorder and Reader share the same path so an env-var override
+	// can't accidentally diverge between writer and reader.
+	usagePath := config.UsageLogPath()
+	usageRec, err := telemetry.NewJSONLRecorder(usagePath)
+	if err != nil {
+		slog.Error("usage recorder", "path", usagePath, "error", err)
+		os.Exit(1)
+	}
+	defer usageRec.Close()
+	agent.DefaultRecorder = usageRec
+	usageReader := telemetry.NewReader(usagePath)
+	slog.Info("usage telemetry", "path", usagePath)
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -137,6 +153,14 @@ func main() {
 	prdRetriever := prds.NewRetriever(v)
 	prdSynth := prds.NewSynthesizer(workingDir, claudeModel, prdRetriever, actionStore, personaLoader)
 
+	// v5: Meetings (transcript → summary pipeline) — read-only store
+	// scanned by the Pipeline dashboard. Notes are dropped into
+	// vault/meetings/{transcripts,summaries}/ by audio ingest or by hand.
+	meetingsStore := meetings.New(v)
+	if err := meetingsStore.EnsureFolder(); err != nil {
+		slog.Warn("could not create meetings folders", "error", err)
+	}
+
 	// Jobs + SSE bus (shared by ingest + confirm flows)
 	bus := sse.NewEventBus()
 	jm := jobs.New(rootCtx, pipe, bus, classifier, projectStore)
@@ -165,6 +189,8 @@ func main() {
 		PRDs:            prdStore,
 		PRDSynth:        prdSynth,
 		Dashboard:       dashCache,
+		Usage:           usageReader,
+		Meetings:        meetingsStore,
 	}
 
 	srv, err := web.NewServer(deps)

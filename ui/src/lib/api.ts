@@ -28,6 +28,9 @@ import type {
   PersonaResponse,
   PersonaEnhanceRequest,
   QuestionsResponse,
+  UsageRecentResponse,
+  UsageSummary,
+  Meeting,
 } from "@/types/api"
 
 export class ApiError extends Error {
@@ -168,6 +171,15 @@ export const api = {
 
   // Dashboard operating view (single aggregator snapshot)
   getDashboard: () => request<DashboardSnapshot>("/api/dashboard"),
+
+  // Usage telemetry — recent invocations and trailing-window aggregates
+  getUsageRecent: (limit = 50) =>
+    request<UsageRecentResponse>(`/api/usage/recent?limit=${limit}`),
+  getUsageSummary: (windowStr = "24h") =>
+    request<UsageSummary>(`/api/usage/summary?window=${windowStr}`),
+
+  // Meetings (transcript → summary pipeline)
+  listMeetings: () => request<Meeting[]>("/api/meetings"),
 
   // Ingest
   ingestText: (body: { text: string; title?: string }) =>

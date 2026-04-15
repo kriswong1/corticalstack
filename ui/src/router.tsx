@@ -10,6 +10,8 @@ import { ProductPage } from "@/pages/product"
 import { UseCasesPage } from "@/pages/usecases"
 import { PrototypesPage } from "@/pages/prototypes"
 import { PRDsPage } from "@/pages/prds"
+import { UsagePage } from "@/pages/usage"
+import { PipelinesPage } from "@/pages/pipelines"
 
 export const router = createBrowserRouter([
   {
@@ -27,6 +29,8 @@ export const router = createBrowserRouter([
       { path: "usecases", element: <UseCasesPage /> },
       { path: "prototypes", element: <PrototypesPage /> },
       { path: "prds", element: <PRDsPage /> },
+      { path: "usage", element: <UsagePage /> },
+      { path: "pipelines", element: <PipelinesPage /> },
       // Persona editors are now inside Config page; redirect old URLs
       { path: "persona/:name", element: <Navigate to="/config" replace /> },
     ],

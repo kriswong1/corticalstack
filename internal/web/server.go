@@ -98,6 +98,13 @@ func (s *Server) routes() {
 	r.Post("/api/projects/sync", s.Handler.SyncProjects)
 	r.Get("/api/projects/{id}", s.Handler.GetProject)
 
+	// API: usage telemetry
+	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)
+	r.Get("/api/usage/summary", s.Handler.GetUsageSummary)
+
+	// API: meetings (transcript → summary pipeline)
+	r.Get("/api/meetings", s.Handler.ListMeetings)
+
 	// API: ingest
 	r.Post("/api/ingest/text", s.Handler.IngestText)
 	r.Post("/api/ingest/url", s.Handler.IngestURL)
