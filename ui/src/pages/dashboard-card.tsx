@@ -25,8 +25,8 @@ import {
 } from "@/components/ui/table"
 import { api, getErrorMessage } from "@/lib/api"
 import { toast } from "sonner"
-import type { CardDetail, ItemUsageAggregate, Project } from "@/types/api"
-import { ArrowLeft, Plus, X } from "lucide-react"
+import type { CardDetail, ItemUsageAggregate, Project, ShapeUpThread } from "@/types/api"
+import { ArrowLeft, Loader2, Plus, Upload, X } from "lucide-react"
 
 // Stage color palettes per card type (same as dashboard pipeline cards)
 const stageColors: Record<string, Record<string, string>> = {
@@ -39,16 +39,14 @@ const stageColors: Record<string, Record<string, string>> = {
   },
   meeting: {
     transcript: "oklch(0.65 0.15 230)",
-    audio:      "oklch(0.70 0.16 85)",
     note:       "oklch(0.62 0.19 150)",
   },
   document: {
-    need:        "oklch(0.55 0.04 250)",
-    in_progress: "oklch(0.70 0.16 85)",
-    final:       "oklch(0.62 0.19 150)",
+    input: "oklch(0.55 0.04 250)",
+    note:  "oklch(0.62 0.19 150)",
   },
   prototype: {
-    need:        "oklch(0.55 0.04 250)",
+    breadboard:  "oklch(0.60 0.20 325)",
     in_progress: "oklch(0.70 0.16 85)",
     final:       "oklch(0.62 0.19 150)",
   },
@@ -80,6 +78,23 @@ const cardTitles: Record<string, string> = {
   prototype: "Prototypes",
 }
 
+const protoFormats = [
+  "screen-flow",
+  "component-spec",
+  "user-journey",
+  "interactive-html",
+]
+
+function isPrototypeReady(t: ShapeUpThread): boolean {
+  return t.artifacts.some((a) => a.stage === "breadboard")
+}
+
+function sourcesFromThread(t: ShapeUpThread): string[] {
+  return t.artifacts
+    .filter((a) => a.stage !== "raw" && a.path)
+    .map((a) => a.path)
+}
+
 export function DashboardCardPage() {
   const { type } = useParams<{ type: string }>()
   const queryClient = useQueryClient()
@@ -90,13 +105,44 @@ export function DashboardCardPage() {
   const [ideaProject, setIdeaProject] = useState("")
   const [newProjectName, setNewProjectName] = useState("")
 
+  // Meeting form state
+  const [showNewTranscript, setShowNewTranscript] = useState(false)
+  const [transcriptFile, setTranscriptFile] = useState<File | null>(null)
+
+  // Document form state
+  const [showNewDocument, setShowNewDocument] = useState(false)
+  const [docTitle, setDocTitle] = useState("")
+  const [docContent, setDocContent] = useState("")
+
+  // Prototype form state
+  const [showNewPrototype, setShowNewPrototype] = useState(false)
+  const [protoThreadId, setProtoThreadId] = useState("")
+  const [protoFormat, setProtoFormat] = useState("interactive-html")
+  const [protoHints, setProtoHints] = useState("")
+
   const isProduct = type === "product"
+  const isMeeting = type === "meeting"
+  const isDocument = type === "document"
+  const isPrototype = type === "prototype"
 
   const { data: projects } = useQuery<Project[]>({
     queryKey: ["projects"],
     queryFn: api.listProjects,
     enabled: isProduct,
   })
+
+  const { data: threads } = useQuery<ShapeUpThread[]>({
+    queryKey: ["shapeup-threads"],
+    queryFn: api.listThreads,
+    enabled: isPrototype,
+  })
+
+  const readyThreads = useMemo(
+    () => (threads ?? []).filter(isPrototypeReady),
+    [threads],
+  )
+
+  const selectedProtoThread = readyThreads.find((t) => t.id === protoThreadId)
 
   const createIdeaMutation = useMutation({
     mutationFn: async () => {
@@ -126,6 +172,64 @@ export function DashboardCardPage() {
       setNewProjectName("")
     },
     onError: (err) => toast.error(`Create idea failed: ${getErrorMessage(err)}`),
+  })
+
+  // --- Meeting: ingest transcript file ---
+  const ingestTranscriptMutation = useMutation({
+    mutationFn: async () => {
+      if (!transcriptFile) throw new Error("No file selected")
+      const formData = new FormData()
+      formData.append("file", transcriptFile)
+      return api.ingestFile(formData)
+    },
+    onSuccess: (data) => {
+      toast.success(`Transcript ingesting — job ${data.job_id}`)
+      queryClient.invalidateQueries({ queryKey: ["card-detail", "meeting"] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      setShowNewTranscript(false)
+      setTranscriptFile(null)
+    },
+    onError: (err) => toast.error(`Ingest failed: ${getErrorMessage(err)}`),
+  })
+
+  // --- Document: create new document ---
+  const createDocumentMutation = useMutation({
+    mutationFn: () =>
+      api.createDocument({ title: docTitle.trim(), content: docContent }),
+    onSuccess: () => {
+      toast.success("Document created")
+      queryClient.invalidateQueries({ queryKey: ["card-detail", "document"] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      setShowNewDocument(false)
+      setDocTitle("")
+      setDocContent("")
+    },
+    onError: (err) => toast.error(`Create document failed: ${getErrorMessage(err)}`),
+  })
+
+  // --- Prototype: create from thread ---
+  const createPrototypeMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedProtoThread) throw new Error("No thread selected")
+      const sourcePaths = sourcesFromThread(selectedProtoThread)
+      return api.createPrototype({
+        title: selectedProtoThread.title,
+        source_paths: sourcePaths,
+        format: protoFormat,
+        hints: protoHints || undefined,
+        source_thread: selectedProtoThread.id,
+      })
+    },
+    onSuccess: () => {
+      toast.success("Prototype generated")
+      queryClient.invalidateQueries({ queryKey: ["card-detail", "prototype"] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      queryClient.invalidateQueries({ queryKey: ["prototypes"] })
+      setShowNewPrototype(false)
+      setProtoThreadId("")
+      setProtoHints("")
+    },
+    onError: (err) => toast.error(`Prototype generation failed: ${getErrorMessage(err)}`),
   })
 
   const { data: detail, isLoading, error } = useQuery<CardDetail>({
@@ -213,6 +317,35 @@ export function DashboardCardPage() {
             {showNewIdea ? "Cancel" : "New Idea"}
           </Button>
         )}
+        {isMeeting && (
+          <Button
+            onClick={() => setShowNewTranscript(!showNewTranscript)}
+            className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5"
+          >
+            {showNewTranscript ? <X className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+            {showNewTranscript ? "Cancel" : "New Transcript"}
+          </Button>
+        )}
+        {isDocument && (
+          <Button
+            onClick={() => setShowNewDocument(!showNewDocument)}
+            className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5"
+          >
+            {showNewDocument ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showNewDocument ? "Cancel" : "New Document"}
+          </Button>
+        )}
+        {isPrototype && (
+          <Button
+            onClick={() => setShowNewPrototype(!showNewPrototype)}
+            disabled={readyThreads.length === 0}
+            title={readyThreads.length === 0 ? "Advance a thread to breadboard first" : undefined}
+            className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {showNewPrototype ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showNewPrototype ? "Cancel" : "New Prototype"}
+          </Button>
+        )}
       </PageHeader>
 
       {/* New Idea form (Product only) */}
@@ -284,6 +417,178 @@ export function DashboardCardPage() {
                 className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
               >
                 {createIdeaMutation.isPending ? "Creating..." : "Create Idea"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* New Transcript form (Meeting only) */}
+      {isMeeting && showNewTranscript && (
+        <Card className="mb-5 rounded-[14px] border-border shadow-stripe">
+          <CardContent className="pt-6">
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!transcriptFile) return
+                ingestTranscriptMutation.mutate()
+              }}
+            >
+              <div className="space-y-2">
+                <Label className="text-[var(--stripe-label)] text-sm font-normal">
+                  Transcript / audio file
+                </Label>
+                <Input
+                  type="file"
+                  accept="audio/*,.vtt,.srt,.txt"
+                  onChange={(e) => setTranscriptFile(e.target.files?.[0] ?? null)}
+                  className="border-border rounded-sm"
+                />
+                {transcriptFile && (
+                  <p className="text-[11px] text-muted-foreground font-mono">
+                    {transcriptFile.name} ({(transcriptFile.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+              </div>
+              <Button
+                type="submit"
+                disabled={ingestTranscriptMutation.isPending || !transcriptFile}
+                className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
+              >
+                {ingestTranscriptMutation.isPending ? "Uploading..." : "Upload Transcript"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* New Document form (Document only) */}
+      {isDocument && showNewDocument && (
+        <Card className="mb-5 rounded-[14px] border-border shadow-stripe">
+          <CardContent className="pt-6">
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!docTitle.trim() || !docContent.trim()) return
+                createDocumentMutation.mutate()
+              }}
+            >
+              <div className="space-y-2">
+                <Label className="text-[var(--stripe-label)] text-sm font-normal">
+                  Title
+                </Label>
+                <Input
+                  value={docTitle}
+                  onChange={(e) => setDocTitle(e.target.value)}
+                  placeholder="Document title"
+                  className="border-border rounded-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[var(--stripe-label)] text-sm font-normal">
+                  Content
+                </Label>
+                <Textarea
+                  value={docContent}
+                  onChange={(e) => setDocContent(e.target.value)}
+                  rows={6}
+                  placeholder="Paste or write the document content..."
+                  className="border-border rounded-sm"
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={createDocumentMutation.isPending || !docTitle.trim() || !docContent.trim()}
+                className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
+              >
+                {createDocumentMutation.isPending ? "Creating..." : "Create Document"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* New Prototype form (Prototype only) */}
+      {isPrototype && showNewPrototype && readyThreads.length > 0 && (
+        <Card className="mb-5 rounded-[14px] border-border shadow-stripe">
+          <CardContent className="pt-6">
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!selectedProtoThread) return
+                createPrototypeMutation.mutate()
+              }}
+            >
+              <div className="space-y-2">
+                <Label className="text-[var(--stripe-label)] text-sm font-normal">
+                  Source thread (must have a breadboard)
+                </Label>
+                <Select value={protoThreadId} onValueChange={setProtoThreadId}>
+                  <SelectTrigger className="border-border rounded-sm">
+                    <SelectValue placeholder="Pick a thread..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {readyThreads.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.title} &middot; {t.current_stage}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedProtoThread && (
+                  <p className="text-[11px] text-muted-foreground font-mono">
+                    {sourcesFromThread(selectedProtoThread).length} source file
+                    {sourcesFromThread(selectedProtoThread).length === 1 ? "" : "s"} from this thread
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-[var(--stripe-label)] text-sm font-normal">
+                    Format
+                  </Label>
+                  <Select value={protoFormat} onValueChange={setProtoFormat}>
+                    <SelectTrigger className="border-border rounded-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {protoFormats.map((f) => (
+                        <SelectItem key={f} value={f}>
+                          {f}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[var(--stripe-label)] text-sm font-normal">
+                    Hints (optional)
+                  </Label>
+                  <Textarea
+                    value={protoHints}
+                    onChange={(e) => setProtoHints(e.target.value)}
+                    rows={2}
+                    placeholder="Any guidance for the prototype generation..."
+                    className="border-border rounded-sm"
+                  />
+                </div>
+              </div>
+              <Button
+                type="submit"
+                disabled={createPrototypeMutation.isPending || !selectedProtoThread}
+                className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5"
+              >
+                {createPrototypeMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  "Generate Prototype"
+                )}
               </Button>
             </form>
           </CardContent>

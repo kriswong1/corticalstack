@@ -32,6 +32,7 @@ import type {
   UsageSummary,
   Meeting,
   Document,
+  CreateDocumentRequest,
   CardDetail,
   CardItem,
   ItemUsageAggregate,
@@ -201,6 +202,8 @@ export const api = {
   // Documents
   listDocuments: () => request<CardItem[]>("/api/documents"),
   getDocument: (id: string) => request<Document>(`/api/documents/${id}`),
+  createDocument: (body: CreateDocumentRequest) =>
+    post<Document>("/api/documents", body),
   setDocumentStage: (id: string, stage: string) =>
     post<{ id: string; stage: string }>(`/api/documents/${id}/stage`, { stage }),
   setPrototypeStage: (id: string, stage: string) =>

@@ -489,8 +489,8 @@ export type UsageRecentResponse = UsageInvocation[]
 
 // --- Meetings (transcript → summary pipeline) ---
 
-// Updated meeting stage — now 3-stage pipeline
-export type MeetingStage = "transcript" | "audio" | "note"
+// Updated meeting stage — 2-stage pipeline: transcript → note
+export type MeetingStage = "transcript" | "note"
 
 export interface Meeting {
   id: string
@@ -506,7 +506,7 @@ export interface Meeting {
 
 // --- Documents ---
 
-export type DocumentStage = "need" | "in_progress" | "final"
+export type DocumentStage = "input" | "note"
 
 export interface Document {
   id: string
@@ -518,6 +518,11 @@ export interface Document {
   projects?: string[]
   created: string
   updated?: string
+}
+
+export interface CreateDocumentRequest {
+  title: string
+  content: string
 }
 
 // --- Unified dashboard row-2 cards ---

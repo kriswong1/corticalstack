@@ -44,16 +44,14 @@ const stageColors: Record<string, Record<string, string>> = {
   },
   meeting: {
     transcript: "oklch(0.65 0.15 230)", // sky
-    audio:      "oklch(0.70 0.16 85)",  // amber
     note:       "oklch(0.62 0.19 150)", // emerald
   },
   document: {
-    need:        "oklch(0.55 0.04 250)", // slate
-    in_progress: "oklch(0.70 0.16 85)",  // amber
-    final:       "oklch(0.62 0.19 150)", // emerald
+    input: "oklch(0.55 0.04 250)", // slate
+    note:  "oklch(0.62 0.19 150)", // emerald
   },
   prototype: {
-    need:        "oklch(0.55 0.04 250)", // slate
+    breadboard:  "oklch(0.60 0.20 325)", // magenta
     in_progress: "oklch(0.70 0.16 85)",  // amber
     final:       "oklch(0.62 0.19 150)", // emerald
   },

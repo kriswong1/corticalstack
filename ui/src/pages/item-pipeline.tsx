@@ -18,9 +18,9 @@ import type { ShapeUpThread, Meeting, Prototype, Document } from "@/types/api"
 
 const stageOrders: Record<string, string[]> = {
   product: ["idea", "frame", "shape", "breadboard", "pitch"],
-  meeting: ["transcript", "audio", "note"],
-  document: ["need", "in_progress", "final"],
-  prototype: ["need", "in_progress", "final"],
+  meeting: ["transcript", "note"],
+  document: ["input", "note"],
+  prototype: ["breadboard", "in_progress", "final"],
 }
 
 const PIPELINE_ACCENT: Record<string, string> = {
@@ -36,13 +36,13 @@ const stageColors: Record<string, Record<string, string>> = {
     breadboard: "#E85B9B", pitch: "#48D597",
   },
   meeting: {
-    transcript: "#47B5E8", audio: "#E8C547", note: "#48D597",
+    transcript: "#47B5E8", note: "#48D597",
   },
   document: {
-    need: "#8B8FA3", in_progress: "#E8C547", final: "#48D597",
+    input: "#8B8FA3", note: "#48D597",
   },
   prototype: {
-    need: "#8B8FA3", in_progress: "#E8C547", final: "#48D597",
+    breadboard: "#E85B9B", in_progress: "#E8C547", final: "#48D597",
   },
 }
 
@@ -60,8 +60,8 @@ function withAlpha(hex: string, alpha: number): string {
 const stageLabels: Record<string, string> = {
   idea: "Idea", frame: "Frame", shape: "Shape",
   breadboard: "Breadboard", pitch: "Pitch",
-  transcript: "Transcript", audio: "Audio", note: "Note",
-  need: "Need", in_progress: "In Progress", final: "Final",
+  transcript: "Transcript", note: "Note",
+  input: "Input", in_progress: "In Progress", final: "Final",
 }
 
 function label(s: string): string {
@@ -178,7 +178,7 @@ function useDocumentData(id: string): PipelineData {
   })
   return {
     title: data?.title ?? "",
-    currentStage: data?.stage ?? "need",
+    currentStage: data?.stage ?? "input",
     contentPath: data?.path,
     isLoading,
     error: error ? String(error) : null,
@@ -194,7 +194,7 @@ function usePrototypeData(id: string): PipelineData {
   const p = data?.find((x) => x.id === id)
   return {
     title: p?.title ?? "",
-    currentStage: p?.stage ?? "need",
+    currentStage: p?.stage ?? "breadboard",
     contentPath: p?.folder_path ? `${p.folder_path}/spec.md` : undefined,
     isLoading,
     error: error ? String(error) : null,
