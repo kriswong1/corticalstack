@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/prototypes"
+	"github.com/kriswong/corticalstack/internal/stage"
 )
 
 // PrototypesPage renders /prototypes with the list and create form.
@@ -139,6 +140,33 @@ func (h *Handler) ViewPrototypeHTML(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`</head><body><iframe sandbox="allow-scripts" srcdoc="`))
 	_, _ = w.Write([]byte(escapeForSrcdoc(body)))
 	_, _ = w.Write([]byte(`"></iframe></body></html>`))
+}
+
+// SetPrototypeStage handles POST /api/prototypes/{id}/stage with a
+// JSON body of {"stage": "in_progress"}. Mirrors the documents and
+// meetings stage endpoints — the dashboard's per-card UI uses all
+// three to advance items through the per-pipeline flow.
+func (h *Handler) SetPrototypeStage(w http.ResponseWriter, r *http.Request) {
+	if h.Prototypes == nil {
+		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var req stageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	target, err := stage.Parse(stage.EntityPrototype, req.Stage)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Prototypes.SetStage(id, target); err != nil {
+		internalError(w, "prototypes.set_stage", err)
+		return
+	}
+	writeJSON(w, map[string]string{"id": id, "stage": string(target)})
 }
 
 // CreatePrototype handles POST /api/prototypes.

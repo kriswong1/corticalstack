@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/meetings"
+	"github.com/kriswong/corticalstack/internal/stage"
 )
 
 type stubMeetings struct {
@@ -19,6 +20,12 @@ type stubMeetings struct {
 
 func (s *stubMeetings) List() ([]*meetings.Meeting, error) {
 	return s.list, s.err
+}
+
+// SetStage is a no-op on the stub — the existing tests don't
+// exercise stage transitions, but the interface requires it.
+func (s *stubMeetings) SetStage(id string, target stage.Stage) error {
+	return nil
 }
 
 func newMeetingsTestHandler(m meetingsProvider) (*Handler, *chi.Mux) {

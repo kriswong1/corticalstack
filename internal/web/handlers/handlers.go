@@ -30,6 +30,12 @@ import (
 	"github.com/kriswong/corticalstack/internal/web/sse"
 )
 
+// Note: documentsProvider, prototypesProvider, and meetingsProvider
+// interfaces are declared in their respective handler files
+// (documents.go, prototypes.go, meetings.go) to keep the file the
+// types are used in self-contained. The Handler struct just stores
+// them.
+
 // pipelineInfo is the subset of *pipeline.Pipeline that handlers need.
 type pipelineInfo interface {
 	ListTransformers() []string
@@ -59,6 +65,7 @@ type Deps struct {
 	Dashboard          *dashboard.Cache
 	Usage              usageProvider
 	Meetings           meetingsProvider
+	Documents          documentsProvider
 }
 
 // Handler bundles shared dependencies for all dashboard handlers.
@@ -94,6 +101,10 @@ type Handler struct {
 	// v5: meetings (transcript → summary pipeline)
 	Meetings meetingsProvider
 
+	// v6: documents (Need / In-Progress / Final pipeline) — new
+	// store added with the unified-dashboard refactor.
+	Documents documentsProvider
+
 	RenderPage func(w http.ResponseWriter, contentTemplate string, data map[string]interface{})
 }
 
@@ -120,6 +131,7 @@ func New(deps Deps) *Handler {
 		Dashboard:          deps.Dashboard,
 		Usage:              deps.Usage,
 		Meetings:           deps.Meetings,
+		Documents:          deps.Documents,
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/dashboard"
+	"github.com/kriswong/corticalstack/internal/documents"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/intent"
 	"github.com/kriswong/corticalstack/internal/meetings"
@@ -153,12 +154,21 @@ func main() {
 	prdRetriever := prds.NewRetriever(v)
 	prdSynth := prds.NewSynthesizer(workingDir, claudeModel, prdRetriever, actionStore, personaLoader)
 
-	// v5: Meetings (transcript → summary pipeline) — read-only store
-	// scanned by the Pipeline dashboard. Notes are dropped into
-	// vault/meetings/{transcripts,summaries}/ by audio ingest or by hand.
+	// v5: Meetings (transcript / audio / note pipeline) — store
+	// scanned by the unified dashboard. Notes are dropped into
+	// vault/meetings/{transcripts,audio,notes}/ by audio ingest or
+	// by hand. The legacy summaries/ folder is still readable.
 	meetingsStore := meetings.New(v)
 	if err := meetingsStore.EnsureFolder(); err != nil {
 		slog.Warn("could not create meetings folders", "error", err)
+	}
+
+	// v6: Documents (need / in-progress / final pipeline) — new
+	// store added with the unified-dashboard refactor. Wraps the
+	// existing vault/documents/ folder with stage-aware listing.
+	documentsStore := documents.New(v)
+	if err := documentsStore.EnsureFolder(); err != nil {
+		slog.Warn("could not create documents folder", "error", err)
 	}
 
 	// Jobs + SSE bus (shared by ingest + confirm flows)
@@ -191,6 +201,7 @@ func main() {
 		Dashboard:       dashCache,
 		Usage:           usageReader,
 		Meetings:        meetingsStore,
+		Documents:       documentsStore,
 	}
 
 	srv, err := web.NewServer(deps)

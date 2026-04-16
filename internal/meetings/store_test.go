@@ -30,9 +30,10 @@ func writeNote(t *testing.T, root, relPath, content string) {
 	}
 }
 
-func TestEnsureFolderCreatesBothStages(t *testing.T) {
+func TestEnsureFolderCreatesAllStages(t *testing.T) {
 	_, dir := newTestStore(t)
-	for _, name := range []string{"transcripts", "summaries"} {
+	// Three canonical folders for the new three-stage pipeline.
+	for _, name := range []string{"transcripts", "audio", "notes"} {
 		if _, err := os.Stat(filepath.Join(dir, "meetings", name)); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -78,6 +79,8 @@ projects:
 
 [00:00:01] Hello everyone.
 `)
+	// Legacy folder + legacy stage value — both should normalize to
+	// StageNote so existing on-disk notes keep classifying correctly.
 	writeNote(t, dir, "meetings/summaries/2026-04-14_kickoff-summary.md", `---
 id: meeting-1-summary
 title: Project Kickoff — Summary
@@ -99,8 +102,8 @@ created: 2026-04-14T11:00:00Z
 	}
 
 	// Newest first — summary was created later than transcript.
-	if got[0].Stage != StageSummary {
-		t.Errorf("got[0].Stage = %q, want summary", got[0].Stage)
+	if got[0].Stage != StageNote {
+		t.Errorf("got[0].Stage = %q, want note (legacy summary alias)", got[0].Stage)
 	}
 	if got[0].SourceID != "meeting-1" {
 		t.Errorf("source_id = %q", got[0].SourceID)
@@ -113,6 +116,70 @@ created: 2026-04-14T11:00:00Z
 	}
 	if len(got[1].Projects) != 1 || got[1].Projects[0] != "alpha" {
 		t.Errorf("projects = %v", got[1].Projects)
+	}
+}
+
+func TestListReadsAudioStage(t *testing.T) {
+	s, dir := newTestStore(t)
+	writeNote(t, dir, "meetings/audio/2026-04-15_call.md", `---
+id: meeting-2
+title: Discovery Call
+stage: audio
+created: 2026-04-15T09:00:00Z
+---
+# Audio capture
+`)
+	got, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if got[0].Stage != StageAudio {
+		t.Errorf("stage = %q, want audio", got[0].Stage)
+	}
+}
+
+func TestSetStageRoundTrip(t *testing.T) {
+	s, dir := newTestStore(t)
+	writeNote(t, dir, "meetings/transcripts/example.md", `---
+id: meeting-1
+title: Example
+stage: transcript
+created: 2026-04-15T10:00:00Z
+---
+body
+`)
+
+	if err := s.SetStage("meeting-1", StageNote); err != nil {
+		t.Fatalf("SetStage: %v", err)
+	}
+	got, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if got[0].Stage != StageNote {
+		t.Errorf("stage = %q, want note", got[0].Stage)
+	}
+}
+
+func TestSetStageRejectsInvalid(t *testing.T) {
+	s, dir := newTestStore(t)
+	writeNote(t, dir, "meetings/transcripts/example.md", `---
+id: meeting-1
+title: Example
+---
+body
+`)
+	if err := s.SetStage("meeting-1", "bogus"); err == nil {
+		t.Error("SetStage with bogus value should error")
+	}
+	if err := s.SetStage("missing", StageNote); err == nil {
+		t.Error("SetStage on unknown id should error")
 	}
 }
 
@@ -153,12 +220,16 @@ func TestListSkipsNonMarkdownFiles(t *testing.T) {
 }
 
 func TestIsValidStage(t *testing.T) {
-	for _, stage := range []string{"transcript", "summary"} {
-		if !IsValidStage(stage) {
-			t.Errorf("IsValidStage(%q) = false", stage)
+	// All three canonical stages plus the legacy "summary" alias.
+	for _, st := range []string{"transcript", "audio", "note", "summary"} {
+		if !IsValidStage(st) {
+			t.Errorf("IsValidStage(%q) = false", st)
 		}
 	}
 	if IsValidStage("bogus") {
 		t.Error("IsValidStage(bogus) = true")
+	}
+	if IsValidStage("") {
+		t.Error("IsValidStage(empty) = true")
 	}
 }

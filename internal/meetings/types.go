@@ -1,38 +1,59 @@
-// Package meetings models recorded meetings as a two-stage pipeline:
-// a raw transcript (from audio, VTT, or auto-generated) becomes a
-// structured summary note (decisions, action items, key topics).
+// Package meetings models recorded meetings as a three-stage pipeline:
+// audio captures, raw transcripts, and structured notes (decisions,
+// action items, key topics) live as markdown files under
+// vault/meetings/{audio,transcripts,notes}/. The store is a thin
+// read/write scanner — most notes land in the vault via the existing
+// ingest pipeline (audio → Deepgram → transcript) or by hand-drop;
+// the only mutation this store performs is SetStage for the
+// dashboard's per-card stage advance.
 //
-// Like shapeup and prds, meetings live as markdown notes in the vault
-// with YAML frontmatter declaring the stage. The store is a thin
-// read-only scanner — nothing here writes notes; meetings land in the
-// vault via the existing ingest pipeline (audio → Deepgram, VTT, etc.)
-// and a user or downstream destination promotes a transcript to a
-// summary by writing a new file with stage=summary.
+// Stage rename history: this used to be a two-stage pipeline of
+// transcript → summary. The unified dashboard ships three stages
+// (Transcript, Audio, Note) so the old "summary" value is now an
+// alias for "note" — see stage.Normalize for the migration path.
 package meetings
 
-import "time"
+import (
+	"time"
 
-// Stage is one of the two meeting stages.
-type Stage string
+	"github.com/kriswong/corticalstack/internal/stage"
+)
+
+// Stage re-exports the canonical stage.Stage values used for meeting
+// pipeline records. The constants below are copies of the package-
+// stage equivalents kept here so existing call sites that used to
+// reference meetings.StageTranscript keep compiling.
+type Stage = stage.Stage
 
 const (
-	StageTranscript Stage = "transcript"
-	StageSummary    Stage = "summary"
+	StageTranscript = stage.StageTranscript
+	StageAudio      = stage.StageAudio
+	StageNote       = stage.StageNote
+	// StageSummary is the legacy alias for StageNote. Retained as a
+	// constant only for backward-compat with callers that still
+	// import the symbol; new code should use StageNote directly.
+	StageSummary = stage.StageNote
 )
 
 // AllStages returns every stage in canonical order.
 func AllStages() []Stage {
-	return []Stage{StageTranscript, StageSummary}
+	return stage.AllStages(stage.EntityMeeting)
 }
 
-// IsValidStage reports whether s names a real stage.
+// IsValidStage reports whether s names a real stage. Accepts the
+// legacy "summary" value via stage.Normalize so on-disk notes that
+// predate the rename still classify correctly.
 func IsValidStage(s string) bool {
+	if s == "" {
+		return false
+	}
 	for _, v := range AllStages() {
 		if string(v) == s {
 			return true
 		}
 	}
-	return false
+	// Legacy alias: "summary" → StageNote.
+	return s == "summary"
 }
 
 // Meeting is one stage-tagged note in the vault. The same meeting may

@@ -102,8 +102,14 @@ func (s *Server) routes() {
 	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)
 	r.Get("/api/usage/summary", s.Handler.GetUsageSummary)
 
-	// API: meetings (transcript → summary pipeline)
+	// API: meetings (transcript / audio / note pipeline)
 	r.Get("/api/meetings", s.Handler.ListMeetings)
+	r.Post("/api/meetings/{id}/stage", s.Handler.SetMeetingStage)
+
+	// API: documents (need / in-progress / final pipeline)
+	r.Get("/api/documents", s.Handler.ListDocuments)
+	r.Get("/api/documents/{id}", s.Handler.GetDocument)
+	r.Post("/api/documents/{id}/stage", s.Handler.SetDocumentStage)
 
 	// API: ingest
 	r.Post("/api/ingest/text", s.Handler.IngestText)
@@ -139,6 +145,7 @@ func (s *Server) routes() {
 	r.Post("/api/prototypes", s.Handler.CreatePrototype)
 	r.Post("/api/prototypes/questions", s.Handler.QuestionsForPrototype)
 	r.Get("/api/prototypes/{id}/html", s.Handler.ViewPrototypeHTML)
+	r.Post("/api/prototypes/{id}/stage", s.Handler.SetPrototypeStage)
 
 	// API: PRDs
 	r.Get("/api/prds", s.Handler.ListPRDs)

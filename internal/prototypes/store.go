@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kriswong/corticalstack/internal/stage"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -39,6 +40,12 @@ func (s *Store) Write(p *Prototype) error {
 	}
 	if p.Status == "" {
 		p.Status = "draft"
+	}
+	if p.Stage == "" {
+		// Default to in_progress for newly written prototypes — the
+		// synthesizer just produced a draft, which is past the "need"
+		// state but not yet "final".
+		p.Stage = stage.StageInProgress
 	}
 
 	date := p.Created.Format("2006-01-02")
@@ -131,6 +138,44 @@ func (s *Store) List() ([]*Prototype, error) {
 // Vault exposes the bound vault for callers that need to read sources.
 func (s *Store) Vault() *vault.Vault { return s.vault }
 
+// SetStage rewrites the `stage` (and `updated`) frontmatter keys on
+// the prototype's spec.md. The body, source links, and prototype.html
+// are left untouched. Returns an error if the id is unknown, the
+// stage is invalid for the prototype entity, or the disk write fails.
+func (s *Store) SetStage(id string, target stage.Stage) error {
+	if !stage.Validate(stage.EntityPrototype, string(target)) {
+		return fmt.Errorf("invalid prototype stage: %q", target)
+	}
+	list, err := s.List()
+	if err != nil {
+		return err
+	}
+	var found *Prototype
+	for _, p := range list {
+		if p.ID == id {
+			found = p
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("prototype not found: %s", id)
+	}
+	specRel := filepath.ToSlash(filepath.Join(found.FolderPath, "spec.md"))
+	note, err := s.vault.ReadNote(specRel)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", specRel, err)
+	}
+	if note.Frontmatter == nil {
+		note.Frontmatter = map[string]interface{}{}
+	}
+	note.Frontmatter["stage"] = string(target)
+	note.Frontmatter["updated"] = time.Now().Format(time.RFC3339)
+	if err := s.vault.WriteNote(specRel, note); err != nil {
+		return fmt.Errorf("writing %s: %w", specRel, err)
+	}
+	return nil
+}
+
 // ReadHTML returns the prototype.html contents for a prototype by ID.
 // Returns os.ErrNotExist if the prototype exists but has no HTML file.
 func (s *Store) ReadHTML(id string) ([]byte, *Prototype, error) {
@@ -159,7 +204,11 @@ func buildFrontmatter(p *Prototype) map[string]interface{} {
 		"format":  p.Format,
 		"title":   p.Title,
 		"status":  p.Status,
+		"stage":   string(p.Stage),
 		"created": p.Created.Format(time.RFC3339),
+	}
+	if !p.Updated.IsZero() {
+		fm["updated"] = p.Updated.Format(time.RFC3339)
 	}
 	if len(p.SourceRefs) > 0 {
 		fm["source_refs"] = p.SourceRefs
@@ -188,6 +237,16 @@ func fromNote(note *vault.Note) *Prototype {
 	if status, ok := note.Frontmatter["status"].(string); ok {
 		p.Status = status
 	}
+	// Stage is the new dashboard-facing field. Read it directly when
+	// present; otherwise derive it from the legacy `status` field via
+	// stage.Normalize (draft → in_progress, exported → final). This
+	// keeps every existing on-disk prototype landing in a sensible
+	// dashboard bucket without a migration script.
+	if rawStage, ok := note.Frontmatter["stage"].(string); ok {
+		p.Stage = stage.Normalize(stage.EntityPrototype, rawStage)
+	} else {
+		p.Stage = stage.Normalize(stage.EntityPrototype, p.Status)
+	}
 	if thread, ok := note.Frontmatter["source_thread"].(string); ok {
 		p.SourceThread = thread
 	}
@@ -208,6 +267,11 @@ func fromNote(note *vault.Note) *Prototype {
 	if created, ok := note.Frontmatter["created"].(string); ok {
 		if t, err := time.Parse(time.RFC3339, created); err == nil {
 			p.Created = t
+		}
+	}
+	if updated, ok := note.Frontmatter["updated"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, updated); err == nil {
+			p.Updated = t
 		}
 	}
 	p.Spec = note.Body
