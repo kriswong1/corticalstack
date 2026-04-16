@@ -1,5 +1,11 @@
 import { useSyncExternalStore } from "react"
 
+// Module-level cached timestamp. Updated only by the interval
+// callback so useSyncExternalStore sees a stable snapshot between
+// ticks — returning Date.now() directly from getSnapshot caused an
+// infinite re-render loop because every call returned a new value.
+let cached = Date.now()
+
 // useNow returns a reactive "current timestamp" that refreshes on an
 // interval. Use it anywhere you'd otherwise call `Date.now()` during
 // render — the hook makes the component re-render when the clock ticks,
@@ -12,10 +18,13 @@ import { useSyncExternalStore } from "react"
 export function useNow(intervalMs: number = 60_000): number {
   return useSyncExternalStore(
     (onStoreChange) => {
-      const id = window.setInterval(onStoreChange, intervalMs)
+      const id = window.setInterval(() => {
+        cached = Date.now()
+        onStoreChange()
+      }, intervalMs)
       return () => window.clearInterval(id)
     },
-    () => Date.now(),
-    () => Date.now(),
+    () => cached,
+    () => cached,
   )
 }

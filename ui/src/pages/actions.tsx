@@ -106,6 +106,11 @@ export function ActionsPage() {
   // we read the latest URLSearchParams each run and don't clobber
   // unrelated params that other sources may have set (e.g. a dashboard
   // deep link adding ?note=foo).
+  //
+  // setSearchParams is intentionally excluded from the dep array: in
+  // React Router v6, its reference identity changes on every render,
+  // which would re-fire this effect endlessly (infinite loop). The
+  // effect only needs to run when the filter values change.
   useEffect(() => {
     setSearchParams(
       (prev) => {
@@ -114,11 +119,13 @@ export function ActionsPage() {
         else next.delete("status")
         if (filterStalled) next.set("stalled", "true")
         else next.delete("stalled")
+        if (next.toString() === prev.toString()) return prev
         return next
       },
       { replace: true },
     )
-  }, [filterStatus, filterStalled, setSearchParams])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterStalled])
 
   const { data: actions, isLoading } = useQuery({
     queryKey: ["actions"],

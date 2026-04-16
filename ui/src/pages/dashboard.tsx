@@ -42,17 +42,17 @@ const stageColors: Record<string, Record<string, string>> = {
     breadboard: "oklch(0.60 0.20 325)", // magenta
     pitch:      "oklch(0.62 0.19 150)", // emerald
   },
-  meetings: {
+  meeting: {
     transcript: "oklch(0.65 0.15 230)", // sky
     audio:      "oklch(0.70 0.16 85)",  // amber
     note:       "oklch(0.62 0.19 150)", // emerald
   },
-  documents: {
+  document: {
     need:        "oklch(0.55 0.04 250)", // slate
     in_progress: "oklch(0.70 0.16 85)",  // amber
     final:       "oklch(0.62 0.19 150)", // emerald
   },
-  prototypes: {
+  prototype: {
     need:        "oklch(0.55 0.04 250)", // slate
     in_progress: "oklch(0.70 0.16 85)",  // amber
     final:       "oklch(0.62 0.19 150)", // emerald
@@ -167,17 +167,17 @@ export function DashboardPage() {
           />
           <PipelineCard
             title="Meetings"
-            type="meetings"
+            type="meeting"
             widget={snapshot.pipelines.meetings}
           />
           <PipelineCard
             title="Documents"
-            type="documents"
+            type="document"
             widget={snapshot.pipelines.documents}
           />
           <PipelineCard
             title="Prototypes"
-            type="prototypes"
+            type="prototype"
             widget={snapshot.pipelines.prototypes}
           />
         </div>
