@@ -76,7 +76,7 @@ func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hi
 
 	ag := &agent.Agent{
 		Model:      a.model,
-		MaxTurns:   3,
+		MaxTurns:   10,
 		WorkingDir: a.workingDir,
 		CallerHint: "shapeup.advance." + string(target),
 		Item:       agent.ItemContext{Type: "product", ID: thread.ID},
