@@ -33,7 +33,7 @@ func (c *ClaudeClassifier) Classify(ctx context.Context, doc *pipeline.TextDocum
 
 	ag := &agent.Agent{
 		Model:      c.model,
-		MaxTurns:   1,
+		MaxTurns:   10,
 		WorkingDir: c.workingDir,
 	}
 	raw, err := ag.RunSimple(ctx, prompt)

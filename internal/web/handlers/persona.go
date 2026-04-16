@@ -44,6 +44,61 @@ func (h *Handler) PersonaEditorPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// PersonaStatusAll returns the configuration state of all three persona
+// files. Used by the persona card triptych on the config page.
+func (h *Handler) PersonaStatusAll(w http.ResponseWriter, r *http.Request) {
+	if h.Persona == nil {
+		http.Error(w, "persona loader not configured", http.StatusServiceUnavailable)
+		return
+	}
+	type personaInfo struct {
+		Name       string `json:"name"`
+		File       string `json:"file"`
+		Configured bool   `json:"configured"`
+		Summary    string `json:"summary"`
+		CharCount  int    `json:"char_count"`
+		Budget     int    `json:"budget"`
+	}
+	var items []personaInfo
+	for _, name := range persona.AllNames() {
+		content, _ := h.Persona.Get(name)
+		items = append(items, personaInfo{
+			Name:       string(name),
+			File:       name.File(),
+			Configured: hasPersonaBody(content),
+			Summary:    firstContentLine(content),
+			CharCount:  len(content),
+			Budget:     name.Budget(),
+		})
+	}
+	writeJSON(w, map[string]interface{}{"personas": items})
+}
+
+// firstContentLine returns the first non-empty, non-heading, non-frontmatter
+// line as a brief summary for the triptych cards.
+func firstContentLine(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	inFrontmatter := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			inFrontmatter = !inFrontmatter
+			continue
+		}
+		if inFrontmatter || trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if len(trimmed) > 80 {
+			return trimmed[:77] + "..."
+		}
+		return trimmed
+	}
+	return ""
+}
+
 // GetPersona returns the current content of a persona file as JSON.
 func (h *Handler) GetPersona(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
@@ -240,7 +295,7 @@ Respond with ONLY the improved file content (including frontmatter). No explanat
 
 	ag := &agent.Agent{
 		Model:    config.ClaudeModel(),
-		MaxTurns: 1,
+		MaxTurns: 10,
 	}
 	enhanced, err := ag.RunSimple(r.Context(), prompt)
 	if err != nil {

@@ -27,6 +27,12 @@ type Agent struct {
 	WorkingDir string
 	CallerHint string // optional, opt-in tag for telemetry — e.g. "intent.classify"
 
+	// AllowedTools is an optional list of tool names (e.g. "Write",
+	// "Edit") passed as --allowedTools to the CLI. When non-empty
+	// Claude can use these tools in --print mode without a permission
+	// prompt. Leave nil for text-only invocations.
+	AllowedTools []string
+
 	// Item is an optional dashboard-item tag. When both Type and ID
 	// are non-empty, Run() additionally hands the call to
 	// DefaultItemRecorder so the unified dashboard's per-card detail
@@ -141,6 +147,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	}
 	if a.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(a.MaxTurns))
+	}
+	if len(a.AllowedTools) > 0 {
+		args = append(args, "--allowedTools", strings.Join(a.AllowedTools, ","))
 	}
 
 	cmd := exec.CommandContext(ctx, bin, args...)

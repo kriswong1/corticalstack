@@ -48,16 +48,20 @@ func (s *Store) Write(p *Prototype) error {
 		p.Stage = stage.StageInProgress
 	}
 
-	date := p.Created.Format("2006-01-02")
-	slug := vault.Slugify(p.Title)
-	if slug == "" {
-		slug = "untitled"
+	// Reuse an existing folder path for regeneration; compute a new one
+	// only for fresh prototypes.
+	if p.FolderPath == "" {
+		date := p.Created.Format("2006-01-02")
+		slug := vault.Slugify(p.Title)
+		if slug == "" {
+			slug = "untitled"
+		}
+		if len(slug) > 60 {
+			slug = slug[:60]
+		}
+		p.FolderPath = filepath.ToSlash(filepath.Join(prototypesDir, fmt.Sprintf("%s_%s", date, slug)))
 	}
-	if len(slug) > 60 {
-		slug = slug[:60]
-	}
-	folder := filepath.ToSlash(filepath.Join(prototypesDir, fmt.Sprintf("%s_%s", date, slug)))
-	p.FolderPath = folder
+	folder := p.FolderPath
 
 	// spec.md with frontmatter + body
 	specNote := &vault.Note{

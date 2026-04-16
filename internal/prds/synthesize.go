@@ -79,7 +79,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 
 	ag := &agent.Agent{
 		Model:      s.model,
-		MaxTurns:   1,
+		MaxTurns:   10,
 		WorkingDir: s.workingDir,
 	}
 	raw, err := ag.RunSimple(ctx, prompt)

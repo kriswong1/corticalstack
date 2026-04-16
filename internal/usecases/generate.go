@@ -95,7 +95,7 @@ func (g *Generator) FromText(ctx context.Context, req FromTextRequest) ([]*UseCa
 func (g *Generator) runClaude(ctx context.Context, prompt string) (string, error) {
 	ag := &agent.Agent{
 		Model:      g.model,
-		MaxTurns:   1,
+		MaxTurns:   10,
 		WorkingDir: g.workingDir,
 	}
 	return ag.RunSimple(ctx, prompt)

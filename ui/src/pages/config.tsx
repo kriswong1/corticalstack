@@ -11,8 +11,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PageHeader } from "@/components/layout/page-header"
 import { QuestionsModal } from "@/components/questions-modal"
+import { OnboardingProgress } from "@/components/config/onboarding-progress"
+import { ObsidianCard } from "@/components/config/obsidian-card"
+import { DeepgramCard } from "@/components/config/deepgram-card"
+import { LinearCard } from "@/components/config/linear-card"
+import { PersonaTriptych } from "@/components/config/persona-triptych"
+import { PersonaChat } from "@/components/config/persona-chat"
+import { PersonaPreview } from "@/components/config/persona-preview"
 import { api, getErrorMessage } from "@/lib/api"
-import { Save, Sparkles, UserPlus } from "lucide-react"
+import { Save, Sparkles, Settings, Plug, User } from "lucide-react"
 import type { Answer, Question } from "@/types/api"
 
 const personaNames = ["soul", "user", "memory"] as const
@@ -28,7 +35,24 @@ export function ConfigPage() {
     queryFn: api.getStatus,
   })
 
-  const [showSetup, setShowSetup] = useState(false)
+  const [editingPersona, setEditingPersona] = useState<string | null>(null)
+  // Persona chat state machine: idle → chatting → preview
+  const [chatPersona, setChatPersona] = useState<string | null>(null)
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null)
+  const [chatResult, setChatResult] = useState<string | null>(null)
+  const chatMode = chatResult ? "preview" : chatPersona ? "chatting" : "idle"
+
+  const startChat = (name: string) => {
+    setEditingPersona(null)
+    setChatPersona(name)
+    setChatSessionId(null)
+    setChatResult(null)
+  }
+  const resetChat = () => {
+    setChatPersona(null)
+    setChatSessionId(null)
+    setChatResult(null)
+  }
 
   if (isLoading) {
     return (
@@ -43,121 +67,119 @@ export function ConfigPage() {
     <>
       <PageHeader title="Config" description="System configuration and persona files" />
 
-      <div className="space-y-6">
-        <Card className="rounded-md border-border shadow-stripe">
-          <CardHeader>
-            <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
-              Environment
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <ConfigRow label="Vault Path" value={status?.vault_path ?? "—"} />
-            <Separator />
-            <ConfigRow label="Server Time" value={status?.server_time ?? "—"} />
-          </CardContent>
-        </Card>
+      <OnboardingProgress />
 
-        <Card className="rounded-md border-border shadow-stripe">
-          <CardHeader>
-            <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
-              Integrations
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {status?.integrations?.map((integ) => (
-              <div key={integ.id} className="flex items-center justify-between py-2">
-                <div>
-                  <span className="text-sm font-light text-foreground">{integ.name}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">({integ.id})</span>
+      <Tabs defaultValue="integrations" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="environment" className="gap-1.5 text-xs">
+            <Settings className="h-3.5 w-3.5" />
+            Environment
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="gap-1.5 text-xs">
+            <Plug className="h-3.5 w-3.5" />
+            Integrations
+          </TabsTrigger>
+          <TabsTrigger value="persona" className="gap-1.5 text-xs">
+            <User className="h-3.5 w-3.5" />
+            Persona
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Environment Tab ── */}
+        <TabsContent value="environment" className="space-y-6">
+          <Card className="rounded-md border-border shadow-stripe">
+            <CardHeader>
+              <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
+                General
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <ConfigRow label="Server Time" value={status?.server_time ?? "—"} />
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-md border-border shadow-stripe">
+            <CardHeader>
+              <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
+                Pipeline
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">Transformers</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {status?.transformers?.map((t) => (
+                    <Badge key={t} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">{t}</Badge>
+                  ))}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] font-light rounded-sm px-1.5 py-px">
-                    {integ.configured ? "Configured" : "Not configured"}
-                  </Badge>
-                  {integ.configured && (
-                    <Badge
-                      className={
-                        integ.healthy
-                          ? "bg-[rgba(21,190,83,0.2)] text-[var(--stripe-success-text)] border-[rgba(21,190,83,0.4)] text-[10px] font-light rounded-sm px-1.5 py-px"
-                          : "bg-destructive/20 text-destructive border-destructive/40 text-[10px] font-light rounded-sm px-1.5 py-px"
-                      }
-                    >
-                      {integ.healthy ? "Healthy" : "Error"}
-                    </Badge>
-                  )}
+              </div>
+              <Separator />
+              <div>
+                <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">Destinations</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {status?.destinations?.map((d) => (
+                    <Badge key={d} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">{d}</Badge>
+                  ))}
                 </div>
               </div>
-            ))}
-            {(!status?.integrations || status.integrations.length === 0) && (
-              <p className="text-sm font-light text-muted-foreground">No integrations registered</p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-        <Card className="rounded-md border-border shadow-stripe">
-          <CardHeader>
-            <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
-              Pipeline
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">Transformers</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {status?.transformers?.map((t) => (
-                  <Badge key={t} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">{t}</Badge>
-                ))}
-              </div>
-            </div>
-            <Separator />
-            <div>
-              <h3 className="text-sm font-normal text-[var(--stripe-label)] mb-2">Destinations</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {status?.destinations?.map((d) => (
-                  <Badge key={d} variant="outline" className="text-[11px] font-normal rounded-sm px-1.5">{d}</Badge>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* ── Integrations Tab ── */}
+        <TabsContent value="integrations" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <ObsidianCard />
+            <DeepgramCard />
+            <LinearCard />
+          </div>
+        </TabsContent>
 
-        <Card className="rounded-md border-border shadow-stripe">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-[22px] font-light tracking-[-0.22px] text-foreground">
-              Persona Files
-            </CardTitle>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowSetup(!showSetup)}
-              className="border-border rounded-sm font-normal gap-1.5"
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              Quick Setup
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {showSetup && (
-              <div className="mb-6">
-                <PersonaSetupForm onComplete={() => setShowSetup(false)} />
-                <Separator className="mt-6" />
-              </div>
-            )}
-            <Tabs defaultValue="soul">
-              <TabsList className="mb-4">
-                {personaNames.map((name) => (
-                  <TabsTrigger key={name} value={name} className="uppercase text-xs">{name}</TabsTrigger>
-                ))}
-              </TabsList>
-              {personaNames.map((name) => (
-                <TabsContent key={name} value={name}>
-                  <PersonaEditor name={name} />
-                </TabsContent>
-              ))}
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
+        {/* ── Persona Tab ── */}
+        <TabsContent value="persona" className="space-y-6">
+          {chatMode === "idle" && (
+            <>
+              <PersonaTriptych
+                onSetup={startChat}
+                onEdit={(name) => setEditingPersona(editingPersona === name ? null : name)}
+                editingName={editingPersona}
+              />
+
+              {editingPersona && (
+                <Card className="rounded-md border-border shadow-stripe">
+                  <CardContent className="pt-5">
+                    <PersonaEditor name={editingPersona} />
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+
+          {chatMode === "chatting" && chatPersona && (
+            <PersonaChat
+              personaName={chatPersona}
+              onComplete={(result, sid) => {
+                setChatSessionId(sid)
+                setChatResult(result)
+              }}
+              onCancel={resetChat}
+            />
+          )}
+
+          {chatMode === "preview" && chatPersona && chatResult && (
+            <PersonaPreview
+              personaName={chatPersona}
+              sessionId={chatSessionId ?? ""}
+              content={chatResult}
+              onAccepted={resetChat}
+              onRerun={() => {
+                setChatResult(null)
+                // chatPersona stays set, so chatMode goes back to "chatting"
+              }}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </>
   )
 }
@@ -183,6 +205,7 @@ function PersonaSetupForm({ onComplete }: { onComplete: () => void }) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["persona", "user"] })
+      queryClient.invalidateQueries({ queryKey: ["onboarding-status"] })
       toast.success("USER.md generated")
       onComplete()
     },
@@ -255,13 +278,6 @@ function PersonaEditor({ name }: { name: string }) {
   })
 
   const [content, setContent] = useState(persona?.content ?? "")
-  // Track the last persona.content we synced into the local buffer so we
-  // can re-sync when the query produces new data (e.g. after save +
-  // refetch, or when the selected persona changes). Adjusting state
-  // during render triggers a re-render before commit so the user never
-  // sees the stale content — React 19's idiomatic pattern for derived
-  // state from an async source. See:
-  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
   const [syncedContent, setSyncedContent] = useState(persona?.content ?? "")
   if (persona?.content != null && persona.content !== syncedContent) {
     setSyncedContent(persona.content)
@@ -270,12 +286,8 @@ function PersonaEditor({ name }: { name: string }) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
-  // Track the "Saved" banner clear-timer so it can be cancelled on
-  // unmount — if the user saves a persona and navigates away in under
-  // 2 seconds, we don't want a setState firing on an unmounted component.
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Clear the save-status timer on unmount so no stale setState runs.
   useEffect(() => {
     return () => {
       if (saveStatusTimerRef.current != null) {
@@ -291,6 +303,7 @@ function PersonaEditor({ name }: { name: string }) {
     onSuccess: () => {
       setSaveStatus("saved")
       queryClient.invalidateQueries({ queryKey: ["persona", name] })
+      queryClient.invalidateQueries({ queryKey: ["onboarding-status"] })
       if (saveStatusTimerRef.current != null) {
         clearTimeout(saveStatusTimerRef.current)
       }
@@ -308,9 +321,6 @@ function PersonaEditor({ name }: { name: string }) {
   const questionsMutation = useMutation({
     mutationFn: () => api.personaEnhanceQuestions(name, content),
     onSuccess: (resp) => setQuestions(resp.questions ?? []),
-    // Fetching questions is allowed to fail silently — we fall through
-    // to an empty-questions list so the user can still proceed — but we
-    // still surface a toast so they know the pre-flight hiccupped.
     onError: (err) => {
       setQuestions([])
       toast.error(`Failed to fetch enhance questions: ${getErrorMessage(err)}`)
@@ -332,9 +342,6 @@ function PersonaEditor({ name }: { name: string }) {
       toast.success(`Enhanced ${name.toUpperCase()}`)
     },
     onError: (err) => {
-      // Close the modal so the user isn't stuck staring at a frozen
-      // spinner. The original content is preserved in the textarea and
-      // they can re-open Enhance to retry.
       setQuestions(null)
       setModalOpen(false)
       toast.error(`Enhance failed: ${getErrorMessage(err)}`)

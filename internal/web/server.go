@@ -74,16 +74,26 @@ func (s *Server) routes() {
 	// API: status & integrations
 	r.Get("/api/status", s.Handler.Status)
 	r.Get("/api/integrations", s.Handler.IntegrationStatus)
+	r.Get("/api/onboarding/status", s.Handler.OnboardingStatus)
+	r.Post("/api/integrations/obsidian/test", s.Handler.TestObsidian)
+	r.Post("/api/integrations/obsidian/save", s.Handler.SaveObsidian)
+	r.Post("/api/integrations/deepgram/test", s.Handler.TestDeepgram)
+	r.Post("/api/integrations/deepgram/save", s.Handler.SaveDeepgram)
 
 	// API: dashboard operating view (single aggregator snapshot)
 	r.Get("/api/dashboard", s.Handler.GetDashboard)
 
 	// API: persona (SOUL / USER / MEMORY)
+	r.Get("/api/persona/status", s.Handler.PersonaStatusAll)
 	r.Post("/api/persona/setup", s.Handler.SetupPersona)
 	r.Get("/api/persona/{name}", s.Handler.GetPersona)
 	r.Post("/api/persona/{name}", s.Handler.SavePersona)
 	r.Post("/api/persona/{name}/enhance", s.Handler.EnhancePersona)
 	r.Post("/api/persona/{name}/enhance/questions", s.Handler.QuestionsForPersonaEnhance)
+	r.Post("/api/persona/{name}/chat/start", s.Handler.StartPersonaChat)
+	r.Post("/api/persona/{name}/chat/continue", s.Handler.ContinuePersonaChat)
+	r.Post("/api/persona/{name}/chat/done", s.Handler.FinishPersonaChat)
+	r.Post("/api/persona/{name}/chat/accept", s.Handler.AcceptPersonaChat)
 
 	// API: actions
 	r.Get("/api/actions", s.Handler.ListActions)
@@ -155,6 +165,7 @@ func (s *Server) routes() {
 	r.Post("/api/prototypes/questions", s.Handler.QuestionsForPrototype)
 	r.Get("/api/prototypes/{id}/html", s.Handler.ViewPrototypeHTML)
 	r.Post("/api/prototypes/{id}/stage", s.Handler.SetPrototypeStage)
+	r.Post("/api/prototypes/{id}/regenerate", s.Handler.RegeneratePrototype)
 
 	// API: PRDs
 	r.Get("/api/prds", s.Handler.ListPRDs)

@@ -54,6 +54,7 @@ type Deps struct {
 	Actions            *actions.Store
 	Persona            *persona.Loader
 	PersonaInitCreated []persona.Name
+	PersonaChatStore   *persona.ChatStore
 	ShapeUp            *shapeup.Store
 	ShapeUpAdvancer    *shapeup.Advancer
 	UseCases           *usecases.Store
@@ -82,6 +83,7 @@ type Handler struct {
 	// Persona (SOUL/USER/MEMORY)
 	Persona            *persona.Loader
 	PersonaInitCreated []persona.Name // which files were bootstrapped this startup
+	PersonaChatStore   *persona.ChatStore
 
 	// v3 features
 	ShapeUp         *shapeup.Store
@@ -125,6 +127,7 @@ func New(deps Deps) *Handler {
 		Actions:            deps.Actions,
 		Persona:            deps.Persona,
 		PersonaInitCreated: deps.PersonaInitCreated,
+		PersonaChatStore:   deps.PersonaChatStore,
 		ShapeUp:            deps.ShapeUp,
 		ShapeUpAdvancer:    deps.ShapeUpAdvancer,
 		UseCases:           deps.UseCases,

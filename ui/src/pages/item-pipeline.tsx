@@ -138,6 +138,9 @@ interface PipelineData {
   title: string
   currentStage: string
   contentPath?: string
+  hasHTML?: boolean
+  prototypeId?: string
+  prototype?: Prototype
   isLoading: boolean
   error: string | null
 }
@@ -198,6 +201,9 @@ function usePrototypeData(id: string): PipelineData {
     title: p?.title ?? "",
     currentStage: p?.stage ?? "breadboard",
     contentPath: p?.folder_path ? `${p.folder_path}/spec.md` : undefined,
+    hasHTML: p?.has_html,
+    prototypeId: p?.id,
+    prototype: p,
     isLoading,
     error: error ? String(error) : null,
   }
@@ -223,7 +229,7 @@ export function ItemPipelinePage() {
     : type === "document" ? documentData
     : prototypeData
 
-  const { title, currentStage, contentPath, isLoading, error } = pipelineData
+  const { title, currentStage, contentPath, hasHTML, prototypeId, prototype: protoObj, isLoading, error } = pipelineData
   const accent = PIPELINE_ACCENT[type] ?? "#8B8FA3"
 
   // Product artifact data
@@ -389,8 +395,50 @@ export function ItemPipelinePage() {
     },
   })
 
+  // Prototype: questions before regeneration
+  const protoQuestionsMutation = useMutation({
+    mutationFn: () => {
+      if (!protoObj) throw new Error("no prototype")
+      return api.prototypeQuestions({
+        title: protoObj.title,
+        format: protoObj.format,
+        source_paths: protoObj.source_refs ?? [],
+      })
+    },
+    onSuccess: (resp) => setQuestions(resp.questions ?? []),
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch questions: ${getErrorMessage(err)}`)
+    },
+  })
+
+  // Prototype: regenerate in-place
+  const protoRegenerateMutation = useMutation({
+    mutationFn: (answers: Answer[]) =>
+      api.regeneratePrototype(protoObj!.id, {
+        hints: hints || undefined,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
+    onSuccess: () => {
+      toast.success("Prototype regenerated")
+      setHints("")
+      setQuestions(null)
+      setQaModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["prototypes"] })
+      queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
+      queryClient.invalidateQueries({ queryKey: ["vault-file"] })
+    },
+    onError: (err) => {
+      setQuestions(null)
+      setQaModalOpen(false)
+      toast.error(`Regenerate failed: ${getErrorMessage(err)}`)
+    },
+  })
+
   const isAdvancing = advanceProductMutation.isPending || advanceStageMutation.isPending || questionsMutation.isPending || redoMutation.isPending
   const isRedoing = iterateMutation.isPending || regenerateMutation.isPending || redoMutation.isPending
+  const isProtoRegenerating = protoQuestionsMutation.isPending || protoRegenerateMutation.isPending
 
   // Poll advance progress while a product advance is in flight.
   // Returns {turn, max_turns, status, stage} or {status:"idle"}.
@@ -568,6 +616,26 @@ export function ItemPipelinePage() {
         />
       )}
 
+      {/* Q&A modal for prototype regeneration */}
+      {type === "prototype" && (
+        <QuestionsModal
+          open={qaModalOpen}
+          onOpenChange={(next) => {
+            if (!next && !protoRegenerateMutation.isPending) {
+              setQaModalOpen(false)
+              setQuestions(null)
+            }
+          }}
+          title="Regenerate prototype"
+          description="Answer these to refine the output. Or skip to regenerate immediately."
+          questions={questions}
+          loading={protoQuestionsMutation.isPending}
+          submitting={protoRegenerateMutation.isPending}
+          onSubmit={(answers) => protoRegenerateMutation.mutate(answers)}
+          onSkip={() => protoRegenerateMutation.mutate([])}
+        />
+      )}
+
       {/* Content area */}
       <Card
         className="rounded-[14px] border-border shadow-stripe"
@@ -623,6 +691,53 @@ export function ItemPipelinePage() {
                   ? "No artifact generated for this stage yet."
                   : "No content path available."}
             </p>
+          )}
+
+          {/* Prototype HTML preview */}
+          {type === "prototype" && hasHTML && prototypeId && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <h4 className="text-[13px] font-semibold text-foreground mb-3">HTML Preview</h4>
+              <iframe
+                src={api.prototypeHTMLUrl(prototypeId)}
+                sandbox="allow-scripts"
+                title="Prototype preview"
+                className="w-full rounded-lg border border-border bg-white"
+                style={{ height: "600px" }}
+              />
+            </div>
+          )}
+
+          {/* Iterate / Re-generate actions for prototype */}
+          {type === "prototype" && protoObj && (
+            <div className="mt-6 pt-4 border-t border-border flex items-center gap-3 flex-wrap">
+              <span className="text-[11px] text-muted-foreground mr-auto">
+                Not happy with this prototype?
+              </span>
+              <Input
+                value={hints}
+                onChange={(e) => setHints(e.target.value)}
+                placeholder="Optional hints for Claude..."
+                className="h-8 text-xs border-border rounded-sm max-w-[240px]"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setQuestions(null)
+                  setQaModalOpen(true)
+                  protoQuestionsMutation.mutate()
+                }}
+                disabled={isProtoRegenerating}
+                className="gap-1.5 text-[12px] h-8 rounded-lg text-destructive border-destructive/30 hover:bg-destructive/10"
+              >
+                {isProtoRegenerating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                )}
+                Re-generate
+              </Button>
+            </div>
           )}
 
           {/* Iterate / Re-generate actions for current stage (product only) */}

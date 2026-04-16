@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/prototypes"
+	"github.com/kriswong/corticalstack/internal/questions"
 	"github.com/kriswong/corticalstack/internal/stage"
 )
 
@@ -119,14 +120,14 @@ func (h *Handler) ViewPrototypeHTML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Strict CSP on the outer shell. The inner iframe's srcdoc gets a
-	// null origin from the sandbox attribute and is not governed by this
-	// CSP, so we only need to lock down the shell itself. 'unsafe-inline'
-	// on style-src covers the tiny <style> block above; everything else
-	// is 'none'.
+	// The srcdoc iframe inherits the parent document's CSP, so we must
+	// allow inline styles and scripts here. The iframe's HTML
+	// sandbox="allow-scripts" (without allow-same-origin) is the real
+	// security boundary — it gives the prototype a null origin so it
+	// cannot access CorticalStack's cookies, localStorage, or APIs.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy",
-		"default-src 'none'; frame-src 'self' data:; style-src 'unsafe-inline'; sandbox allow-scripts")
+		"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
@@ -167,6 +168,72 @@ func (h *Handler) SetPrototypeStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"id": id, "stage": string(target)})
+}
+
+// RegeneratePrototype handles POST /api/prototypes/{id}/regenerate.
+// It looks up the existing prototype's metadata, re-runs synthesis with
+// the same source paths and format, and overwrites the files in-place.
+// Accepts optional {"hints": "...", "questions": [...], "answers": [...]}
+// to refine the output.
+func (h *Handler) RegeneratePrototype(w http.ResponseWriter, r *http.Request) {
+	if h.Prototypes == nil || h.PrototypeSynth == nil {
+		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	// Find the existing prototype to copy its source metadata.
+	list, err := h.Prototypes.List()
+	if err != nil {
+		internalError(w, "prototype.regenerate.list", err)
+		return
+	}
+	var existing *prototypes.Prototype
+	for _, p := range list {
+		if p.ID == id {
+			existing = p
+			break
+		}
+	}
+	if existing == nil {
+		http.Error(w, "prototype not found", http.StatusNotFound)
+		return
+	}
+
+	// Parse optional body for hints/answers.
+	var body struct {
+		Hints     string               `json:"hints,omitempty"`
+		Questions []questions.Question `json:"questions,omitempty"`
+		Answers   []questions.Answer   `json:"answers,omitempty"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	req := prototypes.CreateRequest{
+		Title:        existing.Title,
+		SourcePaths:  existing.SourceRefs,
+		Format:       existing.Format,
+		Hints:        body.Hints,
+		SourceThread: existing.SourceThread,
+		ProjectIDs:   existing.Projects,
+		Questions:    body.Questions,
+		Answers:      body.Answers,
+	}
+
+	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
+	if err != nil {
+		internalError(w, "prototype.regenerate.synthesize", err)
+		return
+	}
+	// Preserve the original ID and created date so the URL stays stable.
+	p.ID = existing.ID
+	p.Created = existing.Created
+	p.FolderPath = existing.FolderPath
+
+	if err := h.Prototypes.Write(p); err != nil {
+		internalError(w, "prototype.regenerate.write", err)
+		return
+	}
+	writeJSON(w, p)
 }
 
 // CreatePrototype handles POST /api/prototypes.

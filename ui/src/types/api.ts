@@ -573,3 +573,61 @@ export interface CardDetail {
   aggregate: ItemUsageAggregate
   items: CardItem[]
 }
+
+// --- Onboarding ---
+
+export interface OnboardingItem {
+  id: string
+  label: string
+  configured: boolean
+}
+
+export interface OnboardingStatus {
+  items: OnboardingItem[]
+  configured_count: number
+  total: number
+}
+
+// --- Persona Status ---
+
+export interface PersonaInfo {
+  name: string
+  file: string
+  configured: boolean
+  summary: string
+  char_count: number
+  budget: number
+}
+
+export interface PersonaStatusResponse {
+  personas: PersonaInfo[]
+}
+
+// --- Persona Chat ---
+
+export interface PersonaChatMessage {
+  role: "assistant" | "user"
+  content: string
+  options?: string[]
+}
+
+export interface PersonaChatStartResponse {
+  session_id: string
+  message: PersonaChatMessage
+  turn: number
+  max_turns: number
+  done: boolean
+}
+
+export interface PersonaChatContinueResponse {
+  message: PersonaChatMessage
+  turn: number
+  max_turns: number
+  done: boolean
+  result?: string
+}
+
+export interface PersonaChatFinishResponse {
+  content: string
+  done: boolean
+}

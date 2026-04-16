@@ -33,7 +33,7 @@ func (e *ClaudeExtractor) Extract(ctx context.Context, doc *TextDocument, cfg Ex
 
 	ag := &agent.Agent{
 		Model:      e.model,
-		MaxTurns:   1,
+		MaxTurns:   10,
 		WorkingDir: e.workingDir,
 	}
 

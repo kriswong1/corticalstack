@@ -63,7 +63,7 @@ func (a *Asker) Ask(ctx context.Context, goal string, blocks []ContextBlock) ([]
 
 	ag := &agent.Agent{
 		Model:      a.model,
-		MaxTurns:   1,
+		MaxTurns:   10,
 		WorkingDir: a.workingDir,
 	}
 	raw, err := ag.RunSimple(ctx, prompt)

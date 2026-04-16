@@ -98,6 +98,10 @@ func main() {
 
 	// Integrations registry
 	reg := integrations.NewRegistry()
+	if err := reg.Register(&integrations.ObsidianIntegration{}); err != nil {
+		slog.Error("register obsidian", "error", err)
+		os.Exit(1)
+	}
 	deepgram := integrations.NewDeepgramClient(config.DeepgramAPIKey())
 	if err := reg.Register(deepgram); err != nil {
 		slog.Error("register deepgram", "error", err)
@@ -114,6 +118,7 @@ func main() {
 	if len(initResult.Created) > 0 {
 		slog.Info("persona: bootstrapped from templates", "created", initResult.Created)
 	}
+	personaChatStore := persona.NewChatStore()
 
 	// Action store
 	actionStore := actions.New(v)
@@ -213,6 +218,7 @@ func main() {
 		Actions:         actionStore,
 		Persona:         personaLoader,
 		PersonaInitCreated: initResult.Created,
+		PersonaChatStore:   personaChatStore,
 		ShapeUp:         shapeupStore,
 		ShapeUpAdvancer: shapeupAdvancer,
 		UseCases:        useCaseStore,

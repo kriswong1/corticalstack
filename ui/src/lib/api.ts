@@ -36,6 +36,11 @@ import type {
   CardDetail,
   CardItem,
   ItemUsageAggregate,
+  OnboardingStatus,
+  PersonaStatusResponse,
+  PersonaChatStartResponse,
+  PersonaChatContinueResponse,
+  PersonaChatFinishResponse,
 } from "@/types/api"
 
 export class ApiError extends Error {
@@ -173,6 +178,17 @@ export const api = {
   // Status
   getStatus: () => request<StatusResponse>("/api/status"),
   getIntegrations: () => request<IntegrationStatus[]>("/api/integrations"),
+  getOnboardingStatus: () => request<OnboardingStatus>("/api/onboarding/status"),
+
+  // Integration test/save
+  testObsidian: (body: { vault_path: string }) =>
+    post<{ ok: boolean; error?: string }>("/api/integrations/obsidian/test", body),
+  saveObsidian: (body: { vault_path: string }) =>
+    post<{ ok: boolean }>("/api/integrations/obsidian/save", body),
+  testDeepgram: (body: { api_key: string }) =>
+    post<{ ok: boolean; error?: string }>("/api/integrations/deepgram/test", body),
+  saveDeepgram: (body: { api_key: string }) =>
+    post<{ ok: boolean }>("/api/integrations/deepgram/save", body),
 
   // Dashboard operating view (single aggregator snapshot)
   getDashboard: () => request<DashboardSnapshot>("/api/dashboard"),
@@ -324,6 +340,8 @@ export const api = {
   prototypeQuestions: (body: PrototypeQuestionsRequest) =>
     postLong<QuestionsResponse>("/api/prototypes/questions", body),
   prototypeHTMLUrl: (id: string) => `/api/prototypes/${id}/html`,
+  regeneratePrototype: (id: string, body: { hints?: string; questions?: Question[]; answers?: Answer[] }) =>
+    postLong<Prototype>(`/api/prototypes/${id}/regenerate`, body),
 
   // PRDs
   listPRDs: () => request<PRD[]>("/api/prds"),
@@ -332,6 +350,7 @@ export const api = {
     postLong<QuestionsResponse>("/api/prds/questions", body),
 
   // Persona
+  getPersonaStatus: () => request<PersonaStatusResponse>("/api/persona/status"),
   getPersona: (name: string) =>
     request<PersonaResponse>(`/api/persona/${name}`),
   savePersona: (name: string, content: string) =>
@@ -350,4 +369,14 @@ export const api = {
     postLong<QuestionsResponse>(`/api/persona/${name}/enhance/questions`, {
       content,
     }),
+
+  // Persona Chat
+  startPersonaChat: (name: string) =>
+    postLong<PersonaChatStartResponse>(`/api/persona/${name}/chat/start`, {}),
+  continuePersonaChat: (name: string, body: { session_id: string; input: string }) =>
+    postLong<PersonaChatContinueResponse>(`/api/persona/${name}/chat/continue`, body),
+  finishPersonaChat: (name: string, body: { session_id: string }) =>
+    postLong<PersonaChatFinishResponse>(`/api/persona/${name}/chat/done`, body),
+  acceptPersonaChat: (name: string, body: { session_id: string }) =>
+    post<{ status: string; name: string }>(`/api/persona/${name}/chat/accept`, body),
 }

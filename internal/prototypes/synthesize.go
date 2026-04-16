@@ -133,7 +133,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 
 	ag := &agent.Agent{
 		Model:      s.model,
-		MaxTurns:   1,
+		MaxTurns:   10,
 		WorkingDir: s.workingDir,
 		CallerHint: "prototype.synthesize." + req.Format,
 		Item:       agent.ItemContext{Type: "prototype", ID: prototypeID},
@@ -202,10 +202,12 @@ func buildSynthesisPrompt(format Format, sources, hints, answerBlock string) str
 	b.WriteString("\n")
 
 	// Raw formats (interactive-html) get a different output block — no JSON.
+	// Claude outputs the HTML directly as text; no tools needed.
 	if rawFmt, ok := format.(RawFormat); ok && rawFmt.IsRaw() {
+		b.WriteString("IMPORTANT: All the context you need is provided below. Do NOT use any tools — no file reads, no searches, no file writes. Output the result directly as text.\n\n")
 		b.WriteString("## Output\n\n")
 		b.WriteString(format.SchemaHint())
-		b.WriteString("\n\nRespond with ONLY the raw output described above. No prose before or after, no code fences.\n")
+		b.WriteString("\n\nRespond with ONLY the raw HTML. No prose, no explanation, no code fences.\n")
 		return b.String()
 	}
 
