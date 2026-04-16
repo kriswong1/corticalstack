@@ -1,16 +1,12 @@
-// Package meetings models recorded meetings as a three-stage pipeline:
-// audio captures, raw transcripts, and structured notes (decisions,
-// action items, key topics) live as markdown files under
-// vault/meetings/{audio,transcripts,notes}/. The store is a thin
-// read/write scanner — most notes land in the vault via the existing
-// ingest pipeline (audio → Deepgram → transcript) or by hand-drop;
-// the only mutation this store performs is SetStage for the
-// dashboard's per-card stage advance.
+// Package meetings models recorded meetings as a two-stage pipeline:
+// raw transcripts and structured notes (decisions, action items, key
+// topics) live as markdown files under vault/meetings/{transcripts,
+// notes}/. The store is a thin read/write scanner — most notes land
+// in the vault via the existing ingest pipeline (audio → Deepgram →
+// transcript) or by hand-drop; the only mutation this store performs
+// is SetStage for the dashboard's per-card stage advance.
 //
-// Stage rename history: this used to be a two-stage pipeline of
-// transcript → summary. The unified dashboard ships three stages
-// (Transcript, Audio, Note) so the old "summary" value is now an
-// alias for "note" — see stage.Normalize for the migration path.
+// Legacy aliases: "summary" → "note", "audio" → "transcript".
 package meetings
 
 import (
@@ -20,18 +16,13 @@ import (
 )
 
 // Stage re-exports the canonical stage.Stage values used for meeting
-// pipeline records. The constants below are copies of the package-
-// stage equivalents kept here so existing call sites that used to
-// reference meetings.StageTranscript keep compiling.
+// pipeline records.
 type Stage = stage.Stage
 
 const (
 	StageTranscript = stage.StageTranscript
-	StageAudio      = stage.StageAudio
 	StageNote       = stage.StageNote
-	// StageSummary is the legacy alias for StageNote. Retained as a
-	// constant only for backward-compat with callers that still
-	// import the symbol; new code should use StageNote directly.
+	// StageSummary is the legacy alias for StageNote.
 	StageSummary = stage.StageNote
 )
 
@@ -40,9 +31,8 @@ func AllStages() []Stage {
 	return stage.AllStages(stage.EntityMeeting)
 }
 
-// IsValidStage reports whether s names a real stage. Accepts the
-// legacy "summary" value via stage.Normalize so on-disk notes that
-// predate the rename still classify correctly.
+// IsValidStage reports whether s names a real stage. Accepts legacy
+// "summary" and "audio" values so on-disk notes still classify.
 func IsValidStage(s string) bool {
 	if s == "" {
 		return false
@@ -52,8 +42,7 @@ func IsValidStage(s string) bool {
 			return true
 		}
 	}
-	// Legacy alias: "summary" → StageNote.
-	return s == "summary"
+	return s == "summary" || s == "audio"
 }
 
 // Meeting is one stage-tagged note in the vault. The same meeting may

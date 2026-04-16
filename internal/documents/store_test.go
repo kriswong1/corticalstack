@@ -68,7 +68,7 @@ func TestListReadsFrontmatter(t *testing.T) {
 	writeNote(t, dir, "documents/2026-04-15_finished.md", `---
 id: doc-1
 title: Finished Reference
-stage: final
+stage: note
 created: 2026-04-15T10:00:00Z
 projects:
   - alpha
@@ -78,10 +78,10 @@ source: https://example.com/article
 ---
 # Body of the document
 `)
-	writeNote(t, dir, "documents/2026-04-14_in-progress.md", `---
+	writeNote(t, dir, "documents/2026-04-14_input.md", `---
 id: doc-2
-title: WIP Article
-stage: in_progress
+title: Raw Input
+stage: input
 created: 2026-04-14T09:00:00Z
 ---
 draft body
@@ -99,8 +99,8 @@ draft body
 	if got[0].ID != "doc-1" {
 		t.Errorf("got[0].ID = %q", got[0].ID)
 	}
-	if got[0].Stage != stage.StageFinal {
-		t.Errorf("got[0].Stage = %q", got[0].Stage)
+	if got[0].Stage != stage.StageDocNote {
+		t.Errorf("got[0].Stage = %q, want note", got[0].Stage)
 	}
 	if got[0].Source != "https://example.com/article" {
 		t.Errorf("got[0].Source = %q", got[0].Source)
@@ -108,12 +108,12 @@ draft body
 	if len(got[0].Projects) != 1 || got[0].Projects[0] != "alpha" {
 		t.Errorf("got[0].Projects = %v", got[0].Projects)
 	}
-	if got[1].Stage != stage.StageInProgress {
-		t.Errorf("got[1].Stage = %q", got[1].Stage)
+	if got[1].Stage != stage.StageInput {
+		t.Errorf("got[1].Stage = %q, want input", got[1].Stage)
 	}
 }
 
-func TestListMissingStageFallsBackToNeed(t *testing.T) {
+func TestListMissingStageFallsBackToInput(t *testing.T) {
 	s, dir := newTestStore(t)
 	writeNote(t, dir, "documents/raw.md", `---
 title: Hand Dropped
@@ -128,8 +128,8 @@ body
 	if len(got) != 1 {
 		t.Fatalf("len = %d", len(got))
 	}
-	if got[0].Stage != stage.StageNeed {
-		t.Errorf("stage = %q, want need (fallback)", got[0].Stage)
+	if got[0].Stage != stage.StageInput {
+		t.Errorf("stage = %q, want input (fallback)", got[0].Stage)
 	}
 }
 
@@ -152,13 +152,13 @@ func TestSetStageRoundTrip(t *testing.T) {
 	writeNote(t, dir, "documents/example.md", `---
 id: doc-1
 title: Example
-stage: need
+stage: input
 created: 2026-04-15T10:00:00Z
 ---
 body content
 `)
 
-	if err := s.SetStage("doc-1", stage.StageInProgress); err != nil {
+	if err := s.SetStage("doc-1", stage.StageDocNote); err != nil {
 		t.Fatalf("SetStage: %v", err)
 	}
 	got, err := s.Get("doc-1")
@@ -168,8 +168,8 @@ body content
 	if got == nil {
 		t.Fatal("Get returned nil")
 	}
-	if got.Stage != stage.StageInProgress {
-		t.Errorf("stage = %q, want in_progress", got.Stage)
+	if got.Stage != stage.StageDocNote {
+		t.Errorf("stage = %q, want note", got.Stage)
 	}
 
 	// Body should be preserved.
@@ -181,7 +181,7 @@ body content
 	if !strings.Contains(string(raw), "body content") {
 		t.Error("body lost during SetStage write")
 	}
-	if !strings.Contains(string(raw), "in_progress") {
+	if !strings.Contains(string(raw), "note") {
 		t.Error("new stage not persisted")
 	}
 	if !strings.Contains(string(raw), "updated:") {
@@ -208,7 +208,7 @@ body
 
 func TestSetStageUnknownDoc(t *testing.T) {
 	s, _ := newTestStore(t)
-	if err := s.SetStage("missing", stage.StageNeed); err == nil {
+	if err := s.SetStage("missing", stage.StageInput); err == nil {
 		t.Error("SetStage on unknown id should error")
 	}
 }

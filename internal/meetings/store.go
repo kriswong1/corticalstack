@@ -43,17 +43,11 @@ func (s *Store) EnsureFolder() error {
 	return nil
 }
 
-// stagePlural maps a stage key to its on-disk subfolder. We pluralize
-// for filesystem readability ("transcripts" reads better than
-// "transcript" in `ls`) while keeping the canonical Stage value
-// singular for API responses. The `audio` stage is intentionally NOT
-// pluralized — "audios" is awkward and "audio" reads as a mass noun.
+// stagePlural maps a stage key to its on-disk subfolder.
 func stagePlural(st stage.Stage) string {
 	switch st {
 	case stage.StageTranscript:
 		return "transcripts"
-	case stage.StageAudio:
-		return "audio"
 	case stage.StageNote:
 		return "notes"
 	default:
@@ -62,28 +56,25 @@ func stagePlural(st stage.Stage) string {
 }
 
 // legacyFolderStage maps an on-disk folder name back to a Stage,
-// including the historical "summaries" folder which is now treated as
-// "notes" — the rename happened with the unified-dashboard refactor.
-// Existing notes in vault/meetings/summaries/ keep classifying as
-// StageNote without a migration script.
+// including legacy folders (summaries, audio) so existing notes
+// still surface in List().
 func legacyFolderStage(folder string) (stage.Stage, bool) {
 	switch folder {
 	case "transcripts":
 		return stage.StageTranscript, true
 	case "audio":
-		return stage.StageAudio, true
+		// Legacy: audio files are now classified as transcripts.
+		return stage.StageTranscript, true
 	case "notes":
 		return stage.StageNote, true
 	case "summaries":
-		// Legacy: pre-refactor folder name. Treat as Notes.
 		return stage.StageNote, true
 	}
 	return "", false
 }
 
 // scanFolders is the canonical list of subfolders the store reads
-// from. New canonical folders plus the legacy "summaries" folder so
-// existing on-disk notes still surface in List().
+// from. Includes legacy folders (audio, summaries) for backward compat.
 func scanFolders() []string {
 	return []string{"transcripts", "audio", "notes", "summaries"}
 }

@@ -32,8 +32,8 @@ func writeNote(t *testing.T, root, relPath, content string) {
 
 func TestEnsureFolderCreatesAllStages(t *testing.T) {
 	_, dir := newTestStore(t)
-	// Three canonical folders for the new three-stage pipeline.
-	for _, name := range []string{"transcripts", "audio", "notes"} {
+	// Two canonical folders for the two-stage pipeline.
+	for _, name := range []string{"transcripts", "notes"} {
 		if _, err := os.Stat(filepath.Join(dir, "meetings", name)); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -119,7 +119,8 @@ created: 2026-04-14T11:00:00Z
 	}
 }
 
-func TestListReadsAudioStage(t *testing.T) {
+func TestListReadsLegacyAudioFolder(t *testing.T) {
+	// Legacy audio folder notes should now classify as transcript.
 	s, dir := newTestStore(t)
 	writeNote(t, dir, "meetings/audio/2026-04-15_call.md", `---
 id: meeting-2
@@ -136,8 +137,8 @@ created: 2026-04-15T09:00:00Z
 	if len(got) != 1 {
 		t.Fatalf("len = %d", len(got))
 	}
-	if got[0].Stage != StageAudio {
-		t.Errorf("stage = %q, want audio", got[0].Stage)
+	if got[0].Stage != StageTranscript {
+		t.Errorf("stage = %q, want transcript (legacy audio normalized)", got[0].Stage)
 	}
 }
 
@@ -220,8 +221,8 @@ func TestListSkipsNonMarkdownFiles(t *testing.T) {
 }
 
 func TestIsValidStage(t *testing.T) {
-	// All three canonical stages plus the legacy "summary" alias.
-	for _, st := range []string{"transcript", "audio", "note", "summary"} {
+	// Two canonical stages plus legacy aliases.
+	for _, st := range []string{"transcript", "note", "summary", "audio"} {
 		if !IsValidStage(st) {
 			t.Errorf("IsValidStage(%q) = false", st)
 		}

@@ -55,24 +55,28 @@ const (
 	StagePitch      Stage = "pitch"
 )
 
-// Meeting stages — three-stage capture flow. "summary" is the legacy
-// pre-rename value still on disk for hand-dropped notes; Normalize
-// folds it into "note".
+// Meeting stages — two-stage capture flow: raw transcript in, structured
+// note out. "summary" and "audio" are legacy values still on disk;
+// Normalize folds them into "note" and "transcript" respectively.
 const (
 	StageTranscript Stage = "transcript"
-	StageAudio      Stage = "audio"
 	StageNote       Stage = "note"
 )
 
-// Document and Prototype stages — three-stage progression shared by
-// both entity types. The values intentionally collide because the two
-// pipelines feel identical to a user (you have a need, you start
-// working on it, it's done) and forcing them apart would make the
-// dashboard cards inconsistent for no real benefit.
+// Document stages — two-stage flow: raw input material in, refined
+// note out. "need", "in_progress", "final" are legacy aliases from
+// the first stage definition; Normalize maps them.
 const (
-	StageNeed       Stage = "need"
-	StageInProgress Stage = "in_progress"
-	StageFinal      Stage = "final"
+	StageInput    Stage = "input"
+	StageDocNote  Stage = "note" // alias — same wire value as meeting StageNote
+)
+
+// Prototype stages — three-stage flow sourced from a ShapeUp
+// breadboard artifact. "need" is the legacy alias for "breadboard".
+const (
+	StageProtoBreadboard Stage = "breadboard" // alias — same wire value as product StageBreadboard
+	StageInProgress      Stage = "in_progress"
+	StageFinal           Stage = "final"
 )
 
 // AllStages returns the canonical, ordered list of stages for one
@@ -84,9 +88,11 @@ func AllStages(entity EntityType) []Stage {
 	case EntityProduct:
 		return []Stage{StageIdea, StageFrame, StageShape, StageBreadboard, StagePitch}
 	case EntityMeeting:
-		return []Stage{StageTranscript, StageAudio, StageNote}
-	case EntityDocument, EntityPrototype:
-		return []Stage{StageNeed, StageInProgress, StageFinal}
+		return []Stage{StageTranscript, StageNote}
+	case EntityDocument:
+		return []Stage{StageInput, StageNote}
+	case EntityPrototype:
+		return []Stage{StageProtoBreadboard, StageInProgress, StageFinal}
 	}
 	return nil
 }
@@ -113,8 +119,10 @@ func FallbackStage(entity EntityType) Stage {
 		return StageIdea
 	case EntityMeeting:
 		return StageTranscript
-	case EntityDocument, EntityPrototype:
-		return StageNeed
+	case EntityDocument:
+		return StageInput
+	case EntityPrototype:
+		return StageProtoBreadboard
 	}
 	return ""
 }
@@ -144,14 +152,23 @@ func Normalize(entity EntityType, raw string) Stage {
 			return StageIdea
 		}
 	case EntityMeeting:
-		if v == "summary" {
+		switch v {
+		case "summary":
 			return StageNote
+		case "audio":
+			return StageTranscript
 		}
 	case EntityDocument:
-		// No legacy aliases: documents had no Stage field at all
-		// before this change; missing values land at FallbackStage.
+		switch v {
+		case "need":
+			return StageInput
+		case "in_progress", "final":
+			return StageDocNote
+		}
 	case EntityPrototype:
 		switch v {
+		case "need":
+			return StageProtoBreadboard
 		case "draft":
 			return StageInProgress
 		case "exported":
