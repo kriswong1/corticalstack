@@ -12,7 +12,7 @@ import { ArrowLeft, Check, Circle, Loader2 } from "lucide-react"
 import type { ShapeUpThread, Meeting, Prototype, Document } from "@/types/api"
 
 // ---------------------------------------------------------------------------
-// Stage canonical orders
+// Constants
 // ---------------------------------------------------------------------------
 
 const stageOrders: Record<string, string[]> = {
@@ -22,121 +22,119 @@ const stageOrders: Record<string, string[]> = {
   prototype: ["need", "in_progress", "final"],
 }
 
-// ---------------------------------------------------------------------------
-// Stage colors (OKLCH, matching dashboard-card.tsx)
-// ---------------------------------------------------------------------------
+const PIPELINE_ACCENT: Record<string, string> = {
+  product: "#9B8AFF",
+  meeting: "#47B5E8",
+  document: "#48D597",
+  prototype: "#E8C547",
+}
 
 const stageColors: Record<string, Record<string, string>> = {
   product: {
-    idea: "oklch(0.55 0.04 250)",
-    frame: "oklch(0.60 0.14 200)",
-    shape: "oklch(0.55 0.22 275)",
-    breadboard: "oklch(0.60 0.20 325)",
-    pitch: "oklch(0.62 0.19 150)",
+    idea: "#8B8FA3", frame: "#47B5E8", shape: "#9B8AFF",
+    breadboard: "#E85B9B", pitch: "#48D597",
   },
   meeting: {
-    transcript: "oklch(0.65 0.15 230)",
-    audio: "oklch(0.70 0.16 85)",
-    note: "oklch(0.62 0.19 150)",
+    transcript: "#47B5E8", audio: "#E8C547", note: "#48D597",
   },
   document: {
-    need: "oklch(0.55 0.04 250)",
-    in_progress: "oklch(0.70 0.16 85)",
-    final: "oklch(0.62 0.19 150)",
+    need: "#8B8FA3", in_progress: "#E8C547", final: "#48D597",
   },
   prototype: {
-    need: "oklch(0.55 0.04 250)",
-    in_progress: "oklch(0.70 0.16 85)",
-    final: "oklch(0.62 0.19 150)",
+    need: "#8B8FA3", in_progress: "#E8C547", final: "#48D597",
   },
 }
 
-const fallbackColor = "oklch(0.60 0.10 250)"
-
-function stageColor(cardType: string, stage: string): string {
-  return stageColors[cardType]?.[stage] ?? fallbackColor
+function colorFor(type: string, stage: string): string {
+  return stageColors[type]?.[stage] ?? PIPELINE_ACCENT[type] ?? "#8B8FA3"
 }
 
-// ---------------------------------------------------------------------------
-// Stage display labels (pretty-print underscored names)
-// ---------------------------------------------------------------------------
+function withAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
 
 const stageLabels: Record<string, string> = {
-  idea: "Idea",
-  frame: "Frame",
-  shape: "Shape",
-  breadboard: "Breadboard",
-  pitch: "Pitch",
-  transcript: "Transcript",
-  audio: "Audio",
-  note: "Note",
-  need: "Need",
-  in_progress: "In Progress",
-  final: "Final",
+  idea: "Idea", frame: "Frame", shape: "Shape",
+  breadboard: "Breadboard", pitch: "Pitch",
+  transcript: "Transcript", audio: "Audio", note: "Note",
+  need: "Need", in_progress: "In Progress", final: "Final",
 }
 
-function stageLabel(s: string): string {
+function label(s: string): string {
   return stageLabels[s] ?? s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-// ---------------------------------------------------------------------------
-// Card type labels
-// ---------------------------------------------------------------------------
-
 const typeTitles: Record<string, string> = {
-  product: "Product",
-  meeting: "Meeting",
-  document: "Document",
-  prototype: "Prototype",
+  product: "Product", meeting: "Meeting",
+  document: "Document", prototype: "Prototype",
 }
-
-// ---------------------------------------------------------------------------
-// Normalize ShapeUp "raw" stage to "idea" for display
-// ---------------------------------------------------------------------------
 
 function normalizeStage(type: string, stage: string): string {
   if (type === "product" && stage === "raw") return "idea"
   return stage
 }
 
+function formatShortDate(iso?: string): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ""
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
+function stripFrontmatter(raw: string): string {
+  const trimmed = raw.trimStart()
+  if (!trimmed.startsWith("---")) return raw
+  const end = trimmed.indexOf("---", 3)
+  if (end < 0) return raw
+  return trimmed.slice(end + 3).trimStart()
+}
+
 // ---------------------------------------------------------------------------
-// Stage status classification
+// Stage classification
 // ---------------------------------------------------------------------------
 
 type StageStatus = "completed" | "current" | "future"
 
+interface StageInfo {
+  stage: string
+  status: StageStatus
+  date?: string
+}
+
 function classifyStages(
   type: string,
   currentStage: string,
-  artifactStages?: Set<string>,
-): { stage: string; status: StageStatus }[] {
+  artifactDates?: Map<string, string>,
+): StageInfo[] {
   const order = stageOrders[type] ?? []
-  const normalized = normalizeStage(type, currentStage)
-  const currentIdx = order.indexOf(normalized)
+  const currentIdx = order.indexOf(currentStage)
 
   return order.map((s, idx) => {
-    if (type === "product" && artifactStages) {
-      // For products, a stage is completed if an artifact exists for it
-      if (s === normalized) return { stage: s, status: "current" }
-      if (artifactStages.has(s) || idx < currentIdx) return { stage: s, status: "completed" }
-      return { stage: s, status: "future" }
+    let status: StageStatus
+    if (type === "product" && artifactDates) {
+      if (s === currentStage) status = "current"
+      else if (artifactDates.has(s) || idx < currentIdx) status = "completed"
+      else status = "future"
+    } else {
+      if (idx < currentIdx) status = "completed"
+      else if (idx === currentIdx) status = "current"
+      else status = "future"
     }
-    // For non-product types: linear progression
-    if (idx < currentIdx) return { stage: s, status: "completed" }
-    if (idx === currentIdx) return { stage: s, status: "current" }
-    return { stage: s, status: "future" }
+    return { stage: s, status, date: artifactDates?.get(s) }
   })
 }
 
 // ---------------------------------------------------------------------------
-// Data fetching hooks
+// Data hooks
 // ---------------------------------------------------------------------------
 
 interface PipelineData {
   title: string
   currentStage: string
-  contentByStage: Map<string, string | null> // null = needs fetch, string = content
-  contentPath?: string // for non-product types, single content path
+  contentPath?: string
   isLoading: boolean
   error: string | null
 }
@@ -147,23 +145,9 @@ function useProductData(id: string): PipelineData {
     queryFn: () => api.getThread(id),
     enabled: !!id,
   })
-
-  const contentByStage = useMemo(() => {
-    const map = new Map<string, string | null>()
-    if (data?.artifacts) {
-      for (const a of data.artifacts) {
-        const normalized = normalizeStage("product", a.stage)
-        // Body is not in JSON response (json:"-"), so mark as needing fetch
-        map.set(normalized, null)
-      }
-    }
-    return map
-  }, [data])
-
   return {
     title: data?.title ?? "",
     currentStage: normalizeStage("product", data?.current_stage ?? "idea"),
-    contentByStage,
     isLoading,
     error: error ? String(error) : null,
   }
@@ -175,14 +159,11 @@ function useMeetingData(id: string): PipelineData {
     queryFn: () => api.listMeetings(),
     enabled: !!id,
   })
-
-  const meeting = data?.find((m) => m.id === id)
-
+  const m = data?.find((x) => x.id === id)
   return {
-    title: meeting?.title ?? "",
-    currentStage: meeting?.stage ?? "transcript",
-    contentByStage: new Map(),
-    contentPath: meeting?.path,
+    title: m?.title ?? "",
+    currentStage: m?.stage ?? "transcript",
+    contentPath: m?.path,
     isLoading,
     error: error ? String(error) : null,
   }
@@ -194,11 +175,9 @@ function useDocumentData(id: string): PipelineData {
     queryFn: () => api.getDocument(id),
     enabled: !!id,
   })
-
   return {
     title: data?.title ?? "",
     currentStage: data?.stage ?? "need",
-    contentByStage: new Map(),
     contentPath: data?.path,
     isLoading,
     error: error ? String(error) : null,
@@ -211,21 +190,18 @@ function usePrototypeData(id: string): PipelineData {
     queryFn: () => api.listPrototypes(),
     enabled: !!id,
   })
-
-  const proto = data?.find((p) => p.id === id)
-
+  const p = data?.find((x) => x.id === id)
   return {
-    title: proto?.title ?? "",
-    currentStage: proto?.stage ?? "need",
-    contentByStage: new Map(),
-    contentPath: proto?.folder_path ? `${proto.folder_path}/spec.md` : undefined,
+    title: p?.title ?? "",
+    currentStage: p?.stage ?? "need",
+    contentPath: p?.folder_path ? `${p.folder_path}/spec.md` : undefined,
     isLoading,
     error: error ? String(error) : null,
   }
 }
 
 // ---------------------------------------------------------------------------
-// Main page component
+// Main page
 // ---------------------------------------------------------------------------
 
 export function ItemPipelinePage() {
@@ -234,25 +210,21 @@ export function ItemPipelinePage() {
   const [selectedStage, setSelectedStage] = useState<string | null>(null)
   const [advanceLoading, setAdvanceLoading] = useState(false)
 
-  // Pick the right data hook based on type
   const productData = useProductData(type === "product" ? id : "")
   const meetingData = useMeetingData(type === "meeting" ? id : "")
   const documentData = useDocumentData(type === "document" ? id : "")
   const prototypeData = usePrototypeData(type === "prototype" ? id : "")
 
   const pipelineData =
-    type === "product"
-      ? productData
-      : type === "meeting"
-        ? meetingData
-        : type === "document"
-          ? documentData
-          : prototypeData
+    type === "product" ? productData
+    : type === "meeting" ? meetingData
+    : type === "document" ? documentData
+    : prototypeData
 
-  const { title, currentStage, contentByStage, contentPath, isLoading, error } =
-    pipelineData
+  const { title, currentStage, contentPath, isLoading, error } = pipelineData
+  const accent = PIPELINE_ACCENT[type] ?? "#8B8FA3"
 
-  // For product items, get the artifact paths indexed by normalized stage
+  // Product artifact data
   const { data: threadData } = useQuery<ShapeUpThread>({
     queryKey: ["thread", id],
     queryFn: () => api.getThread(id),
@@ -262,79 +234,46 @@ export function ItemPipelinePage() {
   const artifactPathByStage = useMemo(() => {
     const map = new Map<string, string>()
     if (threadData?.artifacts) {
-      for (const a of threadData.artifacts) {
+      for (const a of threadData.artifacts)
         map.set(normalizeStage("product", a.stage), a.path)
-      }
     }
     return map
   }, [threadData])
 
-  const artifactStages = useMemo(
-    () => new Set(artifactPathByStage.keys()),
-    [artifactPathByStage],
-  )
+  const artifactDateByStage = useMemo(() => {
+    const map = new Map<string, string>()
+    if (threadData?.artifacts) {
+      for (const a of threadData.artifacts)
+        map.set(normalizeStage("product", a.stage), a.created)
+    }
+    return map
+  }, [threadData])
 
-  // Classify stages
   const stages = useMemo(
-    () => classifyStages(type, currentStage, type === "product" ? artifactStages : undefined),
-    [type, currentStage, artifactStages],
+    () => classifyStages(
+      type, currentStage,
+      type === "product" ? artifactDateByStage : undefined,
+    ),
+    [type, currentStage, artifactDateByStage],
   )
 
-  // Determine which stage to show content for
   const viewStage = selectedStage ?? currentStage
 
-  // Determine the vault file path for the selected stage's content
   const contentFilePath = useMemo(() => {
-    if (type === "product") {
-      return artifactPathByStage.get(viewStage) ?? null
-    }
+    if (type === "product") return artifactPathByStage.get(viewStage) ?? null
     return contentPath ?? null
   }, [type, viewStage, artifactPathByStage, contentPath])
 
-  // Fetch the content for the viewed stage
-  const { data: stageContent, isLoading: contentLoading } = useQuery<string>({
+  const { data: rawContent, isLoading: contentLoading } = useQuery<string>({
     queryKey: ["vault-file", contentFilePath],
     queryFn: () => api.getVaultFile(contentFilePath!),
     enabled: !!contentFilePath,
     staleTime: 30_000,
   })
 
-  // Advance mutation
-  const advanceMutation = useMutation({
-    mutationFn: async (nextStage: string) => {
-      if (type === "product") {
-        return api.advanceThread(id, { target_stage: nextStage })
-      } else if (type === "meeting") {
-        return api.setMeetingStage(id, nextStage)
-      } else if (type === "document") {
-        return api.setDocumentStage(id, nextStage)
-      } else {
-        return api.setPrototypeStage(id, nextStage)
-      }
-    },
-    onMutate: () => setAdvanceLoading(true),
-    onSuccess: () => {
-      toast.success(`Advanced to next stage`)
-      // Invalidate relevant queries
-      if (type === "product") {
-        queryClient.invalidateQueries({ queryKey: ["thread", id] })
-      } else if (type === "meeting") {
-        queryClient.invalidateQueries({ queryKey: ["meetings"] })
-      } else if (type === "document") {
-        queryClient.invalidateQueries({ queryKey: ["document", id] })
-      } else {
-        queryClient.invalidateQueries({ queryKey: ["prototypes"] })
-      }
-      queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
-      setSelectedStage(null)
-    },
-    onError: (err) => {
-      toast.error(`Failed to advance: ${err instanceof Error ? err.message : "Unknown error"}`)
-    },
-    onSettled: () => setAdvanceLoading(false),
-  })
+  const stageContent = rawContent ? stripFrontmatter(rawContent) : null
 
-  // Next stage computation
+  // Advance
   const nextStage = useMemo(() => {
     const order = stageOrders[type] ?? []
     const idx = order.indexOf(currentStage)
@@ -342,21 +281,38 @@ export function ItemPipelinePage() {
     return null
   }, [type, currentStage])
 
+  const advanceMutation = useMutation({
+    mutationFn: async (next: string) => {
+      if (type === "product") return api.advanceThread(id, { target_stage: next })
+      if (type === "meeting") return api.setMeetingStage(id, next)
+      if (type === "document") return api.setDocumentStage(id, next)
+      return api.setPrototypeStage(id, next)
+    },
+    onMutate: () => setAdvanceLoading(true),
+    onSuccess: () => {
+      toast.success(`Advanced to next stage`)
+      if (type === "product") queryClient.invalidateQueries({ queryKey: ["thread", id] })
+      else if (type === "meeting") queryClient.invalidateQueries({ queryKey: ["meetings"] })
+      else if (type === "document") queryClient.invalidateQueries({ queryKey: ["document", id] })
+      else queryClient.invalidateQueries({ queryKey: ["prototypes"] })
+      queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
+      setSelectedStage(null)
+    },
+    onError: (err) => toast.error(`Failed to advance: ${err instanceof Error ? err.message : "Unknown error"}`),
+    onSettled: () => setAdvanceLoading(false),
+  })
+
   if (isLoading) return <SkeletonPage />
 
   if (error) {
     return (
       <>
         <BackLink type={type} />
-        <PageHeader
-          title={typeTitles[type] ?? type}
-          description="Pipeline item"
-        />
+        <PageHeader title={typeTitles[type] ?? type} description="Pipeline item" />
         <Card className="rounded-md border-destructive/40 bg-destructive/5">
           <CardContent className="py-6">
             <p className="text-sm text-destructive">
-              Could not load item. The backend may still be starting up —
-              refresh in a moment.
+              Could not load item. Refresh in a moment.
             </p>
           </CardContent>
         </Card>
@@ -370,67 +326,94 @@ export function ItemPipelinePage() {
 
       <PageHeader
         title={title || "Untitled"}
-        description={`${typeTitles[type] ?? type} pipeline — currently at ${stageLabel(currentStage)}`}
+        description={`${typeTitles[type] ?? type} pipeline — currently at ${label(currentStage)}`}
       />
 
       {/* Stage flow */}
-      <div className="overflow-x-auto pb-2">
-        <div className="flex items-center gap-0 min-w-max">
-          {stages.map((s, idx) => (
-            <div key={s.stage} className="flex items-center">
-              <StageNode
-                stage={s.stage}
-                status={s.status}
-                color={stageColor(type, s.stage)}
-                isSelected={viewStage === s.stage}
-                onClick={() => {
-                  if (s.status === "completed" || s.status === "current") {
-                    setSelectedStage(s.stage)
-                  }
-                }}
-              />
-              {idx < stages.length - 1 && (
-                <StageConnector
-                  completed={
-                    s.status === "completed" ||
-                    (s.status === "current" && stages[idx + 1]?.status === "current")
-                  }
-                />
-              )}
+      <Card
+        className="rounded-[14px] border-border shadow-stripe overflow-hidden"
+        style={{ borderColor: withAlpha(accent, 0.18) }}
+      >
+        <CardContent className="py-6 px-4">
+          <div className="overflow-x-auto">
+            <div className="flex items-start gap-0 min-w-max px-2">
+              {stages.map((s, idx) => (
+                <div key={s.stage} className="flex items-start">
+                  <StageNode
+                    stage={s.stage}
+                    status={s.status}
+                    date={s.date}
+                    color={colorFor(type, s.stage)}
+                    accent={accent}
+                    isSelected={viewStage === s.stage}
+                    onClick={() => {
+                      if (s.status !== "future") setSelectedStage(s.stage)
+                    }}
+                  />
+                  {idx < stages.length - 1 && (
+                    <Connector
+                      active={s.status === "completed"}
+                      color={accent}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Content area */}
-      <Card className="rounded-[14px] border-border shadow-stripe">
+      <Card
+        className="rounded-[14px] border-border shadow-stripe"
+        style={{ borderColor: withAlpha(colorFor(type, viewStage), 0.15) }}
+      >
         <CardContent className="p-6">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-3 mb-5 pb-4 border-b border-border">
             <span
-              className="inline-block h-2.5 w-2.5 rounded-full flex-shrink-0"
-              style={{ background: stageColor(type, viewStage) }}
-            />
-            <h3 className="text-sm font-semibold text-foreground">
-              {stageLabel(viewStage)}
+              className="flex h-7 w-7 items-center justify-center rounded-md flex-shrink-0"
+              style={{ background: withAlpha(colorFor(type, viewStage), 0.15) }}
+            >
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ background: colorFor(type, viewStage) }}
+              />
+            </span>
+            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">
+              {label(viewStage)}
             </h3>
             {viewStage === currentStage && (
-              <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+              <span
+                className="text-[10px] font-bold tracking-[0.06em] uppercase px-2 py-0.5 rounded-full"
+                style={{
+                  background: withAlpha(accent, 0.15),
+                  color: accent,
+                  border: `1px solid ${withAlpha(accent, 0.3)}`,
+                }}
+              >
                 Current
+              </span>
+            )}
+            {stages.find(s => s.stage === viewStage)?.date && (
+              <span className="text-[11px] text-muted-foreground ml-auto tabular-nums">
+                {formatShortDate(stages.find(s => s.stage === viewStage)?.date)}
               </span>
             )}
           </div>
 
           {contentLoading ? (
-            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 py-10 justify-center text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading content...
             </div>
           ) : stageContent ? (
-            <pre className="whitespace-pre-wrap text-sm text-foreground/90 font-mono leading-relaxed max-h-[600px] overflow-y-auto">
-              {stageContent}
-            </pre>
+            <div className="prose prose-sm max-w-none dark:prose-invert">
+              <pre className="whitespace-pre-wrap text-[13px] text-foreground/90 font-[inherit] leading-[1.7] bg-transparent border-0 p-0 m-0">
+                {stageContent}
+              </pre>
+            </div>
           ) : (
-            <p className="text-sm text-muted-foreground py-8 text-center">
+            <p className="text-sm text-muted-foreground py-10 text-center italic">
               {contentFilePath
                 ? "No content available for this stage."
                 : type === "product"
@@ -447,10 +430,11 @@ export function ItemPipelinePage() {
           <Button
             onClick={() => advanceMutation.mutate(nextStage)}
             disabled={advanceLoading}
-            className="gap-2"
+            className="gap-2 rounded-lg font-semibold text-[13px] px-5 py-2.5 h-auto"
             style={{
-              background: stageColor(type, nextStage),
+              background: colorFor(type, nextStage),
               color: "white",
+              boxShadow: `0 2px 8px ${withAlpha(colorFor(type, nextStage), 0.35)}`,
             }}
           >
             {advanceLoading ? (
@@ -459,7 +443,7 @@ export function ItemPipelinePage() {
                 Advancing...
               </>
             ) : (
-              <>Advance to {stageLabel(nextStage)} &rarr;</>
+              <>Advance to {label(nextStage)} &rarr;</>
             )}
           </Button>
         </div>
@@ -469,23 +453,30 @@ export function ItemPipelinePage() {
 }
 
 // ---------------------------------------------------------------------------
-// Stage node component
+// Stage node — inspired by the old pipelines page style
 // ---------------------------------------------------------------------------
 
 function StageNode({
   stage,
   status,
+  date,
   color,
+  accent,
   isSelected,
   onClick,
 }: {
   stage: string
   status: StageStatus
+  date?: string
   color: string
+  accent: string
   isSelected: boolean
   onClick: () => void
 }) {
-  const isClickable = status === "completed" || status === "current"
+  const isClickable = status !== "future"
+  const isFuture = status === "future"
+  const isCompleted = status === "completed"
+  const isCurrent = status === "current"
 
   return (
     <button
@@ -493,93 +484,110 @@ function StageNode({
       onClick={onClick}
       disabled={!isClickable}
       className={cn(
-        "relative flex flex-col items-center gap-1.5 rounded-xl border-2 px-5 py-3 transition-all min-w-[110px]",
-        isClickable && "cursor-pointer hover:scale-[1.03]",
-        !isClickable && "cursor-default opacity-40",
-        isSelected && "ring-2 ring-offset-2 ring-offset-background",
+        "relative flex flex-col items-center gap-2 rounded-xl border-2 px-6 py-4 transition-all min-w-[130px]",
+        isClickable && "cursor-pointer hover:scale-[1.02] hover:shadow-md",
+        !isClickable && "cursor-default",
       )}
       style={{
-        borderColor: status === "future" ? "var(--border)" : color,
-        background:
-          status === "future"
-            ? "var(--card)"
-            : `color-mix(in oklch, ${color} 12%, transparent)`,
-        ...(isSelected ? { ringColor: color } as React.CSSProperties : {}),
-        // Use boxShadow for the ring since CSS custom ring-color with oklch is tricky
-        ...(isSelected
-          ? { boxShadow: `0 0 0 2px var(--background), 0 0 0 4px ${color}` }
-          : {}),
+        borderColor: isFuture ? "var(--border)" : isSelected ? color : withAlpha(color, 0.35),
+        background: isFuture
+          ? "var(--card)"
+          : isSelected
+            ? withAlpha(color, 0.1)
+            : withAlpha(color, 0.05),
+        opacity: isFuture ? 0.45 : 1,
+        boxShadow: isSelected
+          ? `0 0 0 2px var(--background), 0 0 0 4px ${withAlpha(color, 0.5)}`
+          : "none",
       }}
     >
       {/* Status icon */}
       <div
-        className="flex items-center justify-center h-6 w-6 rounded-full"
+        className="flex items-center justify-center h-8 w-8 rounded-full transition-colors"
         style={{
-          background:
-            status === "completed"
-              ? color
-              : status === "current"
-                ? `color-mix(in oklch, ${color} 25%, transparent)`
-                : "var(--muted)",
+          background: isCompleted
+            ? color
+            : isCurrent
+              ? withAlpha(accent, 0.2)
+              : withAlpha("#8B8FA3", 0.12),
+          border: isCurrent ? `2px solid ${accent}` : "none",
         }}
       >
-        {status === "completed" ? (
-          <Check className="h-3.5 w-3.5 text-white" />
-        ) : status === "current" ? (
-          <Circle className="h-3 w-3" style={{ color, fill: color }} />
+        {isCompleted ? (
+          <Check className="h-4 w-4 text-white" strokeWidth={2.5} />
+        ) : isCurrent ? (
+          <Circle className="h-3 w-3" style={{ color: accent, fill: accent }} />
         ) : (
-          <Circle className="h-3 w-3 text-muted-foreground/50" />
+          <Circle className="h-3 w-3 text-muted-foreground/40" />
         )}
       </div>
 
-      {/* Stage label */}
+      {/* Label */}
       <span
         className={cn(
-          "text-[12px] font-medium",
-          status === "future" ? "text-muted-foreground/60" : "text-foreground",
+          "text-[11px] font-bold tracking-[0.06em] uppercase",
+          isFuture ? "text-muted-foreground/50" : "text-foreground",
         )}
       >
-        {stageLabel(stage)}
+        {label(stage)}
       </span>
+
+      {/* Date */}
+      {date ? (
+        <span className="text-[10px] tabular-nums text-muted-foreground">
+          {formatShortDate(date)}
+        </span>
+      ) : (
+        <span className="text-[10px] text-muted-foreground/40 italic">
+          {isFuture ? "Pending" : "—"}
+        </span>
+      )}
     </button>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Stage connector (SVG arrow)
+// Animated SVG connector (from old pipelines page)
 // ---------------------------------------------------------------------------
 
-function StageConnector({ completed }: { completed: boolean }) {
+function Connector({ active, color }: { active: boolean; color: string }) {
   return (
-    <svg
-      width="48"
-      height="24"
-      viewBox="0 0 48 24"
-      fill="none"
-      className="flex-shrink-0"
-    >
-      <line
-        x1="4"
-        y1="12"
-        x2="36"
-        y2="12"
-        stroke={completed ? "var(--foreground)" : "var(--border)"}
-        strokeWidth="2"
-        strokeDasharray={completed ? "none" : "4 3"}
-        className={cn(
-          !completed && "animate-pulse",
-        )}
-      />
-      {/* Arrowhead */}
-      <path
-        d="M34 7 L42 12 L34 17"
-        stroke={completed ? "var(--foreground)" : "var(--border)"}
-        strokeWidth="2"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div className="flex items-center justify-center self-center px-1 pt-2">
+      <svg
+        width="56"
+        height="20"
+        viewBox="0 0 56 20"
+        aria-hidden
+        className="overflow-visible"
+      >
+        <line
+          x1="0"
+          y1="10"
+          x2="46"
+          y2="10"
+          stroke={active ? color : "currentColor"}
+          strokeOpacity={active ? 0.7 : 0.18}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeDasharray={active ? "5 5" : "0"}
+        >
+          {active && (
+            <animate
+              attributeName="stroke-dashoffset"
+              from="0"
+              to="-20"
+              dur="1.2s"
+              repeatCount="indefinite"
+            />
+          )}
+        </line>
+        <polygon
+          points="44,4 56,10 44,16"
+          fill={active ? color : "currentColor"}
+          fillOpacity={active ? 0.75 : 0.2}
+        />
+      </svg>
+    </div>
   )
 }
 
