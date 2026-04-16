@@ -136,6 +136,49 @@ func (s *Store) SetStage(id string, target stage.Stage) error {
 	return nil
 }
 
+// Create writes a new document markdown file in vault/documents/ with
+// the given title and content body. Stage defaults to StageInput.
+// Returns the persisted Document.
+func (s *Store) Create(title, content string) (*Document, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, fmt.Errorf("document title required")
+	}
+
+	id := fmt.Sprintf("%s_%s", time.Now().Format("2006-01-02"), vault.Slugify(title))
+	if id == "" {
+		id = time.Now().Format("20060102-150405")
+	}
+	now := time.Now()
+
+	fm := map[string]interface{}{
+		"id":      id,
+		"type":    "document",
+		"title":   title,
+		"stage":   string(stage.StageInput),
+		"created": now.Format(time.RFC3339),
+	}
+
+	body := strings.TrimSpace(content)
+	if body == "" {
+		body = fmt.Sprintf("# %s\n", title)
+	}
+
+	note := &vault.Note{Frontmatter: fm, Body: body}
+	relPath := filepath.ToSlash(filepath.Join(documentsDir, id+".md"))
+	if err := s.vault.WriteNote(relPath, note); err != nil {
+		return nil, fmt.Errorf("writing document: %w", err)
+	}
+
+	return &Document{
+		ID:      id,
+		Title:   title,
+		Path:    relPath,
+		Stage:   stage.StageInput,
+		Created: now,
+	}, nil
+}
+
 // Vault exposes the bound vault for callers that need to read raw
 // markdown bodies (the document viewer modal in the frontend).
 func (s *Store) Vault() *vault.Vault { return s.vault }

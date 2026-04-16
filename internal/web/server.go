@@ -113,8 +113,9 @@ func (s *Server) routes() {
 	r.Get("/api/meetings", s.Handler.ListMeetings)
 	r.Post("/api/meetings/{id}/stage", s.Handler.SetMeetingStage)
 
-	// API: documents (need / in-progress / final pipeline)
+	// API: documents (input / note pipeline)
 	r.Get("/api/documents", s.Handler.ListDocuments)
+	r.Post("/api/documents", s.Handler.CreateDocument)
 	r.Get("/api/documents/{id}", s.Handler.GetDocument)
 	r.Post("/api/documents/{id}/stage", s.Handler.SetDocumentStage)
 

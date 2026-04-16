@@ -17,6 +17,13 @@ type documentsProvider interface {
 	List() ([]*documents.Document, error)
 	Get(id string) (*documents.Document, error)
 	SetStage(id string, target stage.Stage) error
+	Create(title, content string) (*documents.Document, error)
+}
+
+// createDocumentRequest is the JSON body for POST /api/documents.
+type createDocumentRequest struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
 }
 
 // stageRequest is the JSON body for POST /api/documents/{id}/stage,
@@ -24,6 +31,32 @@ type documentsProvider interface {
 // the three endpoints stay consistent.
 type stageRequest struct {
 	Stage string `json:"stage"`
+}
+
+// CreateDocument handles POST /api/documents with a JSON body of
+// {"title": "...", "content": "..."}. Creates a new markdown file in
+// vault/documents/ at stage=input.
+func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
+	if h.Documents == nil {
+		http.Error(w, "documents store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req createDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Title == "" {
+		http.Error(w, "title is required", http.StatusBadRequest)
+		return
+	}
+	doc, err := h.Documents.Create(req.Title, req.Content)
+	if err != nil {
+		internalError(w, "documents.create", err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, doc)
 }
 
 // ListDocuments returns every document as JSON, newest first. A
