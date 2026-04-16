@@ -166,3 +166,18 @@ func (h *Handler) AdvanceShapeUpThread(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, newArtifact)
 }
+
+// GetAdvanceProgress returns the real-time progress of an in-flight
+// advance call for a thread. The pipeline UI polls this every 2s
+// while isAdvancing is true so the stage node can show "Turn N of M".
+//
+// Returns 200 with {"status":"idle"} when no advance is in flight.
+func (h *Handler) GetAdvanceProgress(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	progress := shapeup.DefaultTracker.Get(id)
+	if progress == nil {
+		writeJSON(w, map[string]string{"status": "idle"})
+		return
+	}
+	writeJSON(w, progress)
+}

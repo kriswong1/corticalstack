@@ -74,17 +74,37 @@ func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hi
 	answerBlock := questions.FormatAnswers(qs, answers)
 	prompt := a.persona.BuildContextPrompt() + buildAdvancePrompt(thread, target, hints, answerBlock)
 
+	// Register progress so the pipeline UI can poll turn-by-turn.
+	tracker := DefaultTracker
+	tracker.Start(thread.ID, string(target), 10)
+	defer func() {
+		// Brief delay before clearing so the frontend's next poll
+		// sees the final state. In practice the 2s poll interval
+		// covers this.
+		go func() {
+			// Don't block the caller — just let the entry linger
+			// for a few seconds then clean up.
+			<-ctx.Done()
+			tracker.Clear(thread.ID)
+		}()
+	}()
+
 	ag := &agent.Agent{
 		Model:      a.model,
 		MaxTurns:   10,
 		WorkingDir: a.workingDir,
 		CallerHint: "shapeup.advance." + string(target),
 		Item:       agent.ItemContext{Type: "product", ID: thread.ID},
+		OnTurn: func(turn int) {
+			tracker.SetTurn(thread.ID, turn)
+		},
 	}
 	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
+		tracker.Finish(thread.ID, "error")
 		return "", fmt.Errorf("advance claude call: %w", err)
 	}
+	tracker.Finish(thread.ID, "done")
 	return stripCodeFences(raw), nil
 }
 

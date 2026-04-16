@@ -140,6 +140,7 @@ func (s *Server) routes() {
 	r.Post("/api/shapeup/idea", s.Handler.CreateShapeUpIdea)
 	r.Post("/api/shapeup/threads/{id}/questions", s.Handler.QuestionsForShapeUpThread)
 	r.Post("/api/shapeup/threads/{id}/advance", s.Handler.AdvanceShapeUpThread)
+	r.Get("/api/shapeup/threads/{id}/progress", s.Handler.GetAdvanceProgress)
 
 	// API: use cases
 	r.Get("/api/usecases", s.Handler.ListUseCases)

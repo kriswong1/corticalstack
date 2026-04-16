@@ -392,6 +392,17 @@ export function ItemPipelinePage() {
   const isAdvancing = advanceProductMutation.isPending || advanceStageMutation.isPending || questionsMutation.isPending || redoMutation.isPending
   const isRedoing = iterateMutation.isPending || regenerateMutation.isPending || redoMutation.isPending
 
+  // Poll advance progress while a product advance is in flight.
+  // Returns {turn, max_turns, status, stage} or {status:"idle"}.
+  const { data: advanceProgress } = useQuery({
+    queryKey: ["advance-progress", id],
+    queryFn: () => api.getAdvanceProgress(id),
+    enabled: type === "product" && (advanceProductMutation.isPending || redoMutation.isPending),
+    refetchInterval: 2000,
+  })
+  const progressTurn = advanceProgress?.turn ?? 0
+  const progressMax = advanceProgress?.max_turns ?? 10
+
   function startProductAdvance() {
     if (!nextStage) return
     setQuestions(null)
@@ -444,6 +455,8 @@ export function ItemPipelinePage() {
                     accent={accent}
                     isSelected={viewStage === s.stage}
                     isGenerating={isAdvancing && s.stage === nextStage}
+                    progressTurn={isAdvancing && s.stage === nextStage ? progressTurn : undefined}
+                    progressMax={isAdvancing && s.stage === nextStage ? progressMax : undefined}
                     onClick={() => {
                       if (s.status !== "future") setSelectedStage(s.stage)
                     }}
@@ -682,6 +695,8 @@ function StageNode({
   accent,
   isSelected,
   isGenerating,
+  progressTurn,
+  progressMax,
   onClick,
 }: {
   stage: string
@@ -691,6 +706,8 @@ function StageNode({
   accent: string
   isSelected: boolean
   isGenerating?: boolean
+  progressTurn?: number
+  progressMax?: number
   onClick: () => void
 }) {
   const isClickable = status !== "future" && !isGenerating
@@ -768,8 +785,10 @@ function StageNode({
 
       {/* Date or generating indicator */}
       {isGenerating ? (
-        <span className="text-[10px] font-medium" style={{ color }}>
-          Generating...
+        <span className="text-[10px] font-medium tabular-nums" style={{ color }}>
+          {progressTurn && progressMax
+            ? `Turn ${progressTurn} of ${progressMax}`
+            : "Starting..."}
         </span>
       ) : date ? (
         <span className="text-[10px] tabular-nums text-muted-foreground">

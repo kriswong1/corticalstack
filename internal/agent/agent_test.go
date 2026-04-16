@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -9,7 +11,7 @@ func TestParseStreamAssistantText(t *testing.T) {
 	input := `{"type":"system","session_id":"sess-1"}
 {"type":"assistant","content":[{"type":"text","text":"Hello "},{"type":"text","text":"world"}]}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.SessionID != "sess-1" {
 		t.Errorf("session = %q", got.SessionID)
 	}
@@ -23,7 +25,7 @@ func TestParseStreamResultString(t *testing.T) {
 {"type":"assistant","content":[{"type":"text","text":"intermediate"}]}
 {"type":"result","result":"final answer","total_cost_usd":0.0042}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "final answer" {
 		t.Errorf("text = %q, want 'final answer'", got.Text)
 	}
@@ -38,7 +40,7 @@ func TestParseStreamResultString(t *testing.T) {
 func TestParseStreamResultPayloadObject(t *testing.T) {
 	input := `{"type":"result","result":{"text":"object form","session_id":"sess-3","cost_usd":0.01}}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "object form" {
 		t.Errorf("text = %q", got.Text)
 	}
@@ -54,7 +56,7 @@ func TestParseStreamFallsBackToAssistantText(t *testing.T) {
 	// No result event — should fall back to assistant text parts.
 	input := `{"type":"assistant","content":[{"type":"text","text":"fallback "},{"type":"text","text":"joined"}]}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "fallback joined" {
 		t.Errorf("text = %q", got.Text)
 	}
@@ -67,7 +69,7 @@ func TestParseStreamSkipsBlankLines(t *testing.T) {
 
 {"type":"result","result":"ok"}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "ok" {
 		t.Errorf("text = %q", got.Text)
 	}
@@ -79,7 +81,7 @@ func TestParseStreamSkipsMalformedJSON(t *testing.T) {
 also garbage
 {"type":"result","result":"survived"}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "survived" {
 		t.Errorf("text = %q", got.Text)
 	}
@@ -92,14 +94,14 @@ func TestParseStreamIgnoresNonTextBlocks(t *testing.T) {
 	// Only text blocks should accumulate; tool_use or other types skipped.
 	input := `{"type":"assistant","content":[{"type":"tool_use"},{"type":"text","text":"kept"}]}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "kept" {
 		t.Errorf("text = %q", got.Text)
 	}
 }
 
 func TestParseStreamEmptyInput(t *testing.T) {
-	got := parseStream(strings.NewReader(""))
+	got := parseStream(strings.NewReader(""), nil)
 	if got.Text != "" {
 		t.Errorf("text = %q, expected empty", got.Text)
 	}
@@ -109,7 +111,7 @@ func TestParseStreamEmptyTextBlockSkipped(t *testing.T) {
 	// Empty text blocks inside assistant content should be skipped.
 	input := `{"type":"assistant","content":[{"type":"text","text":""},{"type":"text","text":"real"}]}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.Text != "real" {
 		t.Errorf("text = %q", got.Text)
 	}
@@ -129,7 +131,7 @@ func TestParseStreamCapturesUsageNested(t *testing.T) {
 {"type":"assistant","message":{"id":"msg_01XYZ","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"Hello "},{"type":"text","text":"world"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"cache_creation_input_tokens":1024,"cache_read_input_tokens":2048,"output_tokens":7,"service_tier":"standard"}},"session_id":"abc-123"}
 {"type":"result","subtype":"success","is_error":false,"duration_ms":1820,"duration_api_ms":1654,"num_turns":1,"result":"Hello world","session_id":"abc-123","total_cost_usd":0.00345,"usage":{"input_tokens":12,"cache_creation_input_tokens":1024,"cache_read_input_tokens":2048,"output_tokens":7,"server_tool_use":{"web_search_requests":0}}}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 
 	if got.Model != "claude-sonnet-4-5" {
 		t.Errorf("model = %q", got.Model)
@@ -178,7 +180,7 @@ func TestParseStreamNoResultEvent(t *testing.T) {
 	input := `{"type":"system","subtype":"init","session_id":"hung-1","model":"claude-sonnet-4-5"}
 {"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-4-5","content":[{"type":"text","text":"partial"}],"usage":{"input_tokens":5,"output_tokens":3,"cache_creation_input_tokens":100,"cache_read_input_tokens":200}},"session_id":"hung-1"}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 
 	if got.SessionID != "hung-1" {
 		t.Errorf("session = %q", got.SessionID)
@@ -207,7 +209,7 @@ func TestParseStreamResultPrecedence(t *testing.T) {
 	input := `{"type":"assistant","message":{"model":"m","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":999,"output_tokens":999,"cache_creation_input_tokens":999,"cache_read_input_tokens":999}}}
 {"type":"result","subtype":"success","result":"x","total_cost_usd":0.5,"usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":30,"cache_read_input_tokens":40}}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 
 	if got.InputTokens != 10 {
 		t.Errorf("input_tokens = %d, want 10 (result should override assistant)", got.InputTokens)
@@ -232,8 +234,36 @@ func TestParseStreamResultPrecedence(t *testing.T) {
 func TestParseStreamWebSearchRequests(t *testing.T) {
 	input := `{"type":"result","subtype":"success","result":"x","usage":{"input_tokens":1,"output_tokens":1,"server_tool_use":{"web_search_requests":3}}}
 `
-	got := parseStream(strings.NewReader(input))
+	got := parseStream(strings.NewReader(input), nil)
 	if got.WebSearchRequests != 3 {
 		t.Errorf("web_search_requests = %d, want 3", got.WebSearchRequests)
+	}
+}
+
+func TestClaudeBinExplicitOverride(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fake-claude")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho fake\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+
+	t.Setenv("CLAUDE_BIN", fake)
+	got, err := claudeBin()
+	if err != nil {
+		t.Fatalf("claudeBin() error = %v", err)
+	}
+	if got != fake {
+		t.Errorf("claudeBin() = %q, want %q", got, fake)
+	}
+}
+
+func TestClaudeBinOverrideMissingFile(t *testing.T) {
+	t.Setenv("CLAUDE_BIN", "/definitely/not/a/real/path/claude")
+	_, err := claudeBin()
+	if err == nil {
+		t.Fatal("expected error for missing CLAUDE_BIN path, got nil")
+	}
+	if !strings.Contains(err.Error(), "CLAUDE_BIN") {
+		t.Errorf("error should mention CLAUDE_BIN: %v", err)
 	}
 }

@@ -33,6 +33,12 @@ type Agent struct {
 	// page can compute aggregate usage for selected items. Leave
 	// zero for calls that span many items or don't belong to one.
 	Item ItemContext
+
+	// OnTurn is an optional callback fired each time parseStream
+	// detects a new assistant turn. The int is the 1-based turn
+	// count so far. Used by the pipeline view to show real-time
+	// progress ("Turn 2 of 10..."). Safe to leave nil.
+	OnTurn func(turn int)
 }
 
 // Result holds the output of a Claude CLI invocation. Token and cost
@@ -155,7 +161,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		return nil, fmt.Errorf("starting claude: %w", err)
 	}
 
-	result := parseStream(stdout)
+	result := parseStream(stdout, a.OnTurn)
 	waitErr := cmd.Wait()
 	duration := time.Since(start)
 
@@ -222,6 +228,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 	slog.Info("claude cli done",
 		"duration", duration,
 		"model", result.Model,
+		"num_turns", result.NumTurns,
+		"max_turns", a.MaxTurns,
 		"input_tokens", result.InputTokens,
 		"output_tokens", result.OutputTokens,
 		"cache_creation_tokens", result.CacheCreationTokens,
@@ -229,6 +237,18 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 		"cost_usd", result.CostUSD,
 		"result_len", len(result.Text),
 	)
+
+	// Flag max-turns exhaustion so we can detect processes that need
+	// a higher limit. Subtype "error_max_turns" is set by the CLI.
+	if result.Subtype == "error_max_turns" {
+		slog.Warn("claude cli hit max turns",
+			"caller_hint", a.CallerHint,
+			"max_turns", a.MaxTurns,
+			"num_turns", result.NumTurns,
+			"result_len", len(result.Text),
+			"model", result.Model,
+		)
+	}
 
 	if waitErr != nil {
 		if result.Text == "" {
@@ -247,7 +267,7 @@ func (a *Agent) RunSimple(ctx context.Context, prompt string) (string, error) {
 	return result.Text, nil
 }
 
-func parseStream(r io.Reader) *Result {
+func parseStream(r io.Reader, onTurn func(int)) *Result {
 	result := &Result{}
 	var textParts []string
 
@@ -262,6 +282,7 @@ func parseStream(r io.Reader) *Result {
 		accCacheReadTokens     int
 		accWebSearchRequests   int
 		sawResult              bool
+		turnCount              int
 	)
 
 	scanner := bufio.NewScanner(r)
@@ -290,6 +311,12 @@ func parseStream(r io.Reader) *Result {
 				result.Model = event.Model
 			}
 		case "assistant":
+			// Count each assistant event as a turn and fire the
+			// progress callback so the pipeline UI can show "Turn N".
+			turnCount++
+			if onTurn != nil {
+				onTurn(turnCount)
+			}
 			// Real CLI shape: content + usage nested under .message.
 			if len(event.Message) > 0 {
 				var env messageEnvelope

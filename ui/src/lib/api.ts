@@ -301,6 +301,10 @@ export const api = {
     postLong<QuestionsResponse>(`/api/shapeup/threads/${id}/questions`, {
       target_stage: targetStage,
     }),
+  getAdvanceProgress: (threadId: string) =>
+    request<{ turn: number; max_turns: number; status: string; stage: string }>(
+      `/api/shapeup/threads/${threadId}/progress`,
+    ),
 
   // Use Cases
   listUseCases: () => request<UseCase[]>("/api/usecases"),
