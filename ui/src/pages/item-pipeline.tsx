@@ -11,7 +11,7 @@ import { QuestionsModal } from "@/components/questions-modal"
 import { api, getErrorMessage } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { ArrowLeft, Check, Circle, Loader2, ArrowRight } from "lucide-react"
+import { ArrowLeft, Check, Circle, Loader2, ArrowRight, RefreshCw, RotateCcw } from "lucide-react"
 import type { ShapeUpThread, Meeting, Prototype, Document, Question, Answer } from "@/types/api"
 
 // ---------------------------------------------------------------------------
@@ -342,7 +342,55 @@ export function ItemPipelinePage() {
     onError: (err) => toast.error(`Advance failed: ${getErrorMessage(err)}`),
   })
 
-  const isAdvancing = advanceProductMutation.isPending || advanceStageMutation.isPending || questionsMutation.isPending
+  // Iterate: re-run current stage with existing content as extra context.
+  // Claude gets questions to refine the current draft rather than starting fresh.
+  const iterateMutation = useMutation({
+    mutationFn: () => api.shapeupQuestions(id, currentStage),
+    onSuccess: (resp) => setQuestions(resp.questions ?? []),
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch iteration questions: ${getErrorMessage(err)}`)
+    },
+  })
+
+  // Re-generate: advance to same stage from previous source, discarding current draft.
+  const regenerateMutation = useMutation({
+    mutationFn: () => api.shapeupQuestions(id, currentStage),
+    onSuccess: (resp) => setQuestions(resp.questions ?? []),
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch questions: ${getErrorMessage(err)}`)
+    },
+  })
+
+  // Shared advance for iterate/regenerate — re-targets the CURRENT stage
+  const redoMutation = useMutation({
+    mutationFn: (answers: Answer[]) =>
+      api.advanceThread(id, {
+        target_stage: currentStage,
+        hints: hints || undefined,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
+    onSuccess: () => {
+      toast.success(`Re-generated ${label(currentStage)}`)
+      setHints("")
+      setQuestions(null)
+      setQaModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["thread", id] })
+      queryClient.invalidateQueries({ queryKey: ["vault-file"] })
+      queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
+      setSelectedStage(null)
+    },
+    onError: (err) => {
+      setQuestions(null)
+      setQaModalOpen(false)
+      toast.error(`Re-generate failed: ${getErrorMessage(err)}`)
+    },
+  })
+
+  const isAdvancing = advanceProductMutation.isPending || advanceStageMutation.isPending || questionsMutation.isPending || redoMutation.isPending
+  const isRedoing = iterateMutation.isPending || regenerateMutation.isPending || redoMutation.isPending
 
   function startProductAdvance() {
     if (!nextStage) return
@@ -395,6 +443,7 @@ export function ItemPipelinePage() {
                     color={colorFor(type, s.stage)}
                     accent={accent}
                     isSelected={viewStage === s.stage}
+                    isGenerating={isAdvancing && s.stage === nextStage}
                     onClick={() => {
                       if (s.status !== "future") setSelectedStage(s.stage)
                     }}
@@ -468,23 +517,41 @@ export function ItemPipelinePage() {
         </Card>
       )}
 
-      {/* Q&A modal for product advance (Claude asks questions first) */}
-      {type === "product" && nextStage && (
+      {/* Q&A modal for product advance / iterate / regenerate */}
+      {type === "product" && (
         <QuestionsModal
           open={qaModalOpen}
           onOpenChange={(next) => {
-            if (!next && !advanceProductMutation.isPending) {
+            if (!next && !advanceProductMutation.isPending && !redoMutation.isPending) {
               setQaModalOpen(false)
               setQuestions(null)
             }
           }}
-          title={`Advance to ${label(nextStage)}`}
-          description="Answer these so Claude can produce a better draft. Or skip to generate immediately."
+          title={
+            isRedoing
+              ? `Re-generate ${label(currentStage)}`
+              : nextStage
+                ? `Advance to ${label(nextStage)}`
+                : `Refine ${label(currentStage)}`
+          }
+          description={
+            isRedoing
+              ? "Answer these to refine the current stage. Or skip to regenerate immediately."
+              : "Answer these so Claude can produce a better draft. Or skip to generate immediately."
+          }
           questions={questions}
-          loading={questionsMutation.isPending}
-          submitting={advanceProductMutation.isPending}
-          onSubmit={(answers) => advanceProductMutation.mutate(answers)}
-          onSkip={() => advanceProductMutation.mutate([])}
+          loading={questionsMutation.isPending || iterateMutation.isPending || regenerateMutation.isPending}
+          submitting={advanceProductMutation.isPending || redoMutation.isPending}
+          onSubmit={(answers) =>
+            isRedoing
+              ? redoMutation.mutate(answers)
+              : advanceProductMutation.mutate(answers)
+          }
+          onSkip={() =>
+            isRedoing
+              ? redoMutation.mutate([])
+              : advanceProductMutation.mutate([])
+          }
         />
       )}
 
@@ -544,6 +611,59 @@ export function ItemPipelinePage() {
                   : "No content path available."}
             </p>
           )}
+
+          {/* Iterate / Re-generate actions for current stage (product only) */}
+          {type === "product" && viewStage === currentStage && currentStage !== "idea" && stageContent && (
+            <div className="mt-6 pt-4 border-t border-border flex items-center gap-3">
+              <span className="text-[11px] text-muted-foreground mr-auto">
+                Not happy with this draft?
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Iterate: re-advance to the SAME stage with the current
+                  // content as additional context. Claude asks new questions
+                  // to refine the existing draft rather than starting from
+                  // scratch.
+                  setQuestions(null)
+                  setQaModalOpen(true)
+                  // Use the current stage as target (re-run same stage)
+                  iterateMutation.mutate()
+                }}
+                disabled={isAdvancing || iterateMutation.isPending}
+                className="gap-1.5 text-[12px] h-8 rounded-lg"
+              >
+                {iterateMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Iterate
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Re-generate: advance to the same stage from the
+                  // PREVIOUS stage's artifact, discarding the current
+                  // draft entirely.
+                  setQuestions(null)
+                  setQaModalOpen(true)
+                  regenerateMutation.mutate()
+                }}
+                disabled={isAdvancing || regenerateMutation.isPending}
+                className="gap-1.5 text-[12px] h-8 rounded-lg text-destructive border-destructive/30 hover:bg-destructive/10"
+              >
+                {regenerateMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                )}
+                Re-generate
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -561,6 +681,7 @@ function StageNode({
   color,
   accent,
   isSelected,
+  isGenerating,
   onClick,
 }: {
   stage: string
@@ -569,10 +690,11 @@ function StageNode({
   color: string
   accent: string
   isSelected: boolean
+  isGenerating?: boolean
   onClick: () => void
 }) {
-  const isClickable = status !== "future"
-  const isFuture = status === "future"
+  const isClickable = status !== "future" && !isGenerating
+  const isFuture = status === "future" && !isGenerating
   const isCompleted = status === "completed"
   const isCurrent = status === "current"
 
@@ -584,34 +706,48 @@ function StageNode({
       className={cn(
         "relative flex flex-col items-center gap-2 rounded-xl border-2 px-6 py-4 transition-all min-w-[130px]",
         isClickable && "cursor-pointer hover:scale-[1.02] hover:shadow-md",
-        !isClickable && "cursor-default",
+        !isClickable && !isGenerating && "cursor-default",
+        isGenerating && "cursor-wait",
       )}
       style={{
-        borderColor: isFuture ? "var(--border)" : isSelected ? color : withAlpha(color, 0.35),
-        background: isFuture
-          ? "var(--card)"
-          : isSelected
-            ? withAlpha(color, 0.1)
-            : withAlpha(color, 0.05),
+        borderColor: isGenerating
+          ? color
+          : isFuture ? "var(--border)" : isSelected ? color : withAlpha(color, 0.35),
+        background: isGenerating
+          ? withAlpha(color, 0.08)
+          : isFuture
+            ? "var(--card)"
+            : isSelected
+              ? withAlpha(color, 0.1)
+              : withAlpha(color, 0.05),
         opacity: isFuture ? 0.45 : 1,
-        boxShadow: isSelected
-          ? `0 0 0 2px var(--background), 0 0 0 4px ${withAlpha(color, 0.5)}`
-          : "none",
+        boxShadow: isGenerating
+          ? `0 0 0 2px var(--background), 0 0 0 4px ${withAlpha(color, 0.4)}`
+          : isSelected
+            ? `0 0 0 2px var(--background), 0 0 0 4px ${withAlpha(color, 0.5)}`
+            : "none",
+        animation: isGenerating ? "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" : "none",
       }}
     >
       {/* Status icon */}
       <div
         className="flex items-center justify-center h-8 w-8 rounded-full transition-colors"
         style={{
-          background: isCompleted
-            ? color
-            : isCurrent
-              ? withAlpha(accent, 0.2)
-              : withAlpha("#8B8FA3", 0.12),
-          border: isCurrent ? `2px solid ${accent}` : "none",
+          background: isGenerating
+            ? withAlpha(color, 0.25)
+            : isCompleted
+              ? color
+              : isCurrent
+                ? withAlpha(accent, 0.2)
+                : withAlpha("#8B8FA3", 0.12),
+          border: isGenerating
+            ? `2px solid ${color}`
+            : isCurrent ? `2px solid ${accent}` : "none",
         }}
       >
-        {isCompleted ? (
+        {isGenerating ? (
+          <Loader2 className="h-4 w-4 animate-spin" style={{ color }} />
+        ) : isCompleted ? (
           <Check className="h-4 w-4 text-white" strokeWidth={2.5} />
         ) : isCurrent ? (
           <Circle className="h-3 w-3" style={{ color: accent, fill: accent }} />
@@ -624,14 +760,18 @@ function StageNode({
       <span
         className={cn(
           "text-[11px] font-bold tracking-[0.06em] uppercase",
-          isFuture ? "text-muted-foreground/50" : "text-foreground",
+          isGenerating ? "text-foreground" : isFuture ? "text-muted-foreground/50" : "text-foreground",
         )}
       >
         {label(stage)}
       </span>
 
-      {/* Date */}
-      {date ? (
+      {/* Date or generating indicator */}
+      {isGenerating ? (
+        <span className="text-[10px] font-medium" style={{ color }}>
+          Generating...
+        </span>
+      ) : date ? (
         <span className="text-[10px] tabular-nums text-muted-foreground">
           {formatShortDate(date)}
         </span>
