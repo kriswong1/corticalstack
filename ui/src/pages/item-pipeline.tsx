@@ -4,13 +4,15 @@ import { Link, useParams } from "react-router-dom"
 import Markdown from "react-markdown"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/layout/page-header"
 import { SkeletonPage } from "@/components/shared/skeleton-card"
-import { api } from "@/lib/api"
+import { QuestionsModal } from "@/components/questions-modal"
+import { api, getErrorMessage } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { ArrowLeft, Check, Circle, Loader2 } from "lucide-react"
-import type { ShapeUpThread, Meeting, Prototype, Document } from "@/types/api"
+import { ArrowLeft, Check, Circle, Loader2, ArrowRight } from "lucide-react"
+import type { ShapeUpThread, Meeting, Prototype, Document, Question, Answer } from "@/types/api"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -209,7 +211,6 @@ export function ItemPipelinePage() {
   const { type = "", id = "" } = useParams<{ type: string; id: string }>()
   const queryClient = useQueryClient()
   const [selectedStage, setSelectedStage] = useState<string | null>(null)
-  const [advanceLoading, setAdvanceLoading] = useState(false)
 
   const productData = useProductData(type === "product" ? id : "")
   const meetingData = useMeetingData(type === "meeting" ? id : "")
@@ -274,7 +275,11 @@ export function ItemPipelinePage() {
 
   const stageContent = rawContent ? stripFrontmatter(rawContent) : null
 
-  // Advance
+  // Advance — Q&A flow for product, direct stage set for others
+  const [hints, setHints] = useState("")
+  const [qaModalOpen, setQaModalOpen] = useState(false)
+  const [questions, setQuestions] = useState<Question[] | null>(null)
+
   const nextStage = useMemo(() => {
     const order = stageOrders[type] ?? []
     const idx = order.indexOf(currentStage)
@@ -282,26 +287,69 @@ export function ItemPipelinePage() {
     return null
   }, [type, currentStage])
 
-  const advanceMutation = useMutation({
-    mutationFn: async (next: string) => {
-      if (type === "product") return api.advanceThread(id, { target_stage: next })
-      if (type === "meeting") return api.setMeetingStage(id, next)
-      if (type === "document") return api.setDocumentStage(id, next)
-      return api.setPrototypeStage(id, next)
+  // Product: ask Claude for clarifying questions before advancing
+  const questionsMutation = useMutation({
+    mutationFn: () => api.shapeupQuestions(id, nextStage!),
+    onSuccess: (resp) => setQuestions(resp.questions ?? []),
+    onError: (err) => {
+      setQuestions([])
+      toast.error(`Failed to fetch questions: ${getErrorMessage(err)}`)
     },
-    onMutate: () => setAdvanceLoading(true),
+  })
+
+  // Product: advance with optional answers
+  const advanceProductMutation = useMutation({
+    mutationFn: (answers: Answer[]) =>
+      api.advanceThread(id, {
+        target_stage: nextStage!,
+        hints: hints || undefined,
+        questions: questions ?? undefined,
+        answers: answers.length > 0 ? answers : undefined,
+      }),
     onSuccess: () => {
-      toast.success(`Advanced to next stage`)
-      if (type === "product") queryClient.invalidateQueries({ queryKey: ["thread", id] })
-      else if (type === "meeting") queryClient.invalidateQueries({ queryKey: ["meetings"] })
+      toast.success(`Advanced to ${label(nextStage!)}`)
+      setHints("")
+      setQuestions(null)
+      setQaModalOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["thread", id] })
+      queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      setSelectedStage(null)
+    },
+    onError: (err) => {
+      setQuestions(null)
+      setQaModalOpen(false)
+      toast.error(`Advance failed: ${getErrorMessage(err)}`)
+    },
+  })
+
+  // Non-product: simple stage transition
+  const advanceStageMutation = useMutation({
+    mutationFn: async () => {
+      if (type === "meeting") return api.setMeetingStage(id, nextStage!)
+      if (type === "document") return api.setDocumentStage(id, nextStage!)
+      return api.setPrototypeStage(id, nextStage!)
+    },
+    onSuccess: () => {
+      toast.success(`Advanced to ${label(nextStage!)}`)
+      if (type === "meeting") queryClient.invalidateQueries({ queryKey: ["meetings"] })
       else if (type === "document") queryClient.invalidateQueries({ queryKey: ["document", id] })
       else queryClient.invalidateQueries({ queryKey: ["prototypes"] })
       queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       setSelectedStage(null)
     },
-    onError: (err) => toast.error(`Failed to advance: ${err instanceof Error ? err.message : "Unknown error"}`),
-    onSettled: () => setAdvanceLoading(false),
+    onError: (err) => toast.error(`Advance failed: ${getErrorMessage(err)}`),
   })
+
+  const isAdvancing = advanceProductMutation.isPending || advanceStageMutation.isPending || questionsMutation.isPending
+
+  function startProductAdvance() {
+    if (!nextStage) return
+    setQuestions(null)
+    setQaModalOpen(true)
+    questionsMutation.mutate()
+  }
 
   if (isLoading) return <SkeletonPage />
 
@@ -364,6 +412,82 @@ export function ItemPipelinePage() {
         </CardContent>
       </Card>
 
+      {/* Advance card — positioned above content for visibility */}
+      {nextStage && (
+        <Card
+          className="rounded-[14px] border-border shadow-stripe"
+          style={{ borderColor: withAlpha(colorFor(type, nextStage), 0.2) }}
+        >
+          <CardContent className="py-4 px-5">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <ArrowRight
+                  className="h-4 w-4 flex-shrink-0"
+                  style={{ color: colorFor(type, nextStage) }}
+                />
+                <span className="text-[13px] font-semibold text-foreground">
+                  Advance to {label(nextStage)}
+                </span>
+                {type === "product" && (
+                  <span className="text-[11px] text-muted-foreground">
+                    — Claude will generate the {label(nextStage).toLowerCase()} draft
+                  </span>
+                )}
+              </div>
+
+              {type === "product" && (
+                <Input
+                  value={hints}
+                  onChange={(e) => setHints(e.target.value)}
+                  placeholder="Optional hints for Claude..."
+                  className="h-8 text-xs border-border rounded-sm max-w-[240px]"
+                />
+              )}
+
+              <Button
+                onClick={type === "product" ? startProductAdvance : () => advanceStageMutation.mutate()}
+                disabled={isAdvancing}
+                className="gap-2 rounded-lg font-semibold text-[12px] px-4 py-2 h-8"
+                style={{
+                  background: colorFor(type, nextStage),
+                  color: "white",
+                  boxShadow: `0 2px 8px ${withAlpha(colorFor(type, nextStage), 0.35)}`,
+                }}
+              >
+                {isAdvancing ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {type === "product" ? "Working..." : "Advancing..."}
+                  </>
+                ) : (
+                  <>Advance</>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Q&A modal for product advance (Claude asks questions first) */}
+      {type === "product" && nextStage && (
+        <QuestionsModal
+          open={qaModalOpen}
+          onOpenChange={(next) => {
+            if (!next && !advanceProductMutation.isPending) {
+              setQaModalOpen(false)
+              setQuestions(null)
+            }
+          }}
+          title={`Advance to ${label(nextStage)}`}
+          description="Answer these so Claude can produce a better draft. Or skip to generate immediately."
+          questions={questions}
+          loading={questionsMutation.isPending}
+          submitting={advanceProductMutation.isPending}
+          onSubmit={(answers) => advanceProductMutation.mutate(answers)}
+          onSkip={() => advanceProductMutation.mutate([])}
+        />
+      )}
+
       {/* Content area */}
       <Card
         className="rounded-[14px] border-border shadow-stripe"
@@ -422,31 +546,6 @@ export function ItemPipelinePage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Advance button */}
-      {nextStage && (
-        <div className="flex justify-end">
-          <Button
-            onClick={() => advanceMutation.mutate(nextStage)}
-            disabled={advanceLoading}
-            className="gap-2 rounded-lg font-semibold text-[13px] px-5 py-2.5 h-auto"
-            style={{
-              background: colorFor(type, nextStage),
-              color: "white",
-              boxShadow: `0 2px 8px ${withAlpha(colorFor(type, nextStage), 0.35)}`,
-            }}
-          >
-            {advanceLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Advancing...
-              </>
-            ) : (
-              <>Advance to {label(nextStage)} &rarr;</>
-            )}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }
