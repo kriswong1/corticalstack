@@ -27,8 +27,6 @@ import {
   Brain,
   Sun,
   Moon,
-  Activity,
-  Workflow,
 } from "lucide-react"
 
 const mainItems = [
@@ -47,11 +45,6 @@ const productItems = [
   { to: "/usecases", label: "Use Cases", icon: FileText },
   { to: "/prototypes", label: "Prototypes", icon: Box },
   { to: "/prds", label: "PRDs", icon: FileCheck },
-]
-
-const monitoringItems = [
-  { to: "/pipelines", label: "Pipelines", icon: Workflow },
-  { to: "/usage", label: "Usage", icon: Activity },
 ]
 
 const systemItems = [
@@ -116,7 +109,6 @@ export function AppSidebar() {
         <NavGroup label="Projects" items={projectItems} />
         <NavGroup label="Product" items={productItems} />
         <NavGroup label="System" items={systemItems} />
-        <NavGroup label="Monitoring" items={monitoringItems} />
       </SidebarContent>
 
       <SidebarFooter className="p-2">
