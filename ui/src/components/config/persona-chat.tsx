@@ -151,22 +151,22 @@ export function PersonaChat({ personaName, onComplete, onCancel }: PersonaChatPr
               <div
                 className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
                   msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted/60 border border-border text-foreground"
+                    ? "bg-secondary text-secondary-foreground"
+                    : "bg-card border border-border text-card-foreground"
                 }`}
               >
-                <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-li:my-0.5">
+                <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground/90 prose-p:my-1 prose-li:text-foreground/90 prose-li:my-0.5 prose-strong:text-foreground prose-code:text-foreground/80 prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded-sm">
                   <Markdown>{msg.content}</Markdown>
                 </div>
 
                 {msg.options && msg.options.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2 border-t border-border/50">
+                  <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2 border-t border-border">
                     {msg.options.map((opt, j) => (
                       <button
                         key={j}
                         onClick={() => sendMessage(opt)}
                         disabled={isLoading}
-                        className="text-[11px] px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted text-foreground transition-colors disabled:opacity-50"
+                        className="text-[11px] px-2.5 py-1 rounded-full border border-border bg-background hover:bg-accent hover:text-accent-foreground text-foreground transition-colors disabled:opacity-50"
                       >
                         {opt}
                       </button>
@@ -179,7 +179,7 @@ export function PersonaChat({ personaName, onComplete, onCancel }: PersonaChatPr
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-muted/60 border border-border rounded-lg px-4 py-2.5">
+              <div className="bg-card border border-border rounded-lg px-4 py-2.5">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
             </div>
