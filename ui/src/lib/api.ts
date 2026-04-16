@@ -31,6 +31,9 @@ import type {
   UsageRecentResponse,
   UsageSummary,
   Meeting,
+  CardDetail,
+  CardItem,
+  ItemUsageAggregate,
 } from "@/types/api"
 
 export class ApiError extends Error {
@@ -180,6 +183,26 @@ export const api = {
 
   // Meetings (transcript → summary pipeline)
   listMeetings: () => request<Meeting[]>("/api/meetings"),
+  setMeetingStage: (id: string, stage: string) =>
+    post<{ id: string; stage: string }>(`/api/meetings/${id}/stage`, { stage }),
+
+  // Card detail (unified dashboard row-2 drill-down)
+  getCardDetail: (type: string) => request<CardDetail>(`/api/cards/${type}`),
+
+  // Per-item usage aggregate (selection-driven refetch)
+  getItemUsage: (type: string, ids?: string[]) => {
+    const params = new URLSearchParams()
+    if (ids && ids.length > 0) params.set("ids", ids.join(","))
+    const qs = params.toString()
+    return request<ItemUsageAggregate>(`/api/items/${type}/usage${qs ? `?${qs}` : ""}`)
+  },
+
+  // Documents
+  listDocuments: () => request<CardItem[]>("/api/documents"),
+  setDocumentStage: (id: string, stage: string) =>
+    post<{ id: string; stage: string }>(`/api/documents/${id}/stage`, { stage }),
+  setPrototypeStage: (id: string, stage: string) =>
+    post<{ id: string; stage: string }>(`/api/prototypes/${id}/stage`, { stage }),
 
   // Ingest
   ingestText: (body: { text: string; title?: string }) =>

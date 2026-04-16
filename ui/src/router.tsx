@@ -12,6 +12,7 @@ import { PrototypesPage } from "@/pages/prototypes"
 import { PRDsPage } from "@/pages/prds"
 import { UsagePage } from "@/pages/usage"
 import { PipelinesPage } from "@/pages/pipelines"
+import { DashboardCardPage } from "@/pages/dashboard-card"
 
 export const router = createBrowserRouter([
   {
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: "dashboard", element: <DashboardPage /> },
+      { path: "dashboard/:type", element: <DashboardCardPage /> },
       { path: "ingest", element: <IngestPage /> },
       { path: "library", element: <LibraryPage /> },
       { path: "config", element: <ConfigPage /> },

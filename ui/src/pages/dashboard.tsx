@@ -11,7 +11,6 @@ import type {
   DashboardSnapshot,
   IngestDay,
   IngestWidget,
-  PipelineStage,
   PipelineWidget,
   ProjectsWidget,
 } from "@/types/api"
@@ -22,25 +21,42 @@ import {
   Settings,
 } from "lucide-react"
 
-// Hand-picked oklch values tuned for contrast on both light and dark
-// card backgrounds. All values sit at L≈0.55-0.65 so they stay
-// distinguishable without washing out on near-white surfaces or
-// disappearing on near-black ones.
-const palette: Record<string, string> = {
-  // ingest folder types
-  articles:    "oklch(0.55 0.22 275)", // indigo
-  notes:       "oklch(0.62 0.18 55)",  // amber
-  documents:   "oklch(0.60 0.14 200)", // teal
-  daily:       "oklch(0.62 0.19 150)", // emerald
-  transcripts: "oklch(0.65 0.17 40)",  // orange
-  webpages:    "oklch(0.60 0.20 325)", // magenta
-  audio:       "oklch(0.58 0.22 5)",   // ruby
-  // shapeup stages — a progression from unshaped → complete
-  raw:        "oklch(0.55 0.04 250)", // slate (unshaped)
-  frame:      "oklch(0.60 0.14 200)", // teal
-  shape:      "oklch(0.55 0.22 275)", // indigo
-  breadboard: "oklch(0.60 0.20 325)", // magenta
-  pitch:      "oklch(0.62 0.19 150)", // emerald (complete)
+// --- Color palettes ---
+
+// Ingest chart bucket colors (OKLCH)
+const ingestColors: Record<string, string> = {
+  articles:    "oklch(0.65 0.18 270)", // indigo
+  youtube:     "oklch(0.60 0.22 25)",  // red (YouTube brand)
+  transcripts: "oklch(0.70 0.15 55)",  // orange
+  documents:   "oklch(0.68 0.16 175)", // teal
+  notes:       "oklch(0.75 0.16 85)",  // amber
+  other:       "oklch(0.65 0.06 260)", // muted blue-grey
+}
+
+// Pipeline card stage colors
+const stageColors: Record<string, Record<string, string>> = {
+  product: {
+    idea:       "oklch(0.55 0.04 250)", // slate
+    frame:      "oklch(0.60 0.14 200)", // teal
+    shape:      "oklch(0.55 0.22 275)", // indigo
+    breadboard: "oklch(0.60 0.20 325)", // magenta
+    pitch:      "oklch(0.62 0.19 150)", // emerald
+  },
+  meetings: {
+    transcript: "oklch(0.65 0.15 230)", // sky
+    audio:      "oklch(0.70 0.16 85)",  // amber
+    note:       "oklch(0.62 0.19 150)", // emerald
+  },
+  documents: {
+    need:        "oklch(0.55 0.04 250)", // slate
+    in_progress: "oklch(0.70 0.16 85)",  // amber
+    final:       "oklch(0.62 0.19 150)", // emerald
+  },
+  prototypes: {
+    need:        "oklch(0.55 0.04 250)", // slate
+    in_progress: "oklch(0.70 0.16 85)",  // amber
+    final:       "oklch(0.62 0.19 150)", // emerald
+  },
 }
 
 const fallbackColors = [
@@ -52,12 +68,16 @@ const fallbackColors = [
 ]
 
 function colorFor(key: string): string {
-  if (palette[key]) return palette[key]
+  if (ingestColors[key]) return ingestColors[key]
   let h = 0
   for (let i = 0; i < key.length; i++) {
     h = (h * 31 + key.charCodeAt(i)) | 0
   }
   return fallbackColors[Math.abs(h) % fallbackColors.length]
+}
+
+function stageColorFor(cardType: string, stage: string): string {
+  return stageColors[cardType]?.[stage] ?? colorFor(stage)
 }
 
 function formatTime(iso: string): string {
@@ -77,11 +97,6 @@ function relativeTime(iso: string): string {
   return `${days}d ago`
 }
 
-// Friendly label for the chart x-axis. The backend returns YYYY-MM-DD in
-// the server's local TZ; we render as "Mon DD" to save space. Parse
-// explicitly rather than relying on `new Date("YYYY-MM-DDTHH:mm:ss")`,
-// which Safari treats as UTC and Chrome as local — this guarantees the
-// label matches the server's date string regardless of client TZ.
 function shortDate(yyyyMmDd: string): string {
   if (!yyyyMmDd) return ""
   const [y, m, d] = yyyyMmDd.split("-").map(Number)
@@ -92,12 +107,9 @@ function shortDate(yyyyMmDd: string): string {
   })
 }
 
+// --- Main page ---
+
 export function DashboardPage() {
-  // The dashboard's "as of Xm ago" freshness marker and stale banner
-  // both imply the view is being actively refreshed. Poll the aggregator
-  // every 60s so the markers don't silently go stale. Window-focus
-  // refetch is kept off because the aggregator is relatively expensive —
-  // the 60s interval is the single source of truth for freshness.
   const { data: snapshot, isLoading, error } = useQuery({
     queryKey: ["dashboard"],
     queryFn: api.getDashboard,
@@ -142,14 +154,39 @@ export function DashboardPage() {
 
       {/* Row 1: full-width ingest chart */}
       <div className="mb-5">
-        <IngestActivityCard widget={snapshot.ingest_activity} />
+        <IngestChart data={snapshot.ingest_activity} />
       </div>
 
-      {/* Row 2: three hero cards */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      {/* Row 2: pipeline cards */}
+      {snapshot.pipelines && (
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4 mb-5">
+          <PipelineCard
+            title="Product"
+            type="product"
+            widget={snapshot.pipelines.product}
+          />
+          <PipelineCard
+            title="Meetings"
+            type="meetings"
+            widget={snapshot.pipelines.meetings}
+          />
+          <PipelineCard
+            title="Documents"
+            type="documents"
+            widget={snapshot.pipelines.documents}
+          />
+          <PipelineCard
+            title="Prototypes"
+            type="prototypes"
+            widget={snapshot.pipelines.prototypes}
+          />
+        </div>
+      )}
+
+      {/* Row 3: actions + projects */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ActionsStatusCard widget={snapshot.actions} />
         <ActiveProjectsCard widget={snapshot.active_projects} />
-        <ProductPipelineCard widget={snapshot.product_pipeline} />
       </div>
     </>
   )
@@ -203,7 +240,7 @@ function StaleBanner({ snapshot }: { snapshot: DashboardSnapshot }) {
   )
 }
 
-// --- Widget 1: Ingest Activity (30-day stacked bars) ---
+// --- Row 1: Ingest Chart (30-day stacked bars) ---
 
 interface TooltipState {
   visible: boolean
@@ -212,13 +249,10 @@ interface TooltipState {
   day: IngestDay | null
 }
 
-function IngestActivityCard({ widget }: { widget: IngestWidget }) {
+function IngestChart({ data }: { data: IngestWidget }) {
   const navigate = useNavigate()
-  // Wrap the `?? []` fallbacks in their own useMemo so the downstream
-  // hooks don't see a fresh array identity every render (the lint rule
-  // `react-hooks/exhaustive-deps` warns about the bare logical-or form).
-  const days = useMemo(() => widget.days ?? [], [widget.days])
-  const types = useMemo(() => widget.types ?? [], [widget.types])
+  const days = useMemo(() => data.days ?? [], [data.days])
+  const types = useMemo(() => data.types ?? [], [data.types])
   const emptyDays = useMemo(
     () => days.filter((d) => d.count === 0).length,
     [days],
@@ -227,9 +261,6 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
     () => Math.max(1, ...days.map((d) => d.count)),
     [days],
   )
-  // Pre-compute type → color so we don't rehash per-bucket per render.
-  // `types` is stable across renders (comes from a memoized query
-  // result), so the map is effectively constant after the first render.
   const typeColors = useMemo(
     () => Object.fromEntries(types.map((t) => [t, colorFor(t)])),
     [types],
@@ -241,14 +272,11 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
     y: 0,
     day: null,
   })
-  const chartRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
 
   const showTooltip = (day: IngestDay, e: React.MouseEvent) => {
     setTooltip({ visible: true, x: e.clientX, y: e.clientY, day })
   }
-  // Throttle move events via requestAnimationFrame so a fast mouse drag
-  // across 30 bars doesn't fire hundreds of state updates per second.
   const moveTooltip = (e: React.MouseEvent) => {
     const x = e.clientX
     const y = e.clientY
@@ -265,15 +293,13 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
     }
     setTooltip((t) => ({ ...t, visible: false }))
   }
-  // Cancel any pending rAF on unmount so we don't flush a setTooltip on
-  // a dead component.
   useEffect(() => {
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
     }
   }, [])
 
-  const isEmpty = widget.total === 0
+  const isEmpty = data.total === 0
 
   return (
     <>
@@ -311,13 +337,12 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
           {isEmpty ? (
             <EmptyState
               message="No ingested notes in the last 30 days."
-              cta="Go to Library →"
+              cta="Go to Library"
               to="/library"
             />
           ) : (
             <>
               <div
-                ref={chartRef}
                 className="flex items-end gap-1 h-[190px] pt-3 pb-2 border-b border-border relative"
                 onMouseLeave={hideTooltip}
               >
@@ -326,12 +351,6 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
                   const totalDay = day.count
                   const buckets = day.buckets ?? []
                   const isEmptyDay = totalDay === 0
-                  // Use a <div role="link"> rather than a <Link> because
-                  // the per-bucket segments below are themselves links —
-                  // nesting <a> in <a> is invalid HTML and the browser
-                  // auto-closes the outer anchor, breaking keyboard nav.
-                  // The outer element is still keyboard-focusable via
-                  // tabIndex + Enter/Space handlers.
                   const outerLabel = `${day.date}: ${totalDay} note${
                     totalDay === 1 ? "" : "s"
                   }`
@@ -392,7 +411,7 @@ function IngestActivityCard({ widget }: { widget: IngestWidget }) {
               <div className="mt-4 pt-4 border-t border-border/60 text-xs text-muted-foreground">
                 Total this window:{" "}
                 <strong className="text-foreground font-semibold tabular-nums">
-                  {widget.total}
+                  {data.total}
                 </strong>{" "}
                 ingests ·{" "}
                 <strong className="text-foreground font-semibold tabular-nums">
@@ -421,13 +440,6 @@ function ChartTooltip({
   y: number
   day: IngestDay
 }) {
-  // Clamp the tooltip position to the viewport using the element's
-  // actual rendered size (content may be taller/wider than the old
-  // 200x140 constants). We use useLayoutEffect + a ref to imperatively
-  // set `style.left`/`style.top` on the DOM node rather than calling
-  // setState — the react-hooks/set-state-in-effect lint rule rejects
-  // setState inside effects, and measuring-and-re-positioning is a
-  // textbook case where the imperative form is actually cleaner.
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
@@ -441,8 +453,6 @@ function ChartTooltip({
       x + pad + rect.width > vw ? x - rect.width - pad : x + pad
     const topRaw =
       y + pad + rect.height > vh ? y - rect.height - pad : y + pad
-    // Guard against negative coordinates (e.g. tooltip bigger than
-    // viewport) so it never clips the top/left edge.
     el.style.left = `${Math.max(4, leftRaw)}px`
     el.style.top = `${Math.max(4, topRaw)}px`
   }, [x, y, day])
@@ -454,8 +464,6 @@ function ChartTooltip({
     <div
       ref={tooltipRef}
       className="fixed pointer-events-none z-[100] min-w-[180px] rounded-lg bg-[#18181b] px-3 py-2.5 text-[11.5px] text-zinc-300 shadow-2xl"
-      // Seed with the raw pointer position; the layout effect above
-      // snaps it to the clamped position before the browser paints.
       style={{ left: x + 14, top: y + 14 }}
     >
       <div className="mb-1.5 text-[12px] font-semibold text-white">
@@ -490,7 +498,79 @@ function ChartTooltip({
   )
 }
 
-// --- Widget 2: Actions by Status ---
+// --- Row 2: Pipeline Cards ---
+
+function PipelineCard({
+  title,
+  type,
+  widget,
+}: {
+  title: string
+  type: string
+  widget: PipelineWidget
+}) {
+  const stages = widget.stages ?? []
+  const total = widget.total
+
+  return (
+    <Link to={`/dashboard/${type}`} className="block">
+      <Card className="rounded-[14px] border-border shadow-stripe hover:shadow-stripe-elevated hover:-translate-y-[1px] transition-all cursor-pointer">
+        <CardHeader className="pb-3">
+          <div className="flex items-baseline justify-between">
+            <CardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
+              {title}
+            </CardTitle>
+            <span className="text-[22px] font-bold tabular-nums tracking-tight text-foreground">
+              {total}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="pb-4">
+          {total === 0 ? (
+            <div className="h-2 rounded-full bg-muted/60" />
+          ) : (
+            <>
+              <div className="flex h-2 rounded-full overflow-hidden">
+                {stages.map((s) =>
+                  s.count > 0 ? (
+                    <div
+                      key={s.stage}
+                      className="h-full first:rounded-l-full last:rounded-r-full"
+                      style={{
+                        flex: s.count,
+                        background: stageColorFor(type, s.stage),
+                      }}
+                      title={`${s.stage}: ${s.count}`}
+                    />
+                  ) : null,
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2.5">
+                {stages.map((s) => (
+                  <span
+                    key={s.stage}
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+                  >
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+                      style={{ background: stageColorFor(type, s.stage) }}
+                    />
+                    {s.stage}{" "}
+                    <span className="font-semibold text-foreground tabular-nums">
+                      {s.count}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </Link>
+  )
+}
+
+// --- Row 3: Actions + Projects ---
 
 function ActionsStatusCard({ widget }: { widget: ActionsWidget }) {
   const rows = [
@@ -533,14 +613,24 @@ function ActionsStatusCard({ widget }: { widget: ActionsWidget }) {
               By status · click a row to filter
             </p>
           </div>
-          {widget.stalled > 0 && <StalledPill count={widget.stalled} to="/actions?stalled=true" />}
+          <div className="flex items-center gap-2">
+            {widget.stalled > 0 && (
+              <StalledPill count={widget.stalled} to="/actions?stalled=true" />
+            )}
+            <Link
+              to="/actions"
+              className="text-[11px] text-primary hover:underline whitespace-nowrap"
+            >
+              View all &rarr;
+            </Link>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         {isEmpty ? (
           <EmptyState
             message="No actions tracked yet."
-            cta="Go to Actions →"
+            cta="Go to Actions"
             to="/actions"
           />
         ) : (
@@ -570,8 +660,6 @@ function ActionsStatusCard({ widget }: { widget: ActionsWidget }) {
   )
 }
 
-// --- Widget 3: Active Projects ---
-
 function ActiveProjectsCard({ widget }: { widget: ProjectsWidget }) {
   const top = widget.top ?? []
   const isEmpty = widget.active === 0
@@ -579,18 +667,28 @@ function ActiveProjectsCard({ widget }: { widget: ProjectsWidget }) {
   return (
     <Card className="rounded-[14px] border-border shadow-stripe hover:shadow-stripe-elevated transition-shadow">
       <CardHeader className="pb-4">
-        <CardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
-          Active projects
-        </CardTitle>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Touched in last 7 days
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
+              Active projects
+            </CardTitle>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Touched in last 7 days
+            </p>
+          </div>
+          <Link
+            to="/projects"
+            className="text-[11px] text-primary hover:underline whitespace-nowrap"
+          >
+            View all &rarr;
+          </Link>
+        </div>
       </CardHeader>
       <CardContent>
         {isEmpty ? (
           <EmptyState
             message="No projects touched in the last 7 days."
-            cta="Go to Projects →"
+            cta="Go to Projects"
             to="/projects"
           />
         ) : (
@@ -633,95 +731,6 @@ function ActiveProjectsCard({ widget }: { widget: ProjectsWidget }) {
   )
 }
 
-// --- Widget 4: Product Pipeline ---
-
-function ProductPipelineCard({ widget }: { widget: PipelineWidget }) {
-  const stages = widget.stages ?? []
-  const isEmpty = widget.total === 0
-  const maxCount = Math.max(1, ...stages.map((s) => s.count))
-
-  return (
-    <Card className="rounded-[14px] border-border shadow-stripe hover:shadow-stripe-elevated transition-shadow">
-      <CardHeader className="pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
-              Product pipeline
-            </CardTitle>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Stage distribution · click to filter
-            </p>
-          </div>
-          {widget.stalled_total > 0 && (
-            <StalledPill count={widget.stalled_total} to="/product?stalled=true" />
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isEmpty ? (
-          <EmptyState
-            message="No threads in the product pipeline yet."
-            cta="Go to Product →"
-            to="/product"
-          />
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {stages.map((s) => (
-              <StageRow key={s.stage} stage={s} maxCount={maxCount} />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function StageRow({
-  stage,
-  maxCount,
-}: {
-  stage: PipelineStage
-  maxCount: number
-}) {
-  const pct = maxCount > 0 ? (stage.count / maxCount) * 100 : 0
-  const color = colorFor(stage.stage)
-
-  return (
-    <div className="flex items-center gap-2">
-      <Link
-        to={`/product?stage=${stage.stage}`}
-        className="grid grid-cols-[90px_1fr_28px] items-center gap-3 px-3 py-2.5 rounded-lg flex-1 hover:bg-muted/60 transition-colors"
-      >
-        <span className="text-[13.5px] font-medium text-foreground capitalize">
-          {stage.stage}
-        </span>
-        <div className="h-2 bg-muted/60 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-[width] duration-500"
-            style={{
-              width: `${pct}%`,
-              background: `linear-gradient(90deg, ${color}, ${color} 60%, color-mix(in oklch, ${color}, white 25%))`,
-            }}
-          />
-        </div>
-        <span className="text-[15px] font-bold text-foreground text-right tabular-nums">
-          {stage.count}
-        </span>
-      </Link>
-      {stage.stalled > 0 && (
-        <Link
-          to={`/product?stage=${stage.stage}&stalled=true`}
-          onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center rounded-full border border-[var(--stripe-ruby)]/30 bg-[var(--stripe-ruby)]/10 px-2 py-0.5 text-[10.5px] font-semibold text-[var(--stripe-ruby)] hover:bg-[var(--stripe-ruby)]/20 transition-all flex-shrink-0"
-          title={`${stage.stalled} thread${stage.stalled === 1 ? "" : "s"} stalled in ${stage.stage}`}
-        >
-          {stage.stalled} stalled
-        </Link>
-      )}
-    </div>
-  )
-}
-
 // --- Reusable bits ---
 
 function StalledPill({ count, to }: { count: number; to: string }) {
@@ -750,7 +759,7 @@ function EmptyState({
     <div className="py-8 text-center">
       <p className="text-sm text-muted-foreground mb-2">{message}</p>
       <Link to={to} className="text-xs text-primary hover:underline">
-        {cta}
+        {cta} &rarr;
       </Link>
     </div>
   )

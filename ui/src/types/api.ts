@@ -377,6 +377,7 @@ export interface DashboardSnapshot {
   actions: ActionsWidget
   active_projects: ProjectsWidget
   product_pipeline: PipelineWidget
+  pipelines?: PipelinesGroup
   computed_at: string
   stale: boolean
   stale_attempt_at?: string
@@ -486,7 +487,8 @@ export type UsageRecentResponse = UsageInvocation[]
 
 // --- Meetings (transcript → summary pipeline) ---
 
-export type MeetingStage = "transcript" | "summary"
+// Updated meeting stage — now 3-stage pipeline
+export type MeetingStage = "transcript" | "audio" | "note"
 
 export interface Meeting {
   id: string
@@ -498,4 +500,53 @@ export interface Meeting {
   projects?: string[]
   created: string
   updated?: string
+}
+
+// --- Unified dashboard row-2 cards ---
+
+export interface PipelinesGroup {
+  product: PipelineWidget
+  meetings: PipelineWidget
+  documents: PipelineWidget
+  prototypes: PipelineWidget
+}
+
+export interface CardStageCount {
+  stage: string
+  count: number
+}
+
+export interface ItemUsageModelTotals {
+  calls: number
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+}
+
+export interface ItemUsageAggregate {
+  calls: number
+  cost_usd: number
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  by_model: Record<string, ItemUsageModelTotals>
+}
+
+export interface CardItem {
+  id: string
+  title: string
+  stage: string
+  updated?: string
+  view_url: string
+}
+
+export interface CardDetail {
+  type: string
+  label: string
+  stage_counts: CardStageCount[]
+  aggregate: ItemUsageAggregate
+  items: CardItem[]
 }
