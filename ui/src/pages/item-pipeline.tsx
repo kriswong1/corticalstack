@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "react-router-dom"
+import Markdown from "react-markdown"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/layout/page-header"
@@ -407,10 +408,8 @@ export function ItemPipelinePage() {
               Loading content...
             </div>
           ) : stageContent ? (
-            <div className="prose prose-sm max-w-none dark:prose-invert">
-              <pre className="whitespace-pre-wrap text-[13px] text-foreground/90 font-[inherit] leading-[1.7] bg-transparent border-0 p-0 m-0">
-                {stageContent}
-              </pre>
+            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground prose-code:text-foreground/80 prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-pre:bg-muted/60 prose-pre:border prose-pre:border-border">
+              <Markdown>{stageContent}</Markdown>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground py-10 text-center italic">
