@@ -2,6 +2,60 @@ package agent
 
 import "time"
 
+// ItemContext optionally tags a Claude CLI call with the dashboard
+// item it was made for. Empty Type or ID means "no item context" —
+// the call still flows through DefaultRecorder (the global usage log)
+// but is skipped by ItemRecorder (the per-item index).
+//
+// Callers populate this only when they know which Product idea /
+// Meeting / Document / Prototype the call belongs to. Synthesizers
+// that span many items, intent classification, and the ingest
+// pipeline leave it zero — those calls would have a wrong or
+// arbitrary item if forced.
+type ItemContext struct {
+	Type string // "product" | "meeting" | "document" | "prototype"
+	ID   string
+}
+
+// ItemRecorder is the sink for item-tagged invocations. Implemented
+// by internal/itemusage.JSONLRecorder; the interface lives in agent
+// to avoid an import cycle (agent → itemusage would be wrong, since
+// itemusage already needs to be importable elsewhere).
+//
+// The interface is intentionally minimal: just one method, with a
+// concrete struct argument (ItemEvent) that carries every field the
+// recorder might want. Extending ItemEvent later is non-breaking; a
+// new field on the struct doesn't change the interface.
+type ItemRecorder interface {
+	RecordItem(ItemEvent)
+}
+
+// ItemEvent is the per-call payload handed to ItemRecorder.
+// Mirrors a subset of Invocation plus the Item context. Field names
+// match the itemusage.Entry JSON tags so the recorder can marshal it
+// directly.
+type ItemEvent struct {
+	Timestamp           time.Time
+	ItemType            string
+	ItemID              string
+	Model               string
+	InputTokens         int
+	OutputTokens        int
+	CacheCreationTokens int
+	CacheReadTokens     int
+	CostUSD             float64
+	DurationMS          int64
+	CallerHint          string
+	Error               string
+}
+
+// DefaultItemRecorder is the package-level sink for item-tagged
+// invocations. main wires this once at startup; if it stays nil,
+// Run() simply skips the item recording branch. Mirrors the
+// DefaultRecorder pattern so tests don't have to thread a recorder
+// through every Agent constructor.
+var DefaultItemRecorder ItemRecorder
+
 // Invocation is the structured record of a single Claude CLI call.
 // It is captured by Run() after every invocation (success or failure)
 // and handed to the package-level DefaultRecorder if one is set.

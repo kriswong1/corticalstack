@@ -22,6 +22,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/documents"
 	"github.com/kriswong/corticalstack/internal/integrations"
 	"github.com/kriswong/corticalstack/internal/intent"
+	"github.com/kriswong/corticalstack/internal/itemusage"
 	"github.com/kriswong/corticalstack/internal/meetings"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
@@ -69,6 +70,22 @@ func main() {
 	agent.DefaultRecorder = usageRec
 	usageReader := telemetry.NewReader(usagePath)
 	slog.Info("usage telemetry", "path", usagePath)
+
+	// Item-tagged telemetry: a sibling JSONL that records only the
+	// calls whose Agent.Item was set. Powers the unified dashboard's
+	// per-card detail page (selected items → aggregate calls/cost/
+	// tokens). Calls without an Item are silently skipped here and
+	// still flow through the global usageRec above.
+	itemUsagePath := config.ItemUsageLogPath()
+	itemUsageRec, err := itemusage.NewJSONLRecorder(itemUsagePath)
+	if err != nil {
+		slog.Error("item usage recorder", "path", itemUsagePath, "error", err)
+		os.Exit(1)
+	}
+	defer itemUsageRec.Close()
+	agent.DefaultItemRecorder = itemUsageRec
+	itemUsageReader := itemusage.NewReader(itemUsagePath)
+	slog.Info("item usage telemetry", "path", itemUsagePath)
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -202,6 +219,7 @@ func main() {
 		Usage:           usageReader,
 		Meetings:        meetingsStore,
 		Documents:       documentsStore,
+		ItemUsage:       itemUsageReader,
 	}
 
 	srv, err := web.NewServer(deps)

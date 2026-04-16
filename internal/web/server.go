@@ -102,6 +102,9 @@ func (s *Server) routes() {
 	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)
 	r.Get("/api/usage/summary", s.Handler.GetUsageSummary)
 
+	// API: per-item usage (powers the dashboard card detail page)
+	r.Get("/api/items/{type}/usage", s.Handler.GetItemUsage)
+
 	// API: meetings (transcript / audio / note pipeline)
 	r.Get("/api/meetings", s.Handler.ListMeetings)
 	r.Post("/api/meetings/{id}/stage", s.Handler.SetMeetingStage)

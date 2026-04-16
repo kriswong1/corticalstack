@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kriswong/corticalstack/internal/platform"
 )
 
 // Agent configures a Claude CLI invocation.
@@ -24,6 +26,13 @@ type Agent struct {
 	MaxTurns   int    // 0 = CLI default
 	WorkingDir string
 	CallerHint string // optional, opt-in tag for telemetry — e.g. "intent.classify"
+
+	// Item is an optional dashboard-item tag. When both Type and ID
+	// are non-empty, Run() additionally hands the call to
+	// DefaultItemRecorder so the unified dashboard's per-card detail
+	// page can compute aggregate usage for selected items. Leave
+	// zero for calls that span many items or don't belong to one.
+	Item ItemContext
 }
 
 // Result holds the output of a Claude CLI invocation. Token and cost
@@ -181,6 +190,33 @@ func (a *Agent) Run(ctx context.Context, prompt string) (*Result, error) {
 			inv.Error = "cli reported is_error=true subtype=" + result.Subtype
 		}
 		DefaultRecorder.Record(inv)
+	}
+
+	// Item-tagged recording: the second telemetry sink, opt-in via
+	// Agent.Item. Skipped silently when the agent didn't carry an
+	// item context (synthesizers, intent classification, ingest) or
+	// when no DefaultItemRecorder is wired (tests, partial startup).
+	if DefaultItemRecorder != nil && a.Item.Type != "" && a.Item.ID != "" {
+		event := ItemEvent{
+			Timestamp:           start,
+			ItemType:            a.Item.Type,
+			ItemID:              a.Item.ID,
+			Model:               result.Model,
+			InputTokens:         result.InputTokens,
+			OutputTokens:        result.OutputTokens,
+			CacheCreationTokens: result.CacheCreationTokens,
+			CacheReadTokens:     result.CacheReadTokens,
+			CostUSD:             result.CostUSD,
+			DurationMS:          duration.Milliseconds(),
+			CallerHint:          a.CallerHint,
+		}
+		switch {
+		case waitErr != nil:
+			event.Error = waitErr.Error()
+		case result.IsError:
+			event.Error = "cli reported is_error=true subtype=" + result.Subtype
+		}
+		DefaultItemRecorder.RecordItem(event)
 	}
 
 	slog.Info("claude cli done",
@@ -361,20 +397,57 @@ func parseStream(r io.Reader) *Result {
 }
 
 func claudeBin() (string, error) {
+	// Explicit override wins. Cheapest escape hatch for weird setups —
+	// e.g. WSL2 users who prefer to invoke a specific Windows-side binary,
+	// or CI runners with a pinned path.
+	if v := os.Getenv("CLAUDE_BIN"); v != "" {
+		v = platform.MaybeTranslateForWSL(v)
+		if _, err := os.Stat(v); err == nil {
+			return v, nil
+		}
+		return "", fmt.Errorf("CLAUDE_BIN=%q but that file does not exist", v)
+	}
+
+	// PATH lookup — covers native installs on Linux, macOS, Windows, and
+	// any WSL2 setup where claude was installed inside the WSL distro.
 	if p, err := exec.LookPath("claude"); err == nil {
 		return p, nil
 	}
-	home, _ := os.UserHomeDir()
-	for _, c := range []string{
-		filepath.Join(home, ".claude", "local", "claude.exe"),
-		filepath.Join(home, "AppData", "Local", "Programs", "claude-code", "claude.exe"),
-		filepath.Join(home, "AppData", "Roaming", "npm", "claude.cmd"),
-	} {
-		if _, err := os.Stat(c); err == nil {
-			return c, nil
+
+	// Native home-directory candidates (Windows layouts).
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		for _, c := range []string{
+			filepath.Join(home, ".claude", "local", "claude.exe"),
+			filepath.Join(home, "AppData", "Local", "Programs", "claude-code", "claude.exe"),
+			filepath.Join(home, "AppData", "Roaming", "npm", "claude.cmd"),
+		} {
+			if _, err := os.Stat(c); err == nil {
+				return c, nil
+			}
 		}
 	}
-	return "", fmt.Errorf("claude CLI not found. Install from https://claude.ai/download and run `claude login`")
+
+	// WSL2 fallback: the binary may live on the Windows side under
+	// /mnt/c/Users/<winuser>/..., but os.UserHomeDir() in WSL returns
+	// /home/<linuxuser> so the loop above never sees it. Glob every
+	// Windows user directory for the known install layouts.
+	if platform.IsWSL() {
+		for _, pat := range []string{
+			"/mnt/c/Users/*/.claude/local/claude.exe",
+			"/mnt/c/Users/*/AppData/Local/Programs/claude-code/claude.exe",
+			"/mnt/c/Users/*/AppData/Roaming/npm/claude.cmd",
+		} {
+			matches, _ := filepath.Glob(pat)
+			for _, m := range matches {
+				if _, err := os.Stat(m); err == nil {
+					return m, nil
+				}
+			}
+		}
+		return "", fmt.Errorf("claude CLI not found in WSL2. Options: install inside your Linux distro (`npm i -g @anthropic-ai/claude-code`), or set CLAUDE_BIN to a Windows-side path like /mnt/c/Users/<you>/.claude/local/claude.exe")
+	}
+
+	return "", fmt.Errorf("claude CLI not found. Install from https://claude.ai/download and run `claude login`, or set CLAUDE_BIN to the binary path")
 }
 
 // IsInstalled reports whether the Claude CLI is available.

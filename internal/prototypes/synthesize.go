@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/questions"
@@ -123,10 +125,18 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 	answerBlock := questions.FormatAnswers(req.Questions, req.Answers)
 	prompt := s.persona.BuildContextPrompt() + buildSynthesisPrompt(format, sources.String(), req.Hints, answerBlock)
 
+	// Pre-allocate the prototype ID so the same UUID flows into both
+	// the item-usage log (now) and the on-disk artifact (later in
+	// Store.Write — which now skips its own NewString when ID is
+	// already set, see store.go).
+	prototypeID := uuid.NewString()
+
 	ag := &agent.Agent{
 		Model:      s.model,
 		MaxTurns:   1,
 		WorkingDir: s.workingDir,
+		CallerHint: "prototype.synthesize." + req.Format,
+		Item:       agent.ItemContext{Type: "prototype", ID: prototypeID},
 	}
 	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {
@@ -153,6 +163,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 	}
 
 	return &Prototype{
+		ID:           prototypeID,
 		Title:        title,
 		Format:       req.Format,
 		SourceRefs:   req.SourcePaths,

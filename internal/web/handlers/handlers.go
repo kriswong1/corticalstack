@@ -66,6 +66,7 @@ type Deps struct {
 	Usage              usageProvider
 	Meetings           meetingsProvider
 	Documents          documentsProvider
+	ItemUsage          itemUsageProvider
 }
 
 // Handler bundles shared dependencies for all dashboard handlers.
@@ -105,6 +106,10 @@ type Handler struct {
 	// store added with the unified-dashboard refactor.
 	Documents documentsProvider
 
+	// v6: per-item Claude CLI usage index. Read by the cards detail
+	// page when the items table has a non-empty selection.
+	ItemUsage itemUsageProvider
+
 	RenderPage func(w http.ResponseWriter, contentTemplate string, data map[string]interface{})
 }
 
@@ -132,6 +137,7 @@ func New(deps Deps) *Handler {
 		Usage:              deps.Usage,
 		Meetings:           deps.Meetings,
 		Documents:          deps.Documents,
+		ItemUsage:          deps.ItemUsage,
 	}
 }
 

@@ -61,6 +61,11 @@ func (a *Advancer) Questions(ctx context.Context, thread *Thread, target Stage) 
 // Advance asks Claude to draft the target stage of a thread. The prior
 // artifacts must already be ordered raw → frame → ... by the caller.
 // answers may be nil — callers that skipped the Q&A phase just pass hints.
+//
+// The Claude CLI call is tagged with the thread's ID so the unified
+// dashboard's per-card detail page can compute "tokens spent on this
+// product idea". Calls without a thread ID (none today, but defends
+// future refactors) skip the item-tag branch silently.
 func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hints string, qs []questions.Question, answers []questions.Answer) (string, error) {
 	if !IsValidStage(string(target)) {
 		return "", fmt.Errorf("invalid target stage: %s", target)
@@ -73,6 +78,8 @@ func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hi
 		Model:      a.model,
 		MaxTurns:   1,
 		WorkingDir: a.workingDir,
+		CallerHint: "shapeup.advance." + string(target),
+		Item:       agent.ItemContext{Type: "product", ID: thread.ID},
 	}
 	raw, err := ag.RunSimple(ctx, prompt)
 	if err != nil {

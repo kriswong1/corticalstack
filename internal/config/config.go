@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/joho/godotenv"
+
+	"github.com/kriswong/corticalstack/internal/platform"
 )
 
 var once sync.Once
@@ -25,10 +27,13 @@ func Load() {
 }
 
 // VaultPath returns the configured Obsidian vault path, defaulting to ./vault.
+// When running under WSL2, a Windows drive-letter value (e.g.
+// `C:\Users\kris\vault`) is auto-translated to its `/mnt/c/...` equivalent
+// so users can share the same .env between native Windows and WSL2.
 func VaultPath() string {
 	Load()
 	if v := os.Getenv("VAULT_PATH"); v != "" {
-		return v
+		return platform.MaybeTranslateForWSL(v)
 	}
 	return "vault"
 }
@@ -58,9 +63,26 @@ func ClaudeModel() string {
 func UsageLogPath() string {
 	Load()
 	if v := os.Getenv("USAGE_LOG_PATH"); v != "" {
-		return v
+		return platform.MaybeTranslateForWSL(v)
 	}
 	return filepath.Join(VaultPath(), ".cortical", "usage.jsonl")
+}
+
+// ItemUsageLogPath returns the path to the JSONL file where item-
+// tagged Claude CLI invocations are recorded. Default:
+// <VAULT_PATH>/.cortical/item-usage.jsonl — sibling of usage.jsonl,
+// dot-prefixed parent so Obsidian doesn't index it. Override with
+// ITEM_USAGE_LOG_PATH env var.
+//
+// Kept distinct from UsageLogPath so the two indices can evolve
+// independently and so an env-var override can point one at a
+// different disk than the other (e.g. SSD vs spinning).
+func ItemUsageLogPath() string {
+	Load()
+	if v := os.Getenv("ITEM_USAGE_LOG_PATH"); v != "" {
+		return platform.MaybeTranslateForWSL(v)
+	}
+	return filepath.Join(VaultPath(), ".cortical", "item-usage.jsonl")
 }
 
 // DeepgramAPIKey returns the Deepgram API key from the environment.
