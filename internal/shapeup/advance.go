@@ -76,7 +76,7 @@ func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hi
 
 	ag := &agent.Agent{
 		Model:      a.model,
-		MaxTurns:   1,
+		MaxTurns:   3,
 		WorkingDir: a.workingDir,
 		CallerHint: "shapeup.advance." + string(target),
 		Item:       agent.ItemContext{Type: "product", ID: thread.ID},
@@ -92,11 +92,12 @@ func buildAdvancePrompt(thread *Thread, target Stage, hints, answerBlock string)
 	var b strings.Builder
 
 	b.WriteString("You are a product strategist applying Ryan Singer's Shape Up methodology.\n\n")
+	b.WriteString("IMPORTANT: All the context you need is provided below in the prior stages section. Do NOT attempt to read files, search code, or use any tools. Generate the output directly from the information given.\n\n")
 	// MD-11: fence semantics for every embedded user-controlled block
 	// below (hints, prior-stage bodies).
 	b.WriteString(questions.UntrustedFenceNotice)
 	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("## Task\nDraft the `%s` stage for this thread, given all prior stages. Do not repeat prior content verbatim — synthesize.\n\n", target))
+	b.WriteString(fmt.Sprintf("## Task\nDraft the `%s` stage for this thread, given all prior stages. Do not repeat prior content verbatim — synthesize. Write a complete, substantial document following the structure below.\n\n", target))
 
 	b.WriteString(stageGuidance(target))
 	b.WriteString("\n\n")
