@@ -11,6 +11,7 @@ import { ProductPage } from "@/pages/product"
 import { UseCasesPage } from "@/pages/usecases"
 import { PrototypesPage } from "@/pages/prototypes"
 import { PRDsPage } from "@/pages/prds"
+import { ItemPipelinePage } from "@/pages/item-pipeline"
 
 export const router = createBrowserRouter([
   {
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: "dashboard", element: <DashboardPage /> },
       { path: "dashboard/:type", element: <DashboardCardPage /> },
+      { path: "dashboard/:type/:id", element: <ItemPipelinePage /> },
       { path: "ingest", element: <IngestPage /> },
       { path: "library", element: <LibraryPage /> },
       { path: "config", element: <ConfigPage /> },

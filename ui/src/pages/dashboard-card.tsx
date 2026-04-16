@@ -243,7 +243,7 @@ export function DashboardCardPage() {
                     </TableCell>
                     <TableCell>
                       <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs">
-                        <Link to={item.view_url}>View</Link>
+                        <Link to={`/dashboard/${type}/${item.id}`}>View</Link>
                       </Button>
                     </TableCell>
                   </TableRow>

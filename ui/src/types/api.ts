@@ -242,10 +242,12 @@ export interface Prototype {
   source_thread?: string
   projects?: string[]
   status: string
+  stage?: string
   spec?: string
   has_html?: boolean
   folder_path?: string
   created: string
+  updated?: string
 }
 
 export interface CreatePrototypeRequest {
@@ -497,6 +499,22 @@ export interface Meeting {
   path: string
   source_id?: string
   source_path?: string
+  projects?: string[]
+  created: string
+  updated?: string
+}
+
+// --- Documents ---
+
+export type DocumentStage = "need" | "in_progress" | "final"
+
+export interface Document {
+  id: string
+  title: string
+  path: string
+  stage: DocumentStage
+  tags?: string[]
+  source?: string
   projects?: string[]
   created: string
   updated?: string
