@@ -75,9 +75,81 @@ func TestBuildIngestWidget_30DayPaddingWithSparseData(t *testing.T) {
 	if w.Days[1].Date == "" {
 		t.Errorf("empty day must still carry a date label")
 	}
-	// Legend is alphabetical.
-	if len(w.Types) != 2 || w.Types[0] != "articles" || w.Types[1] != "notes" {
-		t.Errorf("types = %v, want [articles notes]", w.Types)
+	// The Types slice is now the fixed bucket order — every refresh
+	// returns the same 6 buckets in the same order so the frontend
+	// legend has stable slots even on days where some buckets are
+	// empty. The previous "alphabetical filtered to seen types"
+	// behavior moved into the per-day Buckets fields.
+	wantTypes := []string{"articles", "youtube", "transcripts", "documents", "notes", "other"}
+	if !reflect.DeepEqual(w.Types, wantTypes) {
+		t.Errorf("types = %v, want %v (fixed legend order)", w.Types, wantTypes)
+	}
+}
+
+// --- bucket classification tests ---
+
+func TestClassifyBucket_staticFolders(t *testing.T) {
+	// Folders that always map to the same bucket regardless of
+	// frontmatter content.
+	cases := map[string]string{
+		"articles":  BucketArticles,
+		"documents": BucketDocuments,
+		"notes":     BucketNotes,
+		"daily":     BucketOther,
+		"audio":     BucketOther,
+	}
+	for folder, want := range cases {
+		got := classifyBucket(folder, nil)
+		if got != want {
+			t.Errorf("classifyBucket(%q) = %q, want %q", folder, got, want)
+		}
+	}
+}
+
+func TestClassifyBucket_youtubeFromTranscripts(t *testing.T) {
+	// A transcript whose source URL points at YouTube buckets as
+	// YouTube; one without buckets as Transcripts.
+	yt := classifyBucket("transcripts", map[string]interface{}{
+		"source_url": "https://www.youtube.com/watch?v=abc",
+	})
+	if yt != BucketYouTube {
+		t.Errorf("youtube transcript bucketed as %q, want %q", yt, BucketYouTube)
+	}
+
+	other := classifyBucket("transcripts", map[string]interface{}{
+		"source_url": "https://example.com/article",
+	})
+	if other != BucketTranscripts {
+		t.Errorf("non-youtube transcript bucketed as %q, want %q", other, BucketTranscripts)
+	}
+
+	none := classifyBucket("transcripts", nil)
+	if none != BucketTranscripts {
+		t.Errorf("transcript without source_url bucketed as %q, want %q", none, BucketTranscripts)
+	}
+}
+
+func TestClassifyBucket_youtubeFromWebpages(t *testing.T) {
+	yt := classifyBucket("webpages", map[string]interface{}{
+		"source_url": "https://youtu.be/abc",
+	})
+	if yt != BucketYouTube {
+		t.Errorf("youtube webpage bucketed as %q, want %q", yt, BucketYouTube)
+	}
+
+	// Non-YouTube webpages stay in Other so daily/audio/webpages don't
+	// disappear from the chart.
+	other := classifyBucket("webpages", map[string]interface{}{
+		"source_url": "https://example.com/post",
+	})
+	if other != BucketOther {
+		t.Errorf("non-youtube webpage bucketed as %q, want %q", other, BucketOther)
+	}
+}
+
+func TestClassifyBucket_unknownFolderFallsBackToOther(t *testing.T) {
+	if got := classifyBucket("notarealfolder", nil); got != BucketOther {
+		t.Errorf("unknown folder bucketed as %q, want %q", got, BucketOther)
 	}
 }
 

@@ -192,8 +192,14 @@ func main() {
 	bus := sse.NewEventBus()
 	jm := jobs.New(rootCtx, pipe, bus, classifier, projectStore)
 
-	// v4: Dashboard aggregator + 15-minute TTL cache over every store
-	dashAgg := dashboard.NewAggregator(v, actionStore, projectStore, prototypeStore, shapeupStore)
+	// v4/v6: Dashboard aggregator + 15-minute TTL cache over every store.
+	// Meetings and Documents are attached via the With*-style chain
+	// because they were added with the unified-dashboard refactor and
+	// keeping the original NewAggregator signature stable lets older
+	// callers compile unchanged.
+	dashAgg := dashboard.NewAggregator(v, actionStore, projectStore, prototypeStore, shapeupStore).
+		WithMeetings(meetingsStore).
+		WithDocuments(documentsStore)
 	dashCache := dashboard.NewCache(dashAgg, dashboard.CacheTTL, nil)
 
 	// Build the handler Deps bundle

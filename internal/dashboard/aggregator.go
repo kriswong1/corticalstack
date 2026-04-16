@@ -8,9 +8,12 @@ import (
 	"time"
 
 	"github.com/kriswong/corticalstack/internal/actions"
+	"github.com/kriswong/corticalstack/internal/documents"
+	"github.com/kriswong/corticalstack/internal/meetings"
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/prototypes"
 	"github.com/kriswong/corticalstack/internal/shapeup"
+	"github.com/kriswong/corticalstack/internal/stage"
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
@@ -34,6 +37,38 @@ var ingestContentFolders = map[string]bool{
 	"audio":       true,
 }
 
+// folderToBucket maps a vault top-level folder name to the unified-
+// dashboard bucket it should chart into. Five user-facing buckets
+// plus an Other catch-all so daily/audio/webpages stay visible.
+//
+// `transcripts` and `webpages` may belong to either the YouTube or
+// the Transcripts/Other bucket depending on the note's source URL,
+// so they get an explicit `youtubeAware: true` flag — the bucketing
+// happens at the per-note level in classifyIngestNote, not here.
+var folderToBucket = map[string]string{
+	"articles":  BucketArticles,
+	"documents": BucketDocuments,
+	"notes":     BucketNotes,
+	// transcripts/webpages are URL-aware — classifyIngestNote checks
+	// the source URL and overrides the static mapping below when the
+	// URL points at YouTube.
+	"transcripts": BucketTranscripts,
+	"webpages":    BucketOther,
+	"daily":       BucketOther,
+	"audio":       BucketOther,
+}
+
+// isYouTubeURL returns true when raw looks like a YouTube source. A
+// substring check is fine here — we don't need to be a URL parser, we
+// need to catch the obvious cases (youtube.com/watch?v=..., youtu.be
+// /..., m.youtube.com/...). False negatives are acceptable: a misclassified
+// YouTube transcript still appears under Transcripts, which is the
+// reasonable fallback.
+func isYouTubeURL(raw string) bool {
+	r := strings.ToLower(raw)
+	return strings.Contains(r, "youtube.com") || strings.Contains(r, "youtu.be")
+}
+
 // Aggregator computes dashboard snapshots in a single pass over each
 // backing store per refresh. It holds store references only; it owns no
 // mutable state of its own (the cache wraps this).
@@ -43,6 +78,8 @@ type Aggregator struct {
 	projects   *projects.Store
 	prototypes *prototypes.Store
 	shapeup    *shapeup.Store
+	meetings   *meetings.Store
+	documents  *documents.Store
 
 	// collectIngestNotesFn is an optional test-only override for the
 	// vault-walk step. When non-nil, Compute calls it instead of the
@@ -71,6 +108,22 @@ func NewAggregator(
 		prototypes: pr,
 		shapeup:    su,
 	}
+}
+
+// WithMeetings attaches a meetings store to an aggregator and returns
+// it for chaining. Optional dependency — a nil meetings store renders
+// the Meetings pipeline widget as empty.
+func (a *Aggregator) WithMeetings(m *meetings.Store) *Aggregator {
+	a.meetings = m
+	return a
+}
+
+// WithDocuments attaches a documents store to an aggregator and
+// returns it for chaining. Optional dependency — a nil documents
+// store renders the Documents pipeline widget as empty.
+func (a *Aggregator) WithDocuments(d *documents.Store) *Aggregator {
+	a.documents = d
+	return a
 }
 
 // Compute produces a fresh snapshot. `now` is passed explicitly so tests
@@ -147,6 +200,17 @@ func (a *Aggregator) Compute(now time.Time) (*Snapshot, error) {
 	var warnings []string
 	snap.ActiveProjects = a.buildProjectsWidget(ingestNotes, now, &warnings)
 	snap.ProductPipeline = a.buildPipelineWidget(now, &warnings)
+
+	// Row-2 cards data: one PipelineWidget per dashboard entity type.
+	// Product duplicates ProductPipeline above so the existing /api
+	// /dashboard schema keeps working during the front-end rewrite.
+	snap.Pipelines = PipelinesGroup{
+		Product:    snap.ProductPipeline,
+		Meetings:   a.buildMeetingsPipelineWidget(now, &warnings),
+		Documents:  a.buildDocumentsPipelineWidget(now, &warnings),
+		Prototypes: a.buildPrototypesPipelineWidget(now, &warnings),
+	}
+
 	if len(warnings) > 0 {
 		snap.Warnings = warnings
 	}
@@ -154,7 +218,10 @@ func (a *Aggregator) Compute(now time.Time) (*Snapshot, error) {
 	snap.AllEmpty = snap.IngestActivity.Total == 0 &&
 		snap.Actions.Total == 0 &&
 		snap.ActiveProjects.Active == 0 &&
-		snap.ProductPipeline.Total == 0
+		snap.ProductPipeline.Total == 0 &&
+		snap.Pipelines.Meetings.Total == 0 &&
+		snap.Pipelines.Documents.Total == 0 &&
+		snap.Pipelines.Prototypes.Total == 0
 
 	return snap, nil
 }
@@ -162,8 +229,15 @@ func (a *Aggregator) Compute(now time.Time) (*Snapshot, error) {
 // ingestNote is one content-folder markdown note captured during the
 // vault walk. Holds only the fields each widget cares about so the
 // aggregator is not quadratic in vault size.
+//
+// `folder` is the raw vault top-level folder (e.g. "transcripts").
+// `bucket` is the dashboard-facing bucket the note charts into
+// (e.g. "youtube" if the source URL points at YouTube). The two are
+// kept separate so future code can still ask "what folder did this
+// come from" without re-running the URL classifier.
 type ingestNote struct {
 	folder   string
+	bucket   string
 	created  time.Time
 	projects []string
 }
@@ -196,6 +270,7 @@ func (a *Aggregator) collectIngestNotes() ([]ingestNote, error) {
 		}
 		out = append(out, ingestNote{
 			folder:   folder,
+			bucket:   classifyBucket(folder, note.Frontmatter),
 			created:  ts,
 			projects: parseFrontmatterStrings(note.Frontmatter, "projects"),
 		})
@@ -203,6 +278,32 @@ func (a *Aggregator) collectIngestNotes() ([]ingestNote, error) {
 		return nil, fmt.Errorf("vault walk: %w", err)
 	}
 	return out, nil
+}
+
+// classifyBucket maps a (folder, frontmatter) pair to a dashboard
+// bucket. Most folders have a fixed mapping (folderToBucket); the two
+// URL-aware folders (transcripts and webpages) check the source URL
+// for a YouTube domain and override accordingly.
+//
+// Frontmatter keys checked for the source URL, in priority order:
+// `source_url`, `source`, `url`. The first non-empty string wins.
+func classifyBucket(folder string, fm map[string]interface{}) string {
+	bucket, ok := folderToBucket[folder]
+	if !ok {
+		return BucketOther
+	}
+	if folder != "transcripts" && folder != "webpages" {
+		return bucket
+	}
+	for _, key := range []string{"source_url", "source", "url"} {
+		if raw, ok := fm[key].(string); ok && raw != "" {
+			if isYouTubeURL(raw) {
+				return BucketYouTube
+			}
+			break
+		}
+	}
+	return bucket
 }
 
 // firstNonZeroTime returns the first non-zero parsed time across a
@@ -219,6 +320,18 @@ func firstNonZeroTime(fm map[string]interface{}, keys ...string) time.Time {
 
 // buildIngestWidget aggregates notes into the 30-day chart with
 // server-side zero padding so missing days are explicit gaps.
+//
+// Bucketing: each ingestNote carries a `bucket` field set by
+// classifyBucket (Articles / YouTube / Transcripts / Documents /
+// Notes / Other). The widget's Types slice is always the canonical
+// IngestBucketOrder so the frontend renders the same legend slots
+// every refresh — even days that contain only one bucket still align
+// with the others on the chart.
+//
+// For backward-compat with the old test that fed `folder` directly,
+// notes with an empty `bucket` are bucketed via folderToBucket as a
+// fallback. Production callers always come through collectIngestNotes
+// so this fallback is just defensive.
 func buildIngestWidget(notes []ingestNote, now time.Time) IngestWidget {
 	// Window starts at 29 days ago so that inclusive 30 days end at today.
 	startDay := startOfDay(now).Add(-29 * 24 * time.Hour)
@@ -236,24 +349,13 @@ func buildIngestWidget(notes []ingestNote, now time.Time) IngestWidget {
 		daysByKey[key] = &IngestDay{Date: key, Buckets: []IngestBucket{}}
 	}
 
-	typeSet := make(map[string]bool)
 	total := 0
 	for _, n := range notes {
 		// Window bounds are strict calendar-day: reject anything older
 		// than 30 days and anything dated on or after tomorrow 00:00.
-		// Intentionally asymmetric vs the project-touch window in
-		// buildProjectsWidget, which tolerates up to 1 minute of clock
-		// skew. The reason: this widget is a fixed 30-day retrospective
-		// and a note dated "tomorrow" has nowhere to land on the chart
-		// (the day bucket map only holds the last 30 days through
-		// today). The touch window is a rolling freshness check where
-		// treating a 30-second-future timestamp as "just touched" is
-		// sensible. Same-day future-dated notes (skew without rolling
-		// past midnight) are still counted here because they map to
-		// today's bucket — that's the one case where the two windows
-		// diverge, and it's harmless: a lightly-future note on the
-		// ingest chart is the user-friendly outcome.
-		// See docs/code-review-go.md LO-05.
+		// See the long comment on this branch in the previous version
+		// of the file (preserved in git history) for the asymmetry
+		// rationale vs buildProjectsWidget.
 		if n.created.Before(startDay) || !n.created.Before(endDay) {
 			continue
 		}
@@ -262,43 +364,55 @@ func buildIngestWidget(notes []ingestNote, now time.Time) IngestWidget {
 		if !ok {
 			continue
 		}
+
+		bucket := n.bucket
+		if bucket == "" {
+			// Defensive fallback for callers that built an ingestNote
+			// without going through collectIngestNotes (the old test
+			// helpers do this).
+			if mapped, ok := folderToBucket[n.folder]; ok {
+				bucket = mapped
+			} else {
+				bucket = BucketOther
+			}
+		}
+
 		day.Count++
 		total++
-		typeSet[n.folder] = true
-		// Find-or-append the bucket. Per-day bucket lists stay small (≤ number of folders) so linear scan is fine.
+		// Find-or-append the bucket. Per-day bucket lists stay small
+		// (≤ 6) so linear scan is fine.
 		found := false
 		for i := range day.Buckets {
-			if day.Buckets[i].Type == n.folder {
+			if day.Buckets[i].Type == bucket {
 				day.Buckets[i].Count++
 				found = true
 				break
 			}
 		}
 		if !found {
-			day.Buckets = append(day.Buckets, IngestBucket{Type: n.folder, Count: 1})
+			day.Buckets = append(day.Buckets, IngestBucket{Type: bucket, Count: 1})
 		}
 	}
 
-	// Sort the buckets within each day for stable rendering. Always
-	// return non-nil Types/Days slices — see buckets note above.
+	// Stable per-day bucket order: render in the canonical legend
+	// order so the visual stack is consistent across days.
+	bucketRank := make(map[string]int, len(IngestBucketOrder))
+	for i, b := range IngestBucketOrder {
+		bucketRank[b] = i
+	}
+
 	out := IngestWidget{
 		Days:  make([]IngestDay, 0, 30),
-		Types: []string{},
+		Types: append([]string(nil), IngestBucketOrder...),
 		Total: total,
 	}
 	for _, key := range dayKeys {
 		d := daysByKey[key]
 		sort.Slice(d.Buckets, func(i, j int) bool {
-			return d.Buckets[i].Type < d.Buckets[j].Type
+			return bucketRank[d.Buckets[i].Type] < bucketRank[d.Buckets[j].Type]
 		})
 		out.Days = append(out.Days, *d)
 	}
-
-	// Stable legend order.
-	for t := range typeSet {
-		out.Types = append(out.Types, t)
-	}
-	sort.Strings(out.Types)
 
 	return out
 }
@@ -543,6 +657,149 @@ func (a *Aggregator) buildPipelineWidget(now time.Time, warnings *[]string) Pipe
 			Stage:   string(stage),
 			Count:   countByStage[stage],
 			Stalled: stalledByStage[stage],
+		}
+		w.Stages = append(w.Stages, ps)
+		w.Total += ps.Count
+		w.StalledTotal += ps.Stalled
+	}
+	return w
+}
+
+// buildMeetingsPipelineWidget groups meeting notes by stage. Stages
+// are the meeting entity's canonical list (transcript / audio /
+// note). Empty stages still emit a row with Count=0 so the frontend
+// renders a stable shape.
+//
+// Stalled detection: a meeting is stalled if its Updated timestamp
+// (or Created if Updated is zero) is older than the 7-day threshold.
+// Mirrors the buildPipelineWidget convention.
+func (a *Aggregator) buildMeetingsPipelineWidget(now time.Time, warnings *[]string) PipelineWidget {
+	stages := stage.AllStages(stage.EntityMeeting)
+	w := PipelineWidget{Stages: make([]PipelineStage, 0, len(stages))}
+	countByStage := make(map[stage.Stage]int)
+	stalledByStage := make(map[stage.Stage]int)
+
+	if a.meetings != nil {
+		list, err := a.meetings.List()
+		if err != nil {
+			slog.Warn("dashboard: meetings.List failed",
+				"error", err, "widget", "meetings_pipeline")
+			if warnings != nil {
+				*warnings = append(*warnings, "meetings pipeline: store unavailable")
+			}
+		} else {
+			for _, m := range list {
+				st := stage.Normalize(stage.EntityMeeting, string(m.Stage))
+				countByStage[st]++
+				touchedAt := m.Updated
+				if touchedAt.IsZero() {
+					touchedAt = m.Created
+				}
+				if isStalled(touchedAt, now) {
+					stalledByStage[st]++
+				}
+			}
+		}
+	}
+
+	for _, st := range stages {
+		ps := PipelineStage{
+			Stage:   string(st),
+			Count:   countByStage[st],
+			Stalled: stalledByStage[st],
+		}
+		w.Stages = append(w.Stages, ps)
+		w.Total += ps.Count
+		w.StalledTotal += ps.Stalled
+	}
+	return w
+}
+
+// buildDocumentsPipelineWidget groups documents by stage (need /
+// in_progress / final). Same shape rules as the meetings widget.
+func (a *Aggregator) buildDocumentsPipelineWidget(now time.Time, warnings *[]string) PipelineWidget {
+	stages := stage.AllStages(stage.EntityDocument)
+	w := PipelineWidget{Stages: make([]PipelineStage, 0, len(stages))}
+	countByStage := make(map[stage.Stage]int)
+	stalledByStage := make(map[stage.Stage]int)
+
+	if a.documents != nil {
+		list, err := a.documents.List()
+		if err != nil {
+			slog.Warn("dashboard: documents.List failed",
+				"error", err, "widget", "documents_pipeline")
+			if warnings != nil {
+				*warnings = append(*warnings, "documents pipeline: store unavailable")
+			}
+		} else {
+			for _, d := range list {
+				st := stage.Normalize(stage.EntityDocument, string(d.Stage))
+				countByStage[st]++
+				touchedAt := d.Updated
+				if touchedAt.IsZero() {
+					touchedAt = d.Created
+				}
+				if isStalled(touchedAt, now) {
+					stalledByStage[st]++
+				}
+			}
+		}
+	}
+
+	for _, st := range stages {
+		ps := PipelineStage{
+			Stage:   string(st),
+			Count:   countByStage[st],
+			Stalled: stalledByStage[st],
+		}
+		w.Stages = append(w.Stages, ps)
+		w.Total += ps.Count
+		w.StalledTotal += ps.Stalled
+	}
+	return w
+}
+
+// buildPrototypesPipelineWidget groups prototypes by stage. Reuses
+// the existing prototypes.Store.List and falls back through stage
+// .Normalize so legacy `status: draft` notes still classify as
+// in_progress.
+func (a *Aggregator) buildPrototypesPipelineWidget(now time.Time, warnings *[]string) PipelineWidget {
+	stages := stage.AllStages(stage.EntityPrototype)
+	w := PipelineWidget{Stages: make([]PipelineStage, 0, len(stages))}
+	countByStage := make(map[stage.Stage]int)
+	stalledByStage := make(map[stage.Stage]int)
+
+	if a.prototypes != nil {
+		list, err := a.prototypes.List()
+		if err != nil {
+			slog.Warn("dashboard: prototypes.List failed",
+				"error", err, "widget", "prototypes_pipeline")
+			if warnings != nil {
+				*warnings = append(*warnings, "prototypes pipeline: store unavailable")
+			}
+		} else {
+			for _, p := range list {
+				st := stage.Normalize(stage.EntityPrototype, string(p.Stage))
+				if st == "" {
+					st = stage.Normalize(stage.EntityPrototype, p.Status)
+				}
+				countByStage[st]++
+				touchedAt := p.Updated
+				if touchedAt.IsZero() {
+					touchedAt = p.Created
+				}
+				if isStalled(touchedAt, now) {
+					stalledByStage[st]++
+				}
+			}
+		}
+	}
+
+	for _, st := range stages {
+		ps := PipelineStage{
+			Stage:   string(st),
+			Count:   countByStage[st],
+			Stalled: stalledByStage[st],
 		}
 		w.Stages = append(w.Stages, ps)
 		w.Total += ps.Count

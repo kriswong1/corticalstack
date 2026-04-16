@@ -10,13 +10,47 @@ package dashboard
 
 import "time"
 
+// IngestBucketArticles and friends are the canonical, ordered ingest
+// types surfaced on the row-1 chart of the unified dashboard. The
+// order here is the legend order — the frontend renders bars left-to-
+// right in this sequence, so changes are user-visible.
+//
+// "Other" is a catch-all so vault folders that don't map cleanly into
+// the five user-facing buckets (daily, audio, non-YouTube webpages)
+// stay visible on the chart instead of disappearing.
+const (
+	BucketArticles    = "articles"
+	BucketYouTube     = "youtube"
+	BucketTranscripts = "transcripts"
+	BucketDocuments   = "documents"
+	BucketNotes       = "notes"
+	BucketOther       = "other"
+)
+
+// IngestBucketOrder is the fixed left-to-right legend order. Mirrored
+// in the React IngestChart component; do not change one without the
+// other.
+var IngestBucketOrder = []string{
+	BucketArticles,
+	BucketYouTube,
+	BucketTranscripts,
+	BucketDocuments,
+	BucketNotes,
+	BucketOther,
+}
+
 // Snapshot is the full response returned by GET /api/dashboard. A single
-// fetch populates all four widgets plus the freshness marker.
+// fetch populates all widgets plus the freshness marker.
+//
+// ProductPipeline is retained as an alias of Pipelines.Product so the
+// existing frontend keeps reading from /api/dashboard during the
+// front-end rewrite (Phase 4). New consumers should read Pipelines.
 type Snapshot struct {
-	IngestActivity  IngestWidget    `json:"ingest_activity"`
-	Actions         ActionsWidget   `json:"actions"`
-	ActiveProjects  ProjectsWidget  `json:"active_projects"`
-	ProductPipeline PipelineWidget  `json:"product_pipeline"`
+	IngestActivity  IngestWidget   `json:"ingest_activity"`
+	Actions         ActionsWidget  `json:"actions"`
+	ActiveProjects  ProjectsWidget `json:"active_projects"`
+	ProductPipeline PipelineWidget `json:"product_pipeline"`
+	Pipelines       PipelinesGroup `json:"pipelines"`
 
 	// ComputedAt is the timestamp of the last successful recompute.
 	ComputedAt time.Time `json:"computed_at"`
@@ -135,10 +169,26 @@ type PipelineWidget struct {
 
 // PipelineStage is one row of the Product Pipeline widget.
 type PipelineStage struct {
-	Stage   string `json:"stage"`
-	Count   int    `json:"count"`
+	Stage string `json:"stage"`
+	Count int    `json:"count"`
 	// Stalled is the count of threads in this stage whose latest artifact
 	// is older than StalledThreshold (7 days) — meaning the thread has
 	// sat in this stage without advancing.
 	Stalled int `json:"stalled"`
+}
+
+// PipelinesGroup is the row-2 cards data: one PipelineWidget per
+// dashboard entity type. Powers the four cards (Product / Meetings /
+// Documents / Prototypes) that drill into the per-card detail page.
+//
+// Each PipelineWidget uses the existing Stage/Count/Stalled shape but
+// the stage names differ per type (see internal/stage for the
+// canonical lists). The frontend reads `Pipelines.Product.Stages` and
+// renders the stage cells in the order returned, so the aggregator is
+// responsible for the ordering.
+type PipelinesGroup struct {
+	Product    PipelineWidget `json:"product"`
+	Meetings   PipelineWidget `json:"meetings"`
+	Documents  PipelineWidget `json:"documents"`
+	Prototypes PipelineWidget `json:"prototypes"`
 }

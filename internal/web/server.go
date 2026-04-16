@@ -105,6 +105,10 @@ func (s *Server) routes() {
 	// API: per-item usage (powers the dashboard card detail page)
 	r.Get("/api/items/{type}/usage", s.Handler.GetItemUsage)
 
+	// API: card detail (stage distribution + items table + aggregate
+	// usage; one call powers the row-2 card drill-down page)
+	r.Get("/api/cards/{type}", s.Handler.GetCardDetail)
+
 	// API: meetings (transcript / audio / note pipeline)
 	r.Get("/api/meetings", s.Handler.ListMeetings)
 	r.Post("/api/meetings/{id}/stage", s.Handler.SetMeetingStage)
