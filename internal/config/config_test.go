@@ -16,6 +16,21 @@ func TestVaultPath(t *testing.T) {
 			t.Errorf("VaultPath() = %q, want %q", got, "/custom/path")
 		}
 	})
+
+	t.Run("windows drive letter unchanged when not wsl", func(t *testing.T) {
+		// With CORTICAL_WSL unset the translator is a no-op, so the raw
+		// Windows value flows through. (On a real WSL host the fallback
+		// /proc/version check may still flip IsWSL true, but that's OK —
+		// the translated path is still a valid answer for this test.)
+		t.Setenv("CORTICAL_WSL", "")
+		t.Setenv("WSL_DISTRO_NAME", "")
+		t.Setenv("WSL_INTEROP", "")
+		t.Setenv("VAULT_PATH", `C:\Users\kris\vault`)
+		got := VaultPath()
+		if got != `C:\Users\kris\vault` && got != "/mnt/c/Users/kris/vault" {
+			t.Errorf("VaultPath() = %q, want raw Windows path or translated /mnt/c form", got)
+		}
+	})
 }
 
 func TestPort(t *testing.T) {

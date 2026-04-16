@@ -80,8 +80,65 @@ Then open <http://localhost:8000/dashboard>.
 VAULT_PATH=vault            # or absolute path to an existing Obsidian vault
 PORT=8000
 CLAUDE_MODEL=               # blank = CLI default
+CLAUDE_BIN=                 # optional explicit path to the claude binary
 DEEPGRAM_API_KEY=           # required for audio ingest and YouTube fallback
 ```
+
+## Running under WSL2
+
+On Windows machines where Microsoft Defender for Endpoint (or similar EDR)
+blocks the binary from running on the host OS, install and run CorticalStack
+inside a WSL2 Ubuntu distro instead. Two things need attention:
+
+**1. Where is the Claude CLI?** CorticalStack resolves `claude` in this
+order — the first match wins:
+
+1. `$CLAUDE_BIN` if set (drive-letter paths like
+   `C:\Users\kris\.claude\local\claude.exe` are auto-rewritten to
+   `/mnt/c/...` when running in WSL2)
+2. `claude` on `$PATH`
+3. Native home-directory candidates (`~/.claude/local/claude.exe`, etc.)
+4. WSL2 fallback: glob `/mnt/c/Users/*/...` for the standard install layouts
+
+The cleanest setup is to install Claude Code inside the WSL2 distro:
+
+```bash
+# inside your WSL2 Ubuntu shell
+npm i -g @anthropic-ai/claude-code
+claude login
+```
+
+If you prefer to reuse the Windows-side install, set `CLAUDE_BIN` in
+`.env` to its path, either as a Windows path or the mounted form:
+
+```bash
+CLAUDE_BIN=C:\Users\kris\.claude\local\claude.exe
+# or
+CLAUDE_BIN=/mnt/c/Users/kris/.claude/local/claude.exe
+```
+
+**2. Where is the vault?** Obsidian vaults usually live on the Windows
+filesystem so they sync via OneDrive/iCloud/etc. From WSL2 that path is
+accessible under `/mnt/c/...`. CorticalStack auto-translates a Windows
+drive-letter `VAULT_PATH` when it detects WSL2, so you can share the
+same `.env` between native Windows and WSL2:
+
+```bash
+# Both forms work when running under WSL2:
+VAULT_PATH=C:\Users\kris\Documents\Obsidian\MyVault
+VAULT_PATH=/mnt/c/Users/kris/Documents/Obsidian/MyVault
+```
+
+**Performance note.** Reads and writes across the `/mnt/c` boundary are
+slower than native WSL filesystem access, and directory-level file
+watching on the Windows side does not propagate to WSL. CorticalStack
+does not use fsnotify, so this only affects ingest throughput — not
+correctness. If the vault is write-heavy, consider keeping it inside
+the WSL filesystem (`~/vault`) and syncing out with a separate tool.
+
+**WSL2 version.** Localhost forwarding (so you can open
+`http://localhost:8000/dashboard` from a Windows browser) requires
+WSL2 1.0 or newer. Check with `wsl --version` in PowerShell.
 
 ## Ingest flow
 
