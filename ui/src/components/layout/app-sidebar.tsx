@@ -41,7 +41,7 @@ const projectItems = [
 ]
 
 const productItems = [
-  { to: "/product", label: "Product", icon: Lightbulb },
+  { to: "/dashboard/product", label: "Product", icon: Lightbulb },
   { to: "/usecases", label: "Use Cases", icon: FileText },
   { to: "/prototypes", label: "Prototypes", icon: Box },
   { to: "/prds", label: "PRDs", icon: FileCheck },

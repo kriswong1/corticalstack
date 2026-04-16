@@ -7,7 +7,6 @@ import { LibraryPage } from "@/pages/library"
 import { ConfigPage } from "@/pages/config"
 import { ProjectsPage } from "@/pages/projects"
 import { ActionsPage } from "@/pages/actions"
-import { ProductPage } from "@/pages/product"
 import { UseCasesPage } from "@/pages/usecases"
 import { PrototypesPage } from "@/pages/prototypes"
 import { PRDsPage } from "@/pages/prds"
@@ -27,7 +26,7 @@ export const router = createBrowserRouter([
       { path: "config", element: <ConfigPage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "actions", element: <ActionsPage /> },
-      { path: "product", element: <ProductPage /> },
+      { path: "product", element: <Navigate to="/dashboard/product" replace /> },
       { path: "usecases", element: <UseCasesPage /> },
       { path: "prototypes", element: <PrototypesPage /> },
       { path: "prds", element: <PRDsPage /> },
