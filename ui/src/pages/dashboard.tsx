@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/layout/page-header"
 import { SkeletonPage } from "@/components/shared/skeleton-card"
 import { api } from "@/lib/api"
+import { routeFor } from "@/lib/pipeline-stages"
 import type {
   ActionsWidget,
   DashboardSnapshot,
@@ -511,7 +512,7 @@ function PipelineCard({
   const total = widget.total
 
   return (
-    <Link to={`/dashboard/${type}`} className="block">
+    <Link to={routeFor(type)} className="block">
       <Card className="rounded-[14px] border-border shadow-stripe hover:shadow-stripe-elevated hover:-translate-y-[1px] transition-all cursor-pointer">
         <CardHeader className="pb-3">
           <div className="flex items-baseline justify-between">

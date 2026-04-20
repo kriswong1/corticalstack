@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
+import { Breadcrumbs } from "@/components/layout/breadcrumbs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -68,6 +69,7 @@ export function ProjectsPage() {
 
   return (
     <>
+      <Breadcrumbs items={[{ label: "Dashboard", to: "/dashboard" }, { label: "Projects" }]} />
       <PageHeader title="Projects" description="Manage projects">
         <Button
           variant="outline"

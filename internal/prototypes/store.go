@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,12 @@ import (
 )
 
 const prototypesDir = "prototypes"
+const versionsDir = "versions"
+
+// versionFolderRe matches archived-version folder names like "v1",
+// "v2", "v12" under <prototype>/versions/. Lets ListVersions skip
+// stray non-version entries without failing.
+var versionFolderRe = regexp.MustCompile(`^v(\d+)$`)
 
 // Store manages prototype folders in vault/prototypes/<date>_<slug>/.
 type Store struct {
@@ -46,6 +54,9 @@ func (s *Store) Write(p *Prototype) error {
 		// synthesizer just produced a draft, which is past the "need"
 		// state but not yet "final".
 		p.Stage = stage.StageInProgress
+	}
+	if p.Version <= 0 {
+		p.Version = 1
 	}
 
 	// Reuse an existing folder path for regeneration; compute a new one
@@ -180,6 +191,167 @@ func (s *Store) SetStage(id string, target stage.Stage) error {
 	return nil
 }
 
+// ArchiveCurrent copies the current spec.md, prototype.html, and any
+// refine hints metadata into `<folder>/versions/v{n}/` so a subsequent
+// refine can overwrite the root files without losing history. Returns
+// nil if the prototype has no spec yet (fresh folder).
+//
+// Called by the refine handler before calling Synthesize+Write for the
+// next version. The version number passed in is the CURRENT version
+// being archived (i.e. the version that's about to be replaced by
+// v{n+1}).
+func (s *Store) ArchiveCurrent(p *Prototype, hints string) error {
+	if p.FolderPath == "" {
+		return fmt.Errorf("prototype has no folder")
+	}
+	folder := filepath.Join(s.vault.Path(), p.FolderPath)
+	specSrc := filepath.Join(folder, "spec.md")
+	if _, err := os.Stat(specSrc); os.IsNotExist(err) {
+		// Nothing to archive — fresh prototype.
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	verFolder := filepath.Join(folder, versionsDir, fmt.Sprintf("v%d", p.Version))
+	if err := os.MkdirAll(verFolder, 0o700); err != nil {
+		return fmt.Errorf("creating version folder: %w", err)
+	}
+
+	// Copy spec.md
+	if err := copyFile(specSrc, filepath.Join(verFolder, "spec.md")); err != nil {
+		return fmt.Errorf("archiving spec: %w", err)
+	}
+
+	// Copy prototype.html if present
+	htmlSrc := filepath.Join(folder, "prototype.html")
+	if _, err := os.Stat(htmlSrc); err == nil {
+		if err := copyFile(htmlSrc, filepath.Join(verFolder, "prototype.html")); err != nil {
+			return fmt.Errorf("archiving html: %w", err)
+		}
+	}
+
+	// Record the hints that PRODUCED this version (i.e. the prompt the
+	// user gave for the refine that's about to happen). Keeping it
+	// alongside the archived version means the UI can show each
+	// version's refinement reason.
+	if strings.TrimSpace(hints) != "" {
+		hintsPath := filepath.Join(verFolder, "hints.txt")
+		if err := os.WriteFile(hintsPath, []byte(hints), 0o600); err != nil {
+			return fmt.Errorf("writing hints: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// ListVersions returns every archived version for a prototype, oldest
+// first. An empty list means the prototype is still on v1 (no refines
+// have happened). Does not include the current live version — callers
+// get that from the Prototype itself.
+func (s *Store) ListVersions(id string) ([]VersionInfo, error) {
+	list, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var found *Prototype
+	for _, p := range list {
+		if p.ID == id {
+			found = p
+			break
+		}
+	}
+	if found == nil {
+		return nil, fmt.Errorf("prototype not found: %s", id)
+	}
+
+	verRoot := filepath.Join(s.vault.Path(), found.FolderPath, versionsDir)
+	entries, err := os.ReadDir(verRoot)
+	if os.IsNotExist(err) {
+		return []VersionInfo{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var out []VersionInfo
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		m := versionFolderRe.FindStringSubmatch(e.Name())
+		if m == nil {
+			continue
+		}
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		info := VersionInfo{Version: n}
+		verFolder := filepath.Join(verRoot, e.Name())
+		if stat, err := os.Stat(filepath.Join(verFolder, "spec.md")); err == nil {
+			info.Created = stat.ModTime()
+		}
+		if _, err := os.Stat(filepath.Join(verFolder, "prototype.html")); err == nil {
+			info.HasHTML = true
+		}
+		if data, err := os.ReadFile(filepath.Join(verFolder, "hints.txt")); err == nil {
+			info.Hints = strings.TrimSpace(string(data))
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+	return out, nil
+}
+
+// ReadVersionSpec returns the archived spec body for a specific version.
+func (s *Store) ReadVersionSpec(id string, version int) (string, error) {
+	list, err := s.List()
+	if err != nil {
+		return "", err
+	}
+	for _, p := range list {
+		if p.ID != id {
+			continue
+		}
+		path := filepath.Join(s.vault.Path(), p.FolderPath, versionsDir, fmt.Sprintf("v%d", version), "spec.md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+	return "", fmt.Errorf("prototype not found: %s", id)
+}
+
+// ReadVersionHTML returns the archived prototype.html bytes for a
+// specific version.
+func (s *Store) ReadVersionHTML(id string, version int) ([]byte, error) {
+	list, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range list {
+		if p.ID != id {
+			continue
+		}
+		path := filepath.Join(s.vault.Path(), p.FolderPath, versionsDir, fmt.Sprintf("v%d", version), "prototype.html")
+		return os.ReadFile(path)
+	}
+	return nil, fmt.Errorf("prototype not found: %s", id)
+}
+
+// copyFile copies src to dst byte-for-byte. Overwrites any existing
+// file at dst. Used by ArchiveCurrent so we don't pull in io.Copy
+// boilerplate at each call site.
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o600)
+}
+
 // ReadHTML returns the prototype.html contents for a prototype by ID.
 // Returns os.ErrNotExist if the prototype exists but has no HTML file.
 func (s *Store) ReadHTML(id string) ([]byte, *Prototype, error) {
@@ -209,6 +381,7 @@ func buildFrontmatter(p *Prototype) map[string]interface{} {
 		"title":   p.Title,
 		"status":  p.Status,
 		"stage":   string(p.Stage),
+		"version": p.Version,
 		"created": p.Created.Format(time.RFC3339),
 	}
 	if !p.Updated.IsZero() {
@@ -277,6 +450,24 @@ func fromNote(note *vault.Note) *Prototype {
 		if t, err := time.Parse(time.RFC3339, updated); err == nil {
 			p.Updated = t
 		}
+	}
+	// Version can be unmarshaled as int, int64, or string depending on
+	// the YAML source (a handwritten frontmatter might quote it). Accept
+	// any of those and default to 1 for notes written before versioning.
+	switch v := note.Frontmatter["version"].(type) {
+	case int:
+		p.Version = v
+	case int64:
+		p.Version = int(v)
+	case float64:
+		p.Version = int(v)
+	case string:
+		if n, err := strconv.Atoi(v); err == nil {
+			p.Version = n
+		}
+	}
+	if p.Version <= 0 {
+		p.Version = 1
 	}
 	p.Spec = note.Body
 	return p

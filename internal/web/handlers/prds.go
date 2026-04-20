@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/kriswong/corticalstack/internal/prds"
 )
 
@@ -112,5 +113,37 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, p)
+}
+
+// SetPRDStatus handles POST /api/prds/{id}/status. Body is
+// {"status": "draft|review|approved|shipped|archived"}.
+func (h *Handler) SetPRDStatus(w http.ResponseWriter, r *http.Request) {
+	if h.PRDs == nil {
+		http.Error(w, "prd store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Status == "" {
+		http.Error(w, "status required", http.StatusBadRequest)
+		return
+	}
+	p, err := h.PRDs.SetStatus(id, prds.Status(body.Status))
+	if err != nil {
+		slog.Warn("setting prd status", "id", id, "status", body.Status, "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	writeJSON(w, p)
 }

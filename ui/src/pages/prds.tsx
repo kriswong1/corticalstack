@@ -2,11 +2,11 @@ import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
+import { Breadcrumbs } from "@/components/layout/breadcrumbs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -14,26 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { QuestionsModal } from "@/components/questions-modal"
+import { ProductSubnav } from "@/components/product-subnav"
+import { PipelineStageCards } from "@/components/shared/pipeline-stage-cards"
+import { PipelineItemsTable } from "@/components/shared/pipeline-items-table"
 import { api, getErrorMessage } from "@/lib/api"
-import { Plus } from "lucide-react"
-import type { Answer, Question, ShapeUpThread } from "@/types/api"
-
-const statusColors: Record<string, string> = {
-  draft: "bg-muted text-muted-foreground",
-  review: "bg-secondary text-secondary-foreground",
-  approved: "bg-[rgba(21,190,83,0.2)] text-[var(--stripe-success-text)] border-[rgba(21,190,83,0.4)]",
-  shipped: "bg-primary/20 text-primary",
-  archived: "bg-muted text-muted-foreground",
-}
+import { Link } from "react-router-dom"
+import { Plus, X } from "lucide-react"
+import type { Answer, PRD, Question, ShapeUpThread } from "@/types/api"
 
 const ANY_PROJECT = "__any__"
 
@@ -58,6 +46,11 @@ export function PRDsPage() {
   const [extraTags, setExtraTags] = useState("")
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
+  // Status-axis filter driven by the stage cards at the top —
+  // mirrors the dashboard-card behavior so every pipeline surface
+  // feels the same.
+  const [stageFilter, setStageFilter] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const { data: prds, isLoading } = useQuery({
     queryKey: ["prds"],
@@ -169,6 +162,13 @@ export function PRDsPage() {
 
   return (
     <>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", to: "/dashboard" },
+          { label: "PRDs" },
+        ]}
+      />
+      <ProductSubnav />
       <PageHeader
         title="PRDs"
         description="Generated from pitch-complete product threads"
@@ -310,45 +310,76 @@ export function PRDsPage() {
       {isLoading ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : (
-        <div className="rounded-md border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="text-[var(--stripe-label)] text-[13px] font-normal">Title</TableHead>
-                <TableHead className="text-[var(--stripe-label)] text-[13px] font-normal">Status</TableHead>
-                <TableHead className="text-[var(--stripe-label)] text-[13px] font-normal">Version</TableHead>
-                <TableHead className="text-[var(--stripe-label)] text-[13px] font-normal">Open Questions</TableHead>
-                <TableHead className="text-[var(--stripe-label)] text-[13px] font-normal">Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {prds?.map((prd) => (
-                <TableRow key={prd.id}>
-                  <TableCell className="text-sm font-light">{prd.title}</TableCell>
-                  <TableCell>
-                    <Badge className={`text-[10px] font-light rounded-sm px-1.5 py-px ${statusColors[prd.status] ?? ""}`}>
-                      {prd.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground tabular-nums">
-                    v{prd.version}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground tabular-nums">
-                    {prd.open_questions_count}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground font-mono">
-                    {new Date(prd.created).toLocaleDateString()}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {prds?.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">No PRDs yet.</TableCell>
-                </TableRow>
+        <>
+          {/* Status distribution — shared pipeline-stage cards.
+              Clicking a card filters the items table; hover shows
+              the PRD titles currently in that status. */}
+          <PipelineStageCards
+            type="prd"
+            items={(prds ?? []).map((prd) => ({
+              id: prd.id,
+              title: prd.title,
+              stage: prd.status,
+            }))}
+            selectedStage={stageFilter}
+            onSelectStage={(s) => {
+              setStageFilter(s)
+              setSelected(new Set())
+            }}
+          />
+
+          <Card className="rounded-[14px] border-border shadow-stripe mt-5">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3 space-y-0">
+              <CardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
+                PRDs
+                {stageFilter && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    filtered by {stageFilter}
+                  </span>
+                )}
+                {selected.size > 0 && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    · {selected.size} selected
+                  </span>
+                )}
+              </CardTitle>
+              {stageFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setStageFilter(null)}
+                  className="h-7 px-2 text-xs gap-1"
+                >
+                  <X className="h-3 w-3" /> Clear filter
+                </Button>
               )}
-            </TableBody>
-          </Table>
-        </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <PRDItemsTable
+                prds={prds ?? []}
+                threads={threads ?? []}
+                stageFilter={stageFilter}
+                selected={selected}
+                onToggleItem={(idv) =>
+                  setSelected((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(idv)) next.delete(idv)
+                    else next.add(idv)
+                    return next
+                  })
+                }
+                onToggleAll={(ids, allSel) =>
+                  setSelected((prev) => {
+                    const next = new Set(prev)
+                    if (allSel) for (const x of ids) next.delete(x)
+                    else for (const x of ids) next.add(x)
+                    return next
+                  })
+                }
+              />
+            </CardContent>
+          </Card>
+        </>
       )}
 
       <QuestionsModal
@@ -368,5 +399,86 @@ export function PRDsPage() {
         onSkip={() => createMutation.mutate([])}
       />
     </>
+  )
+}
+
+// PRDItemsTable adapts PRD data (id, title, status, source_thread,
+// version, open_questions_count, created) to the shared
+// PipelineItemsTable contract. The shared component owns the base
+// columns (Title / Stage / Updated) and checkboxes; this wrapper
+// adds the Source Thread column that PRDs share with Prototypes.
+function PRDItemsTable({
+  prds,
+  threads,
+  stageFilter,
+  selected,
+  onToggleItem,
+  onToggleAll,
+}: {
+  prds: PRD[]
+  threads: ShapeUpThread[]
+  stageFilter: string | null
+  selected: Set<string>
+  onToggleItem: (id: string) => void
+  onToggleAll: (ids: string[], allSelected: boolean) => void
+}) {
+  const tableItems = prds
+    .filter((prd) => !stageFilter || prd.status === stageFilter)
+    .map((prd) => ({
+      id: prd.id,
+      title: prd.title,
+      stage: prd.status,
+      updated: prd.created,
+      _prd: prd,
+    }))
+
+  const ids = tableItems.map((i) => i.id)
+  const allSelected =
+    tableItems.length > 0 && ids.every((id) => selected.has(id))
+
+  return (
+    <PipelineItemsTable
+      type="prd"
+      items={tableItems}
+      selected={selected}
+      onToggleItem={onToggleItem}
+      onToggleAll={() => onToggleAll(ids, allSelected)}
+      allSelected={allSelected}
+      // There's no standalone PRD detail page — PRDs live inside the
+      // source thread's downstream-artifacts section. "View" jumps to
+      // that thread so users land in context. PRDs with no source
+      // thread dead-end at the listing to avoid a 404.
+      viewLinkFor={(item) => {
+        const prd = (item as typeof item & { _prd: PRD })._prd
+        return prd.source_thread ? `/product/${prd.source_thread}` : "/prds"
+      }}
+      emptyMessage={
+        stageFilter
+          ? `No PRDs in the ${stageFilter} status.`
+          : "No PRDs yet."
+      }
+      extraColumns={[
+        {
+          header: "Source Thread",
+          cell: (item) => {
+            const prd = (item as typeof item & { _prd: PRD })._prd
+            const thread = prd.source_thread
+              ? threads.find((t) => t.id === prd.source_thread)
+              : undefined
+            if (!thread) {
+              return <span className="text-xs text-muted-foreground">—</span>
+            }
+            return (
+              <Link
+                to={`/product/${thread.id}`}
+                className="text-xs text-primary hover:underline"
+              >
+                {thread.title}
+              </Link>
+            )
+          },
+        },
+      ]}
+    />
   )
 }

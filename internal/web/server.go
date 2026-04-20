@@ -165,12 +165,16 @@ func (s *Server) routes() {
 	r.Post("/api/prototypes/questions", s.Handler.QuestionsForPrototype)
 	r.Get("/api/prototypes/{id}/html", s.Handler.ViewPrototypeHTML)
 	r.Post("/api/prototypes/{id}/stage", s.Handler.SetPrototypeStage)
-	r.Post("/api/prototypes/{id}/regenerate", s.Handler.RegeneratePrototype)
+	r.Post("/api/prototypes/{id}/refine", s.Handler.RefinePrototype)
+	r.Get("/api/prototypes/{id}/versions", s.Handler.ListPrototypeVersions)
+	r.Get("/api/prototypes/{id}/versions/{v}/spec", s.Handler.GetPrototypeVersionSpec)
+	r.Get("/api/prototypes/{id}/versions/{v}/html", s.Handler.GetPrototypeVersionHTML)
 
 	// API: PRDs
 	r.Get("/api/prds", s.Handler.ListPRDs)
 	r.Post("/api/prds", s.Handler.CreatePRD)
 	r.Post("/api/prds/questions", s.Handler.QuestionsForPRD)
+	r.Post("/api/prds/{id}/status", s.Handler.SetPRDStatus)
 
 	// SPA catch-all: serve Vite-built React app for all non-API routes.
 	spaFS, _ := fs.Sub(spa.DistFS, "dist")

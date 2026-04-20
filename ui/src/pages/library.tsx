@@ -2,6 +2,7 @@ import { useState, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { PageHeader } from "@/components/layout/page-header"
+import { Breadcrumbs } from "@/components/layout/breadcrumbs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { api } from "@/lib/api"
 import type { VaultTreeNode } from "@/types/api"
@@ -102,6 +103,12 @@ export function LibraryPage() {
 
   return (
     <>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", to: "/dashboard" },
+          { label: "Library" },
+        ]}
+      />
       <PageHeader title="Library" description="Browse vault contents" />
 
       {hasFilter && (

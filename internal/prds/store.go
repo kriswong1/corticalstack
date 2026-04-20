@@ -88,6 +88,55 @@ func (s *Store) List() ([]*PRD, error) {
 // Vault exposes the bound vault.
 func (s *Store) Vault() *vault.Vault { return s.vault }
 
+// validStatus lists the statuses SetStatus will accept.
+var validStatus = map[Status]bool{
+	StatusDraft:    true,
+	StatusReview:   true,
+	StatusApproved: true,
+	StatusShipped:  true,
+	StatusArchived: true,
+}
+
+// SetStatus rewrites the frontmatter `status` on the PRD identified by
+// id. The PRD's path (and body) is preserved — only the metadata
+// field changes. Returns an error if the status is unknown or the PRD
+// cannot be located by id.
+func (s *Store) SetStatus(id string, status Status) (*PRD, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id required")
+	}
+	if !validStatus[status] {
+		return nil, fmt.Errorf("invalid PRD status: %q", status)
+	}
+	list, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var found *PRD
+	for _, p := range list {
+		if p.ID == id {
+			found = p
+			break
+		}
+	}
+	if found == nil {
+		return nil, fmt.Errorf("prd not found: %s", id)
+	}
+	note, err := s.vault.ReadNote(found.Path)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", found.Path, err)
+	}
+	if note.Frontmatter == nil {
+		note.Frontmatter = map[string]interface{}{}
+	}
+	note.Frontmatter["status"] = string(status)
+	if err := s.vault.WriteNote(found.Path, note); err != nil {
+		return nil, fmt.Errorf("writing %s: %w", found.Path, err)
+	}
+	found.Status = status
+	return found, nil
+}
+
 func relPathFor(p *PRD) string {
 	date := p.Created.Format("2006-01-02")
 	slug := vault.Slugify(p.Title)

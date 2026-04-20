@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"log/slog"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/prototypes"
-	"github.com/kriswong/corticalstack/internal/questions"
 	"github.com/kriswong/corticalstack/internal/stage"
 )
 
@@ -170,12 +170,14 @@ func (h *Handler) SetPrototypeStage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"id": id, "stage": string(target)})
 }
 
-// RegeneratePrototype handles POST /api/prototypes/{id}/regenerate.
-// It looks up the existing prototype's metadata, re-runs synthesis with
-// the same source paths and format, and overwrites the files in-place.
-// Accepts optional {"hints": "...", "questions": [...], "answers": [...]}
-// to refine the output.
-func (h *Handler) RegeneratePrototype(w http.ResponseWriter, r *http.Request) {
+// RefinePrototype handles POST /api/prototypes/{id}/refine. It
+// archives the current version to `<folder>/versions/v{n}/`, then
+// re-runs synthesis with the user's refinement hints and writes the
+// result in-place as v{n+1}. Accepts optional {"hints": "...",
+// "questions": [...], "answers": [...]} — hints are the primary
+// input ("make the header bigger") while the Q&A flow lets Claude
+// ask for clarifications first.
+func (h *Handler) RefinePrototype(w http.ResponseWriter, r *http.Request) {
 	if h.Prototypes == nil || h.PrototypeSynth == nil {
 		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
 		return
@@ -185,7 +187,7 @@ func (h *Handler) RegeneratePrototype(w http.ResponseWriter, r *http.Request) {
 	// Find the existing prototype to copy its source metadata.
 	list, err := h.Prototypes.List()
 	if err != nil {
-		internalError(w, "prototype.regenerate.list", err)
+		internalError(w, "prototype.refine.list", err)
 		return
 	}
 	var existing *prototypes.Prototype
@@ -201,12 +203,16 @@ func (h *Handler) RegeneratePrototype(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse optional body for hints/answers.
-	var body struct {
-		Hints     string               `json:"hints,omitempty"`
-		Questions []questions.Question `json:"questions,omitempty"`
-		Answers   []questions.Answer   `json:"answers,omitempty"`
-	}
+	var body prototypes.RefineRequest
 	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	// Archive the CURRENT live version before we overwrite it. Uses
+	// the pre-refine version number (n), so after this call the
+	// archive at v{n} contains what was just the live copy.
+	if err := h.Prototypes.ArchiveCurrent(existing, body.Hints); err != nil {
+		internalError(w, "prototype.refine.archive", err)
+		return
+	}
 
 	req := prototypes.CreateRequest{
 		Title:        existing.Title,
@@ -221,19 +227,115 @@ func (h *Handler) RegeneratePrototype(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
-		internalError(w, "prototype.regenerate.synthesize", err)
+		internalError(w, "prototype.refine.synthesize", err)
 		return
 	}
-	// Preserve the original ID and created date so the URL stays stable.
+	// Preserve the original ID / created / folder so the URL stays
+	// stable, and bump the version counter. Synthesize returns a
+	// fresh Prototype with Version=1 by default, so we clobber it.
 	p.ID = existing.ID
 	p.Created = existing.Created
 	p.FolderPath = existing.FolderPath
+	p.Version = existing.Version + 1
 
 	if err := h.Prototypes.Write(p); err != nil {
-		internalError(w, "prototype.regenerate.write", err)
+		internalError(w, "prototype.refine.write", err)
 		return
 	}
 	writeJSON(w, p)
+}
+
+// ListPrototypeVersions handles GET /api/prototypes/{id}/versions.
+// Returns the archived versions (v1 … v{n-1}); the current live
+// version lives on the prototype itself.
+func (h *Handler) ListPrototypeVersions(w http.ResponseWriter, r *http.Request) {
+	if h.Prototypes == nil {
+		writeJSON(w, []prototypes.VersionInfo{})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	versions, err := h.Prototypes.ListVersions(id)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, []prototypes.VersionInfo{})
+			return
+		}
+		// `prototype not found` isn't os.ErrNotExist, so check by
+		// string to return a 404 instead of 500.
+		if err.Error() == "prototype not found: "+id {
+			http.Error(w, "prototype not found", http.StatusNotFound)
+			return
+		}
+		internalError(w, "prototype.versions.list", err)
+		return
+	}
+	writeJSON(w, versions)
+}
+
+// GetPrototypeVersionSpec handles GET /api/prototypes/{id}/versions/{v}/spec.
+// Returns the archived spec.md body as text/markdown so the frontend
+// can render it read-only in the content panel.
+func (h *Handler) GetPrototypeVersionSpec(w http.ResponseWriter, r *http.Request) {
+	if h.Prototypes == nil {
+		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	vStr := chi.URLParam(r, "v")
+	v, err := parseVersion(vStr)
+	if err != nil {
+		http.Error(w, "invalid version: "+vStr, http.StatusBadRequest)
+		return
+	}
+	body, err := h.Prototypes.ReadVersionSpec(id, v)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "version not found", http.StatusNotFound)
+			return
+		}
+		internalError(w, "prototype.version.spec", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	_, _ = w.Write([]byte(body))
+}
+
+// GetPrototypeVersionHTML handles GET /api/prototypes/{id}/versions/{v}/html.
+// Returns the archived prototype.html; used by the version-preview
+// iframe on the item pipeline page. Mirrors GetPrototypeHTML's CSP.
+func (h *Handler) GetPrototypeVersionHTML(w http.ResponseWriter, r *http.Request) {
+	if h.Prototypes == nil {
+		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	vStr := chi.URLParam(r, "v")
+	v, err := parseVersion(vStr)
+	if err != nil {
+		http.Error(w, "invalid version: "+vStr, http.StatusBadRequest)
+		return
+	}
+	body, err := h.Prototypes.ReadVersionHTML(id, v)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "version not found", http.StatusNotFound)
+			return
+		}
+		internalError(w, "prototype.version.html", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(body)
+}
+
+func parseVersion(raw string) (int, error) {
+	var v int
+	_, err := fmt.Sscanf(raw, "%d", &v)
+	if err != nil || v <= 0 {
+		return 0, fmt.Errorf("invalid version")
+	}
+	return v, nil
 }
 
 // CreatePrototype handles POST /api/prototypes.

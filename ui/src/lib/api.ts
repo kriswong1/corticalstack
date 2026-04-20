@@ -20,6 +20,8 @@ import type {
   UseCaseFromDocQuestionsRequest,
   UseCaseFromTextQuestionsRequest,
   Prototype,
+  PrototypeVersionInfo,
+  RefinePrototypeRequest,
   CreatePrototypeRequest,
   PrototypeQuestionsRequest,
   PRD,
@@ -340,14 +342,25 @@ export const api = {
   prototypeQuestions: (body: PrototypeQuestionsRequest) =>
     postLong<QuestionsResponse>("/api/prototypes/questions", body),
   prototypeHTMLUrl: (id: string) => `/api/prototypes/${id}/html`,
-  regeneratePrototype: (id: string, body: { hints?: string; questions?: Question[]; answers?: Answer[] }) =>
-    postLong<Prototype>(`/api/prototypes/${id}/regenerate`, body),
+  refinePrototype: (id: string, body: RefinePrototypeRequest) =>
+    postLong<Prototype>(`/api/prototypes/${id}/refine`, body),
+  listPrototypeVersions: (id: string) =>
+    request<PrototypeVersionInfo[]>(`/api/prototypes/${id}/versions`),
+  prototypeVersionHTMLUrl: (id: string, version: number) =>
+    `/api/prototypes/${id}/versions/${version}/html`,
+  getPrototypeVersionSpec: (id: string, version: number) =>
+    fetch(`/api/prototypes/${id}/versions/${version}/spec`).then((r) => {
+      if (!r.ok) throw new Error(`version fetch failed: ${r.status}`)
+      return r.text()
+    }),
 
   // PRDs
   listPRDs: () => request<PRD[]>("/api/prds"),
   createPRD: (body: CreatePRDRequest) => postLong<PRD>("/api/prds", body),
   prdQuestions: (body: PRDQuestionsRequest) =>
     postLong<QuestionsResponse>("/api/prds/questions", body),
+  setPRDStatus: (id: string, status: string) =>
+    post<PRD>(`/api/prds/${id}/status`, { status }),
 
   // Persona
   getPersonaStatus: () => request<PersonaStatusResponse>("/api/persona/status"),

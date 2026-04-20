@@ -243,11 +243,27 @@ export interface Prototype {
   projects?: string[]
   status: string
   stage?: string
+  /** Current iteration number. Starts at 1; each successful refine
+      bumps it. Past versions are archived server-side. */
+  version: number
   spec?: string
   has_html?: boolean
   folder_path?: string
   created: string
   updated?: string
+}
+
+export interface PrototypeVersionInfo {
+  version: number
+  created: string
+  hints?: string
+  has_html: boolean
+}
+
+export interface RefinePrototypeRequest {
+  hints?: string
+  questions?: Question[]
+  answers?: Answer[]
 }
 
 export interface CreatePrototypeRequest {

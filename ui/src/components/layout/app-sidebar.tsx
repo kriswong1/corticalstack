@@ -40,11 +40,16 @@ const projectItems = [
   { to: "/actions", label: "Actions", icon: ListChecks },
 ]
 
+// Threads is the primary surface — product threads and their downstream
+// artifacts are reached from the thread detail page (the "hub"). The
+// other three entries are cross-thread aggregate views for power users
+// who want to search across all threads; prefixed "All" to signal their
+// secondary role.
 const productItems = [
-  { to: "/dashboard/product", label: "Product", icon: Lightbulb },
-  { to: "/usecases", label: "Use Cases", icon: FileText },
-  { to: "/prototypes", label: "Prototypes", icon: Box },
-  { to: "/prds", label: "PRDs", icon: FileCheck },
+  { to: "/product", label: "Threads", icon: Lightbulb },
+  { to: "/prototypes", label: "All Prototypes", icon: Box },
+  { to: "/prds", label: "All PRDs", icon: FileCheck },
+  { to: "/usecases", label: "All Use Cases", icon: FileText },
 ]
 
 const systemItems = [

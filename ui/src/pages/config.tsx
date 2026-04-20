@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PageHeader } from "@/components/layout/page-header"
+import { Breadcrumbs } from "@/components/layout/breadcrumbs"
 import { QuestionsModal } from "@/components/questions-modal"
 import { OnboardingProgress } from "@/components/config/onboarding-progress"
 import { ObsidianCard } from "@/components/config/obsidian-card"
@@ -57,6 +58,7 @@ export function ConfigPage() {
   if (isLoading) {
     return (
       <>
+        <Breadcrumbs items={[{ label: "Dashboard", to: "/dashboard" }, { label: "Config" }]} />
         <PageHeader title="Config" description="System configuration and persona files" />
         <p className="text-muted-foreground">Loading...</p>
       </>
@@ -65,6 +67,7 @@ export function ConfigPage() {
 
   return (
     <>
+      <Breadcrumbs items={[{ label: "Dashboard", to: "/dashboard" }, { label: "Config" }]} />
       <PageHeader title="Config" description="System configuration and persona files" />
 
       <OnboardingProgress />

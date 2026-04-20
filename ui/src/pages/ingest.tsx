@@ -1,5 +1,6 @@
 import { useState, useRef } from "react"
 import { PageHeader } from "@/components/layout/page-header"
+import { Breadcrumbs } from "@/components/layout/breadcrumbs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,6 +34,12 @@ export function IngestPage() {
 
   return (
     <>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", to: "/dashboard" },
+          { label: "Ingest" },
+        ]}
+      />
       <PageHeader
         title="Ingest"
         description="Submit text, files, or URLs for processing"

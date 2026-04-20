@@ -26,12 +26,32 @@ type Prototype struct {
 	Projects     []string    `json:"projects,omitempty"      yaml:"projects,omitempty"`
 	Status       string      `json:"status"                  yaml:"status"` // legacy: draft | exported
 	Stage        stage.Stage `json:"stage"                   yaml:"stage"`  // dashboard: need | in_progress | final
-	Spec         string      `json:"spec,omitempty"          yaml:"-"`
-	HTMLBody     string      `json:"-"                       yaml:"-"` // populated for interactive-html, written as prototype.html
-	HasHTML      bool        `json:"has_html"                yaml:"-"`
-	FolderPath   string      `json:"folder_path,omitempty"   yaml:"-"`
-	Created      time.Time   `json:"created"                 yaml:"created"`
-	Updated      time.Time   `json:"updated,omitempty"       yaml:"updated,omitempty"`
+	// Version is the current iteration number. Starts at 1 on create
+	// and increments on every successful refine. Past versions are
+	// archived in `versions/v{n}/` under the prototype folder.
+	Version    int       `json:"version"                 yaml:"version"`
+	Spec       string    `json:"spec,omitempty"          yaml:"-"`
+	HTMLBody   string    `json:"-"                       yaml:"-"` // populated for interactive-html, written as prototype.html
+	HasHTML    bool      `json:"has_html"                yaml:"-"`
+	FolderPath string    `json:"folder_path,omitempty"   yaml:"-"`
+	Created    time.Time `json:"created"                 yaml:"created"`
+	Updated    time.Time `json:"updated,omitempty"       yaml:"updated,omitempty"`
+}
+
+// VersionInfo describes one archived version of a prototype. Returned
+// by Store.ListVersions so the UI can render the version switcher.
+type VersionInfo struct {
+	Version int       `json:"version"`
+	Created time.Time `json:"created"`
+	Hints   string    `json:"hints,omitempty"`
+	HasHTML bool      `json:"has_html"`
+}
+
+// RefineRequest is POST /api/prototypes/{id}/refine.
+type RefineRequest struct {
+	Hints     string               `json:"hints,omitempty"`
+	Questions []questions.Question `json:"questions,omitempty"`
+	Answers   []questions.Answer   `json:"answers,omitempty"`
 }
 
 // CreateRequest is POST /api/prototypes.
