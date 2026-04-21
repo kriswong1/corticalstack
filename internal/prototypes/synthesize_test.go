@@ -65,7 +65,7 @@ func TestParseJSONResponse(t *testing.T) {
 
 func TestBuildSynthesisPrompt(t *testing.T) {
 	format := &ScreenFlow{}
-	got := buildSynthesisPrompt(format, "source document content", "make it mobile first", "")
+	got := buildSynthesisPrompt(format, "source document content", "make it mobile first", "", "", false)
 	// NT-02: dropped "SchemaHint" — the previous wantHas entry was a
 	// dead expectation paired with an explicit skip in the loop below.
 	// We now verify the SchemaHint-derived content ("screens",
@@ -89,8 +89,31 @@ func TestBuildSynthesisPrompt(t *testing.T) {
 }
 
 func TestBuildSynthesisPromptNoHints(t *testing.T) {
-	got := buildSynthesisPrompt(&ScreenFlow{}, "content", "", "")
+	got := buildSynthesisPrompt(&ScreenFlow{}, "content", "", "", "", false)
 	if strings.Contains(got, "User hints") {
 		t.Errorf("empty hints should not produce hints section")
+	}
+}
+
+func TestBuildSynthesisPromptRefineIncludesPrevious(t *testing.T) {
+	got := buildSynthesisPrompt(&ScreenFlow{}, "content", "", "", "PREVIOUS_BODY", true)
+	for _, sub := range []string{
+		"Revise the existing",
+		"Current version (revise this)",
+		"PREVIOUS_BODY",
+	} {
+		if !strings.Contains(got, sub) {
+			t.Errorf("refine prompt missing %q", sub)
+		}
+	}
+}
+
+func TestBuildSynthesisPromptNonRefineOmitsPrevious(t *testing.T) {
+	got := buildSynthesisPrompt(&ScreenFlow{}, "content", "", "", "PREVIOUS_BODY", false)
+	if strings.Contains(got, "Current version") {
+		t.Errorf("non-refine prompt should not include previous-version block")
+	}
+	if strings.Contains(got, "PREVIOUS_BODY") {
+		t.Errorf("non-refine prompt should not leak previous body")
 	}
 }

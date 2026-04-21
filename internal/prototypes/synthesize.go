@@ -123,7 +123,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 	}
 
 	answerBlock := questions.FormatAnswers(req.Questions, req.Answers)
-	prompt := s.persona.BuildContextPrompt() + buildSynthesisPrompt(format, sources.String(), req.Hints, answerBlock)
+	prompt := s.persona.BuildContextPrompt() + buildSynthesisPrompt(format, sources.String(), req.Hints, answerBlock, req.PreviousOutput, req.IsRefine)
 
 	// Pre-allocate the prototype ID so the same UUID flows into both
 	// the item-usage log (now) and the on-disk artifact (later in
@@ -175,10 +175,14 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 	}, nil
 }
 
-func buildSynthesisPrompt(format Format, sources, hints, answerBlock string) string {
+func buildSynthesisPrompt(format Format, sources, hints, answerBlock, previous string, isRefine bool) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("You are a senior product designer. Turn the source documents below into a **%s** design spec.\n\n", format.Name()))
+	if isRefine {
+		b.WriteString(fmt.Sprintf("You are a senior product designer. Revise the existing **%s** design spec below. Produce a new version that incorporates the user's hints and Q&A answers — preserve what works, change only what the refinement asks for. Do not re-generate from scratch.\n\n", format.Name()))
+	} else {
+		b.WriteString(fmt.Sprintf("You are a senior product designer. Turn the source documents below into a **%s** design spec.\n\n", format.Name()))
+	}
 	// MD-11: tell Claude how to treat fenced untrusted content before we
 	// start embedding it, so a prompt-injection attempt inside a source
 	// document or a user hint can't re-interpret itself as a system
@@ -186,6 +190,15 @@ func buildSynthesisPrompt(format Format, sources, hints, answerBlock string) str
 	b.WriteString(questions.UntrustedFenceNotice)
 	b.WriteString("\n\n")
 	b.WriteString(fmt.Sprintf("## Format: %s\n%s\n\n", format.Name(), format.Description()))
+
+	// On refine, show the previous output first so Claude has a concrete
+	// reference to diff against. The hints and answers that follow then
+	// read as "changes to apply" rather than "additional context".
+	if isRefine && strings.TrimSpace(previous) != "" {
+		b.WriteString("## Current version (revise this)\n")
+		b.WriteString(questions.FenceUntrustedBlock(previous))
+		b.WriteString("\n")
+	}
 
 	if answerBlock != "" {
 		b.WriteString(answerBlock)

@@ -214,15 +214,26 @@ func (h *Handler) RefinePrototype(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pick the previous output to show Claude. Raw formats carry the
+	// rendered HTML body; structured formats carry the spec markdown.
+	// Either one gives Claude a concrete reference to modify instead
+	// of re-generating blind.
+	prev := existing.HTMLBody
+	if prev == "" {
+		prev = existing.Spec
+	}
+
 	req := prototypes.CreateRequest{
-		Title:        existing.Title,
-		SourcePaths:  existing.SourceRefs,
-		Format:       existing.Format,
-		Hints:        body.Hints,
-		SourceThread: existing.SourceThread,
-		ProjectIDs:   existing.Projects,
-		Questions:    body.Questions,
-		Answers:      body.Answers,
+		Title:          existing.Title,
+		SourcePaths:    existing.SourceRefs,
+		Format:         existing.Format,
+		Hints:          body.Hints,
+		SourceThread:   existing.SourceThread,
+		ProjectIDs:     existing.Projects,
+		Questions:      body.Questions,
+		Answers:        body.Answers,
+		PreviousOutput: prev,
+		IsRefine:       true,
 	}
 
 	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)

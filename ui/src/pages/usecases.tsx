@@ -451,7 +451,7 @@ export function UseCasesPage() {
                 }
                 extraColumns={[
                   {
-                    header: "Source Thread",
+                    header: "Source Spec",
                     cell: (item) => {
                       const uc = (item as typeof item & { _uc: UseCase })._uc
                       const thread = uc.source

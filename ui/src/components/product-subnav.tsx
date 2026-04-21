@@ -3,12 +3,12 @@ import { cn } from "@/lib/utils"
 import { Box, FileCheck, FileText, Lightbulb } from "lucide-react"
 
 // ProductSubnav renders a tab strip across the top of the four product
-// surfaces (Threads, Prototypes, PRDs, Use Cases) so the user can hop
+// surfaces (Specs, Prototypes, PRDs, Use Cases) so the user can hop
 // between them without bouncing back to the sidebar. Each tab stays
 // active for both its listing URL and any item-detail URL nested
 // beneath it.
 const tabs = [
-  { to: "/product", label: "Threads", icon: Lightbulb, matches: (p: string) => p === "/product" || p.startsWith("/product/") },
+  { to: "/product", label: "Specs", icon: Lightbulb, matches: (p: string) => p === "/product" || p.startsWith("/product/") },
   { to: "/prototypes", label: "Prototypes", icon: Box, matches: (p: string) => p === "/prototypes" || p.startsWith("/prototypes/") },
   { to: "/prds", label: "PRDs", icon: FileCheck, matches: (p: string) => p === "/prds" || p.startsWith("/prds/") },
   { to: "/usecases", label: "Use Cases", icon: FileText, matches: (p: string) => p === "/usecases" || p.startsWith("/usecases/") },

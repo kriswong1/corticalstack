@@ -193,7 +193,7 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
   // --- Prototype: create from thread ---
   const createPrototypeMutation = useMutation({
     mutationFn: () => {
-      if (!selectedProtoThread) throw new Error("No thread selected")
+      if (!selectedProtoThread) throw new Error("No spec selected")
       const sourcePaths = sourcesFromThread(selectedProtoThread)
       return api.createPrototype({
         title: selectedProtoThread.title,
@@ -285,7 +285,7 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
     isPrototype
       ? [
           {
-            header: "Source Thread",
+            header: "Source Spec",
             cell: (item) => {
               const proto = (protoList ?? []).find((p) => p.id === item.id)
               const thread = proto?.source_thread
@@ -380,7 +380,7 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
           <Button
             onClick={() => setShowNewPrototype(!showNewPrototype)}
             disabled={readyThreads.length === 0}
-            title={readyThreads.length === 0 ? "Advance a thread to breadboard first" : undefined}
+            title={readyThreads.length === 0 ? "Advance a spec to breadboard first" : undefined}
             className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {showNewPrototype ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
@@ -565,11 +565,11 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
             >
               <div className="space-y-2">
                 <Label className="text-[var(--stripe-label)] text-sm font-normal">
-                  Source thread (must have a breadboard)
+                  Source spec (must have a breadboard)
                 </Label>
                 <Select value={protoThreadId} onValueChange={setProtoThreadId}>
                   <SelectTrigger className="border-border rounded-sm">
-                    <SelectValue placeholder="Pick a thread..." />
+                    <SelectValue placeholder="Pick a spec..." />
                   </SelectTrigger>
                   <SelectContent>
                     {readyThreads.map((t) => (
@@ -582,7 +582,7 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
                 {selectedProtoThread && (
                   <p className="text-[11px] text-muted-foreground font-mono">
                     {sourcesFromThread(selectedProtoThread).length} source file
-                    {sourcesFromThread(selectedProtoThread).length === 1 ? "" : "s"} from this thread
+                    {sourcesFromThread(selectedProtoThread).length === 1 ? "" : "s"} from this spec
                   </p>
                 )}
               </div>

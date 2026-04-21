@@ -55,15 +55,23 @@ type RefineRequest struct {
 }
 
 // CreateRequest is POST /api/prototypes.
+//
+// PreviousOutput + IsRefine are internal fields set by the refine
+// handler so synthesis can show Claude the current version and ask
+// for a modification rather than a fresh draft. They're not exposed
+// on the public create endpoint (no json tag matches an inbound
+// field name a caller would set).
 type CreateRequest struct {
-	Title        string               `json:"title"`
-	SourcePaths  []string             `json:"source_paths"`
-	Format       string               `json:"format"`
-	Hints        string               `json:"hints,omitempty"`
-	ProjectIDs   []string             `json:"project_ids,omitempty"`
-	SourceThread string               `json:"source_thread,omitempty"`
-	Questions    []questions.Question `json:"questions,omitempty"`
-	Answers      []questions.Answer   `json:"answers,omitempty"`
+	Title          string               `json:"title"`
+	SourcePaths    []string             `json:"source_paths"`
+	Format         string               `json:"format"`
+	Hints          string               `json:"hints,omitempty"`
+	ProjectIDs     []string             `json:"project_ids,omitempty"`
+	SourceThread   string               `json:"source_thread,omitempty"`
+	Questions      []questions.Question `json:"questions,omitempty"`
+	Answers        []questions.Answer   `json:"answers,omitempty"`
+	PreviousOutput string               `json:"-"`
+	IsRefine       bool                 `json:"-"`
 }
 
 // QuestionsRequest is POST /api/prototypes/questions.

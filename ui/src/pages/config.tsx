@@ -5,8 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PageHeader } from "@/components/layout/page-header"
@@ -23,7 +21,6 @@ import { api, getErrorMessage } from "@/lib/api"
 import { Save, Sparkles, Settings, Plug, User } from "lucide-react"
 import type { Answer, Question } from "@/types/api"
 
-const personaNames = ["soul", "user", "memory"] as const
 const personaTitles: Record<string, string> = {
   soul: "SOUL — Extraction Style",
   user: "USER — Profile",
@@ -184,90 +181,6 @@ export function ConfigPage() {
         </TabsContent>
       </Tabs>
     </>
-  )
-}
-
-function PersonaSetupForm({ onComplete }: { onComplete: () => void }) {
-  const queryClient = useQueryClient()
-  const [name, setName] = useState("")
-  const [role, setRole] = useState("")
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone)
-  const [context, setContext] = useState("")
-  const [projects, setProjects] = useState("")
-  const [platforms, setPlatforms] = useState("")
-
-  const mutation = useMutation({
-    mutationFn: () =>
-      api.setupPersona({
-        name,
-        role,
-        timezone,
-        context,
-        projects: projects.split("\n").map((s) => s.trim()).filter(Boolean),
-        platforms,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["persona", "user"] })
-      queryClient.invalidateQueries({ queryKey: ["onboarding-status"] })
-      toast.success("USER.md generated")
-      onComplete()
-    },
-    onError: (err) => {
-      toast.error(getErrorMessage(err))
-    },
-  })
-
-  return (
-    <form
-      className="space-y-4"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (!name.trim() || !role.trim()) return
-        mutation.mutate()
-      }}
-    >
-      <h3 className="text-base font-light text-foreground">Quick Profile Setup</h3>
-      <p className="text-xs text-muted-foreground">
-        Fill in the basics to personalize your USER.md. Takes 30 seconds.
-      </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="space-y-2">
-          <Label className="text-[var(--stripe-label)] text-sm font-normal">Name *</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="border-border rounded-sm" />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-[var(--stripe-label)] text-sm font-normal">Role *</Label>
-          <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Senior Engineer" className="border-border rounded-sm" />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-[var(--stripe-label)] text-sm font-normal">Timezone</Label>
-          <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} className="border-border rounded-sm" />
-        </div>
-      </div>
-      <div className="space-y-2">
-        <Label className="text-[var(--stripe-label)] text-sm font-normal">
-          What do you do and why are you using CorticalStack?
-        </Label>
-        <Textarea value={context} onChange={(e) => setContext(e.target.value)} rows={2} placeholder="1-2 sentences" className="border-border rounded-sm" />
-      </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label className="text-[var(--stripe-label)] text-sm font-normal">Current projects (one per line)</Label>
-          <Textarea value={projects} onChange={(e) => setProjects(e.target.value)} rows={2} className="border-border rounded-sm text-xs" />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-[var(--stripe-label)] text-sm font-normal">Tools/platforms you use</Label>
-          <Input value={platforms} onChange={(e) => setPlatforms(e.target.value)} placeholder="e.g. Obsidian, Linear, VS Code" className="border-border rounded-sm" />
-        </div>
-      </div>
-      <Button
-        type="submit"
-        disabled={mutation.isPending || !name.trim() || !role.trim()}
-        className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal"
-      >
-        {mutation.isPending ? "Saving..." : "Generate USER.md"}
-      </Button>
-    </form>
   )
 }
 

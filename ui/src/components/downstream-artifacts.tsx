@@ -317,9 +317,21 @@ function PrototypesSection({
     },
   })
 
+  // Q&A-based iterate — now the secondary "Need help framing?" path.
+  // Carries any hints the user had already typed in the inline form so
+  // Claude's questions can build on them.
   const regenerateMutation = useMutation({
-    mutationFn: ({ id, answers }: { id: string; answers: Answer[] }) =>
-      api.regeneratePrototype(id, {
+    mutationFn: ({
+      id,
+      answers,
+      hints: iterateHints,
+    }: {
+      id: string
+      answers: Answer[]
+      hints?: string
+    }) =>
+      api.refinePrototype(id, {
+        hints: iterateHints || undefined,
         questions: questions ?? undefined,
         answers: answers.length > 0 ? answers : undefined,
       }),
@@ -334,6 +346,22 @@ function PrototypesSection({
       setQuestions(null)
       setModalOpen(false)
       setAction(null)
+      toast.error(`Regenerate failed: ${getErrorMessage(err)}`)
+    },
+  })
+
+  // Primary iterate path: prompt-first. User types what to change and
+  // Claude refines the current prototype directly — no Q&A detour.
+  // Mirrors how v0/Lovable/Cursor handle iteration on an existing
+  // artifact; Q&A is an opt-in fallback via "Need help framing?".
+  const inlineIterateMutation = useMutation({
+    mutationFn: ({ id, hints: iterateHints }: { id: string; hints: string }) =>
+      api.refinePrototype(id, { hints: iterateHints }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["prototypes"] })
+      toast.success("Prototype regenerated")
+    },
+    onError: (err) => {
       toast.error(`Regenerate failed: ${getErrorMessage(err)}`)
     },
   })
@@ -357,9 +385,15 @@ function PrototypesSection({
     createQuestionsMutation.mutate()
   }
 
-  const startIterate = (proto: Prototype) => {
+  // "Need help framing?" escape hatch: carries the hints the user
+  // typed in the inline form into the Q&A flow so Claude can build on
+  // them rather than starting from scratch.
+  const [iterateHintsForHelp, setIterateHintsForHelp] = useState("")
+
+  const startIterate = (proto: Prototype, pendingHints: string) => {
     setAction({ kind: "iterate", id: proto.id })
     setQuestions(null)
+    setIterateHintsForHelp(pendingHints)
     setModalOpen(true)
     iterateQuestionsMutation.mutate(proto)
   }
@@ -367,20 +401,26 @@ function PrototypesSection({
   const submitAnswers = (answers: Answer[]) => {
     if (!action) return
     if (action.kind === "create") createMutation.mutate(answers)
-    else regenerateMutation.mutate({ id: action.id, answers })
+    else
+      regenerateMutation.mutate({
+        id: action.id,
+        answers,
+        hints: iterateHintsForHelp,
+      })
   }
 
   const isGenerating =
     createQuestionsMutation.isPending ||
     createMutation.isPending ||
     iterateQuestionsMutation.isPending ||
-    regenerateMutation.isPending
+    regenerateMutation.isPending ||
+    inlineIterateMutation.isPending
 
   return (
     <Section title="Prototypes" icon={Box} accent="#E8C547" count={items.length}>
       {items.length === 0 && !isGenerating && (
         <p className="mb-3 text-[12px] text-muted-foreground">
-          No prototypes generated from this thread yet.
+          No prototypes generated from this spec yet.
         </p>
       )}
 
@@ -390,7 +430,10 @@ function PrototypesSection({
             <PrototypeRow
               key={p.id}
               proto={p}
-              onIterate={() => startIterate(p)}
+              onInlineIterate={(promptHints) =>
+                inlineIterateMutation.mutate({ id: p.id, hints: promptHints })
+              }
+              onRequestIterateHelp={(promptHints) => startIterate(p, promptHints)}
               onMarkFinal={() =>
                 stageMutation.mutate({ id: p.id, stage: "final" })
               }
@@ -399,10 +442,12 @@ function PrototypesSection({
                 stageMutation.variables?.id === p.id
               }
               iteratePending={
-                (iterateQuestionsMutation.isPending ||
+                (inlineIterateMutation.isPending &&
+                  inlineIterateMutation.variables?.id === p.id) ||
+                ((iterateQuestionsMutation.isPending ||
                   regenerateMutation.isPending) &&
-                action?.kind === "iterate" &&
-                action.id === p.id
+                  action?.kind === "iterate" &&
+                  action.id === p.id)
               }
             />
           ))}
@@ -528,20 +573,38 @@ function PrototypesSection({
 // PrototypeRow is one prototype in the hub with inline preview/open,
 // iterate and mark-final actions. Final stage hides Mark Final and
 // shows a terminal badge instead.
+//
+// Iterate expands an inline prompt input ("what do you want to
+// change?") rather than opening a Q&A modal. Submit sends the hints
+// straight to refinePrototype. A secondary "Need help framing?" link
+// falls back to the Q&A flow via onRequestIterateHelp.
 function PrototypeRow({
   proto,
-  onIterate,
+  onInlineIterate,
+  onRequestIterateHelp,
   onMarkFinal,
   stagePending,
   iteratePending,
 }: {
   proto: Prototype
-  onIterate: () => void
+  onInlineIterate: (hints: string) => void
+  onRequestIterateHelp: (hints: string) => void
   onMarkFinal: () => void
   stagePending: boolean
   iteratePending: boolean
 }) {
   const isFinal = proto.stage === "final"
+  const [iterating, setIterating] = useState(false)
+  const [iterateHints, setIterateHints] = useState("")
+
+  const submitInline = () => {
+    const trimmed = iterateHints.trim()
+    if (!trimmed) return
+    onInlineIterate(trimmed)
+    setIterating(false)
+    setIterateHints("")
+  }
+
   return (
     <div className="rounded-md border border-border bg-card px-3 py-2.5">
       <div className="flex items-start gap-2">
@@ -589,7 +652,7 @@ function PrototypeRow({
         <Button
           variant="outline"
           size="sm"
-          onClick={onIterate}
+          onClick={() => setIterating((v) => !v)}
           disabled={iteratePending}
           className="h-7 gap-1.5 rounded-sm text-[11px] font-normal"
         >
@@ -617,6 +680,72 @@ function PrototypeRow({
           </Button>
         )}
       </div>
+
+      {iterating && (
+        <div className="mt-3 rounded-md border border-dashed border-border bg-muted/20 p-2.5">
+          <Label className="text-[11px] font-normal text-muted-foreground">
+            What do you want to change?
+          </Label>
+          <Input
+            autoFocus
+            value={iterateHints}
+            onChange={(e) => setIterateHints(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                submitInline()
+              } else if (e.key === "Escape") {
+                e.preventDefault()
+                setIterating(false)
+                setIterateHints("")
+              }
+            }}
+            placeholder="e.g. make the header larger, add a pricing section"
+            className="mt-1 h-8 rounded-sm border-border text-xs"
+            disabled={iteratePending}
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={submitInline}
+              disabled={iteratePending || !iterateHints.trim()}
+              className="h-7 rounded-sm bg-primary text-[11px] font-normal text-primary-foreground hover:bg-[var(--stripe-purple-hover)]"
+            >
+              {iteratePending ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                  Applying...
+                </>
+              ) : (
+                "Apply"
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setIterating(false)
+                setIterateHints("")
+              }}
+              disabled={iteratePending}
+              className="h-7 text-[11px] font-normal"
+            >
+              Cancel
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestIterateHelp(iterateHints.trim())
+                setIterating(false)
+              }}
+              disabled={iteratePending}
+              className="ml-auto text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+            >
+              Need help framing?
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

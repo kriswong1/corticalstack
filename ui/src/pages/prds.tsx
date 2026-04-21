@@ -171,14 +171,14 @@ export function PRDsPage() {
       <ProductSubnav />
       <PageHeader
         title="PRDs"
-        description="Generated from pitch-complete product threads"
+        description="Generated from pitch-complete product specs"
       >
         <Button
           onClick={() => setShowForm((prev) => !prev)}
           disabled={pitchReady.length === 0}
           title={
             pitchReady.length === 0
-              ? "Advance a thread to the pitch stage first"
+              ? "Advance a spec to the pitch stage first"
               : undefined
           }
           className="bg-primary hover:bg-[var(--stripe-purple-hover)] text-primary-foreground rounded-sm font-normal gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -192,8 +192,8 @@ export function PRDsPage() {
           <CardContent className="py-4">
             <p className="text-sm text-muted-foreground">
               {noThreadsAtAll
-                ? "No product threads yet — create an idea in Product and advance it to the pitch stage before generating a PRD."
-                : "No threads have reached the pitch stage yet. Advance one in Product → pitch to enable PRD synthesis."}
+                ? "No product specs yet — create an idea in Product and advance it to the pitch stage before generating a PRD."
+                : "No specs have reached the pitch stage yet. Advance one in Product → pitch to enable PRD synthesis."}
             </p>
           </CardContent>
         </Card>
@@ -459,7 +459,7 @@ function PRDItemsTable({
       }
       extraColumns={[
         {
-          header: "Source Thread",
+          header: "Source Spec",
           cell: (item) => {
             const prd = (item as typeof item & { _prd: PRD })._prd
             const thread = prd.source_thread

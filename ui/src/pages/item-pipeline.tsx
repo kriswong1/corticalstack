@@ -50,7 +50,7 @@ const typeTitles: Record<string, string> = {
 // listing. They match the sidebar labels so users see consistent
 // naming across navigation surfaces.
 const sectionTitles: Record<string, string> = {
-  product: "Threads",
+  product: "Specs",
   meeting: "Meetings",
   document: "Documents",
   prototype: "Prototypes",
@@ -288,17 +288,6 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
     staleTime: 30_000,
   })
 
-  // Viewing an archived prototype version substitutes the spec body
-  // in the content panel. The archived spec comes in raw (with
-  // frontmatter), so strip it the same way the live vault file is
-  // handled so both render identically.
-  const stageContent = (() => {
-    if (type === "prototype" && selectedVersion !== null && archivedSpec) {
-      return stripFrontmatter(archivedSpec)
-    }
-    return rawContent ? stripFrontmatter(rawContent) : null
-  })()
-
   // Advance — Q&A flow for product, direct stage set for others
   const [hints, setHints] = useState("")
   const [qaModalOpen, setQaModalOpen] = useState(false)
@@ -493,6 +482,18 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
     enabled: type === "prototype" && selectedVersion !== null,
   })
 
+  // Viewing an archived prototype version substitutes the spec body
+  // in the content panel. The archived spec comes in raw (with
+  // frontmatter), so strip it the same way the live vault file is
+  // handled so both render identically. Declared here (after
+  // selectedVersion + archivedSpec) so the TDZ is clean.
+  const stageContent = (() => {
+    if (type === "prototype" && selectedVersion !== null && archivedSpec) {
+      return stripFrontmatter(archivedSpec)
+    }
+    return rawContent ? stripFrontmatter(rawContent) : null
+  })()
+
   function startProductAdvance() {
     if (!nextStage) return
     setQuestions(null)
@@ -643,11 +644,7 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
                 disabled={isProtoRefining}
               />
               <Button
-                onClick={() => {
-                  setQuestions(null)
-                  setQaModalOpen(true)
-                  protoQuestionsMutation.mutate()
-                }}
+                onClick={() => protoRefineMutation.mutate([])}
                 disabled={isProtoRefining || !hints.trim()}
                 className="gap-2 rounded-lg font-semibold text-[12px] px-4 h-9"
                 style={{
@@ -666,6 +663,23 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
                 )}
               </Button>
             </div>
+
+            {/* Secondary path: when the user isn't sure how to frame
+                the refinement, fall back to the Q&A flow. Disabled
+                until there are hints so the questions can build on
+                them. */}
+            <button
+              type="button"
+              onClick={() => {
+                setQuestions(null)
+                setQaModalOpen(true)
+                protoQuestionsMutation.mutate()
+              }}
+              disabled={isProtoRefining || !hints.trim()}
+              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50 disabled:hover:no-underline"
+            >
+              Need help framing?
+            </button>
 
             {/* Version switcher — visible when past versions exist.
                 Lets the user inspect old iterations without affecting

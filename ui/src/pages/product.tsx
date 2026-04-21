@@ -208,8 +208,8 @@ export function ProductPage() {
           {visibleThreads?.length === 0 && (
             <p className="text-sm text-muted-foreground">
               {hasFilter
-                ? "No threads match the current filter."
-                : "No threads yet. Create an idea to start."}
+                ? "No specs match the current filter."
+                : "No specs yet. Create an idea to start."}
             </p>
           )}
         </div>

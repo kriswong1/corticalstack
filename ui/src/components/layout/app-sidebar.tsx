@@ -27,6 +27,8 @@ import {
   Brain,
   Sun,
   Moon,
+  Mic,
+  File,
 } from "lucide-react"
 
 const mainItems = [
@@ -40,16 +42,23 @@ const projectItems = [
   { to: "/actions", label: "Actions", icon: ListChecks },
 ]
 
-// Threads is the primary surface — product threads and their downstream
-// artifacts are reached from the thread detail page (the "hub"). The
-// other three entries are cross-thread aggregate views for power users
-// who want to search across all threads; prefixed "All" to signal their
-// secondary role.
+// Specs is the primary surface — specs and their downstream artifacts
+// are reached from the spec detail page (the "hub"). The other three
+// entries are cross-spec aggregate views for power users who want to
+// search across all specs; prefixed "All" to signal their secondary role.
 const productItems = [
-  { to: "/product", label: "Threads", icon: Lightbulb },
+  { to: "/product", label: "Specs", icon: Lightbulb },
   { to: "/prototypes", label: "All Prototypes", icon: Box },
   { to: "/prds", label: "All PRDs", icon: FileCheck },
   { to: "/usecases", label: "All Use Cases", icon: FileText },
+]
+
+// Pipeline holds the non-product ingest surfaces — meeting transcripts
+// and free-form documents. They each have their own stage pipeline and
+// detail pages but aren't part of the product-synthesis flow.
+const pipelineItems = [
+  { to: "/meetings", label: "Meetings", icon: Mic },
+  { to: "/documents", label: "Documents", icon: File },
 ]
 
 const systemItems = [
@@ -113,6 +122,7 @@ export function AppSidebar() {
         <NavGroup label="Main" items={mainItems} />
         <NavGroup label="Projects" items={projectItems} />
         <NavGroup label="Product" items={productItems} />
+        <NavGroup label="Pipeline" items={pipelineItems} />
         <NavGroup label="System" items={systemItems} />
       </SidebarContent>
 
