@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/kriswong/corticalstack/internal/agent"
@@ -139,10 +140,21 @@ func parseChatResponse(raw string) claudeResponse {
 
 	var resp claudeResponse
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
-		// Claude didn't return valid JSON — treat the whole output as text
+		// Claude didn't return valid JSON — degrade to text-only so the
+		// UI still shows something, but log so the prompt failure is
+		// visible in production logs instead of silently missing the
+		// `done` signal.
+		slog.Warn("persona.chat: non-JSON response", "error", err, "raw_prefix", truncatePrefix(raw, 200))
 		return claudeResponse{Text: raw}
 	}
 	return resp
+}
+
+func truncatePrefix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func buildChatPrompt(name Name, history []ChatMessage, extra string) string {

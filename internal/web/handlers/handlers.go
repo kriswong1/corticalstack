@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -263,9 +264,22 @@ func (h *Handler) IngestFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	content, err := io.ReadAll(file)
+	// ParseMultipartForm's maxMemory arg caps only the in-memory
+	// parse; bigger files spill to temp storage and are still
+	// accessible through this FormFile reader. LimitReader enforces
+	// the ceiling again before ReadAll allocates, so the in-memory
+	// peak stays at MaxUploadBytes rather than 2× MaxUploadBytes.
+	// Reading one byte past the cap distinguishes "exactly at limit"
+	// from "exceeds limit" so we can return 413 instead of silently
+	// truncating.
+	max := config.MaxUploadBytes()
+	content, err := io.ReadAll(io.LimitReader(file, max+1))
 	if err != nil {
 		internalError(w, "ingest.read_upload", err)
+		return
+	}
+	if int64(len(content)) > max {
+		http.Error(w, fmt.Sprintf("upload exceeds %d byte limit", max), http.StatusRequestEntityTooLarge)
 		return
 	}
 

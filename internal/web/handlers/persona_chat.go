@@ -59,11 +59,14 @@ func (h *Handler) ContinuePersonaChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.PersonaChatStore.MustGet(req.SessionID)
+	// Exclusive lease: reject a second concurrent /continue on the
+	// same session with 409, rather than racing on session.Messages.
+	session, status, err := h.PersonaChatStore.Acquire(req.SessionID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), status)
 		return
 	}
+	defer h.PersonaChatStore.Release(req.SessionID)
 
 	done, err := persona.ContinueChat(r.Context(), session, req.Input, config.ClaudeModel(), h.chatWorkingDir())
 	if err != nil {
@@ -99,11 +102,13 @@ func (h *Handler) FinishPersonaChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.PersonaChatStore.MustGet(req.SessionID)
+	// Exclusive lease — FinishChat mutates session.Done / session.Result.
+	session, status, err := h.PersonaChatStore.Acquire(req.SessionID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), status)
 		return
 	}
+	defer h.PersonaChatStore.Release(req.SessionID)
 
 	if err := persona.FinishChat(r.Context(), session, config.ClaudeModel(), h.chatWorkingDir()); err != nil {
 		internalError(w, "persona.chat.done", err)

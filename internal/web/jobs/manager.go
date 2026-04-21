@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -246,13 +247,17 @@ func (m *Manager) List() []*Job {
 	for _, j := range m.jobs {
 		out = append(out, j.snapshot())
 	}
-	for i := 0; i < len(out); i++ {
-		for j := i + 1; j < len(out); j++ {
-			if out[j].CreatedAt.After(out[i].CreatedAt) {
-				out[i], out[j] = out[j], out[i]
-			}
+	// Newest-first: SortFunc returns negative when a < b; here we
+	// treat "created after" as "less than" so later times sort first.
+	slices.SortFunc(out, func(a, b *Job) int {
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
 		}
-	}
+		if b.CreatedAt.After(a.CreatedAt) {
+			return 1
+		}
+		return 0
+	})
 	return out
 }
 
@@ -341,13 +346,18 @@ func (m *Manager) setStatus(job *Job, status Status, message string) {
 }
 
 func (m *Manager) publishProgress(job *Job, message string) {
+	// Capture Status under the lock — another goroutine (setStatus,
+	// complete, fail) may race the read otherwise, which is a data
+	// race under -race even though the published event is fine either
+	// way.
 	m.mu.Lock()
 	job.Messages = append(job.Messages, message)
+	status := job.Status
 	m.mu.Unlock()
 
 	m.bus.Publish(sse.Event{
 		Type: "job_progress",
-		Data: Event{JobID: job.ID, Status: job.Status, Message: message},
+		Data: Event{JobID: job.ID, Status: status, Message: message},
 	})
 }
 

@@ -16,13 +16,14 @@ import (
 type ClaudeExtractor struct {
 	workingDir string
 	model      string
-	persona    *persona.Loader
+	persona    persona.ContextBuilder
 }
 
 // NewClaudeExtractor creates an extractor that shells out to `claude --print`.
-// The persona loader is optional; pass nil to skip persona context injection.
+// The persona loader is optional; nil is substituted with
+// persona.NoopContextBuilder so call sites never dereference a nil.
 func NewClaudeExtractor(workingDir, model string, p *persona.Loader) *ClaudeExtractor {
-	return &ClaudeExtractor{workingDir: workingDir, model: model, persona: p}
+	return &ClaudeExtractor{workingDir: workingDir, model: model, persona: persona.ResolveContextBuilder(p)}
 }
 
 // Extract calls Claude to analyze a document and return structured data.

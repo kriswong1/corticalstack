@@ -19,18 +19,19 @@ type Synthesizer struct {
 	workingDir string
 	model      string
 	formats    *Registry
-	persona    *persona.Loader
+	persona    persona.ContextBuilder
 	asker      *questions.Asker
 }
 
 // NewSynthesizer wires a synthesizer with the default format registry.
-// The persona loader is optional; pass nil to skip persona context injection.
+// The persona loader is optional; nil is substituted with
+// persona.NoopContextBuilder so call sites never dereference a nil.
 func NewSynthesizer(workingDir, model string, p *persona.Loader) *Synthesizer {
 	return &Synthesizer{
 		workingDir: workingDir,
 		model:      model,
 		formats:    NewRegistry(),
-		persona:    p,
+		persona:    persona.ResolveContextBuilder(p),
 		asker:      questions.NewAsker(workingDir, model),
 	}
 }

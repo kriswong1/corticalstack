@@ -17,13 +17,14 @@ import (
 type ClaudeClassifier struct {
 	workingDir string
 	model      string
-	persona    *persona.Loader
+	persona    persona.ContextBuilder
 }
 
 // NewClaudeClassifier creates a classifier bound to a working directory.
-// The persona loader is optional; pass nil to skip persona context injection.
+// The persona loader is optional; nil is substituted with
+// persona.NoopContextBuilder so call sites never dereference a nil.
 func NewClaudeClassifier(workingDir, model string, p *persona.Loader) *ClaudeClassifier {
-	return &ClaudeClassifier{workingDir: workingDir, model: model, persona: p}
+	return &ClaudeClassifier{workingDir: workingDir, model: model, persona: persona.ResolveContextBuilder(p)}
 }
 
 // Classify sends the document to Claude and returns a parsed preview.

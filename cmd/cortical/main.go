@@ -267,6 +267,7 @@ func main() {
 	if err := jm.Shutdown(shutdownCtx); err != nil {
 		slog.Error("jobs shutdown", "error", err)
 	}
+	personaChatStore.Close()
 	slog.Info("bye")
 }
 

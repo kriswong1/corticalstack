@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kriswong/corticalstack/internal/vault"
 )
 
 func TestSync_WritesToCentralFile(t *testing.T) {
@@ -63,11 +65,12 @@ func TestSync_WritesToSourceNote(t *testing.T) {
 
 func TestWriteOrReplaceLine_CreatesNewFile(t *testing.T) {
 	dir := t.TempDir()
+	v := vault.New(dir)
 	relPath := "new-file.md"
 	id := "aaaa-bbbb"
 	line := "- [ ] [Kris] New task #status/pending <!-- id:" + id + " -->"
 
-	if err := writeOrReplaceLine(dir, relPath, id, line); err != nil {
+	if err := writeOrReplaceLine(v, relPath, id, line); err != nil {
 		t.Fatalf("writeOrReplaceLine: %v", err)
 	}
 
@@ -82,6 +85,7 @@ func TestWriteOrReplaceLine_CreatesNewFile(t *testing.T) {
 
 func TestWriteOrReplaceLine_ReplacesExistingLine(t *testing.T) {
 	dir := t.TempDir()
+	v := vault.New(dir)
 	relPath := "existing.md"
 	id := "cccc-dddd"
 	oldLine := "- [ ] [Kris] Old description #status/pending <!-- id:" + id + " -->"
@@ -92,7 +96,7 @@ func TestWriteOrReplaceLine_ReplacesExistingLine(t *testing.T) {
 		t.Fatalf("writing seed file: %v", err)
 	}
 
-	if err := writeOrReplaceLine(dir, relPath, id, newLine); err != nil {
+	if err := writeOrReplaceLine(v, relPath, id, newLine); err != nil {
 		t.Fatalf("writeOrReplaceLine: %v", err)
 	}
 
@@ -111,6 +115,7 @@ func TestWriteOrReplaceLine_ReplacesExistingLine(t *testing.T) {
 
 func TestWriteOrReplaceLine_AppendsUnderHeader(t *testing.T) {
 	dir := t.TempDir()
+	v := vault.New(dir)
 	relPath := "with-header.md"
 	id := "eeee-ffff"
 	line := "- [ ] [Kris] Under header #status/pending <!-- id:" + id + " -->"
@@ -120,7 +125,7 @@ func TestWriteOrReplaceLine_AppendsUnderHeader(t *testing.T) {
 		t.Fatalf("writing seed file: %v", err)
 	}
 
-	if err := writeOrReplaceLine(dir, relPath, id, line); err != nil {
+	if err := writeOrReplaceLine(v, relPath, id, line); err != nil {
 		t.Fatalf("writeOrReplaceLine: %v", err)
 	}
 

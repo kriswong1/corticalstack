@@ -48,12 +48,24 @@ func NewRegistry() *Registry {
 // Register adds a format to the registry.
 func (r *Registry) Register(f Format) { r.items[f.Name()] = f }
 
-// Pick returns the named format, or the fallback.
+// Pick returns the named format, or the fallback. Callers that want
+// to reject unknown names at the HTTP boundary should call Has first;
+// Pick still falls back so internal call sites (mid-synthesis retries,
+// tests) don't crash on a typo.
 func (r *Registry) Pick(name string) Format {
 	if f, ok := r.items[name]; ok {
 		return f
 	}
 	return r.fallback
+}
+
+// Has reports whether a format with this name is registered. Used by
+// the prototype handlers to validate the caller-supplied format before
+// synthesis, so a typo returns 400 with the valid names instead of
+// silently synthesizing as the fallback while persisting the bad name.
+func (r *Registry) Has(name string) bool {
+	_, ok := r.items[name]
+	return ok
 }
 
 // Names returns every registered format name in stable order.
@@ -305,10 +317,16 @@ func (h *InteractiveHTML) RenderRaw(raw string) (spec, htmlBody string) {
 
 func stripHTMLFences(s string) string {
 	s = strings.TrimSpace(s)
-	for _, prefix := range []string{"```html", "```HTML", "```"} {
-		if strings.HasPrefix(s, prefix) {
-			s = strings.TrimPrefix(s, prefix)
-			break
+	if strings.HasPrefix(s, "```") {
+		// The opening fence may carry a language tag ("html" in any
+		// case) or be bare. Strip uniformly by looking at the first
+		// line after the triple-backtick.
+		rest := s[3:]
+		if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+			tag := strings.TrimSpace(rest[:nl])
+			if tag == "" || strings.EqualFold(tag, "html") {
+				s = rest[nl+1:]
+			}
 		}
 	}
 	s = strings.TrimSuffix(s, "```")

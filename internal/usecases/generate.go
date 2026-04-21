@@ -17,17 +17,18 @@ import (
 type Generator struct {
 	workingDir string
 	model      string
-	persona    *persona.Loader
+	persona    persona.ContextBuilder
 	asker      *questions.Asker
 }
 
 // NewGenerator creates a generator bound to a working directory.
-// The persona loader is optional; pass nil to skip persona context injection.
+// The persona loader is optional; nil is substituted with
+// persona.NoopContextBuilder so call sites never dereference a nil.
 func NewGenerator(workingDir, model string, p *persona.Loader) *Generator {
 	return &Generator{
 		workingDir: workingDir,
 		model:      model,
-		persona:    p,
+		persona:    persona.ResolveContextBuilder(p),
 		asker:      questions.NewAsker(workingDir, model),
 	}
 }

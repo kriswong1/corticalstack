@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -170,13 +173,12 @@ func (h *Handler) SetPrototypeStage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"id": id, "stage": string(target)})
 }
 
-// RefinePrototype handles POST /api/prototypes/{id}/refine. It
-// archives the current version to `<folder>/versions/v{n}/`, then
-// re-runs synthesis with the user's refinement hints and writes the
-// result in-place as v{n+1}. Accepts optional {"hints": "...",
-// "questions": [...], "answers": [...]} — hints are the primary
-// input ("make the header bigger") while the Q&A flow lets Claude
-// ask for clarifications first.
+// RefinePrototype handles POST /api/prototypes/{id}/refine. Runs
+// synthesis first, archives the prior version only once the new
+// content is in hand, then writes v{n+1} in place. Accepts optional
+// {"hints": "...", "questions": [...], "answers": [...]} — hints are
+// the primary input ("make the header bigger") while the Q&A flow
+// lets Claude ask for clarifications first.
 func (h *Handler) RefinePrototype(w http.ResponseWriter, r *http.Request) {
 	if h.Prototypes == nil || h.PrototypeSynth == nil {
 		http.Error(w, "prototype store not configured", http.StatusServiceUnavailable)
@@ -202,16 +204,36 @@ func (h *Handler) RefinePrototype(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional body for hints/answers.
+	// Parse optional body for hints/answers. EOF is fine — empty body
+	// means "refine with no hints", which the button supports. Any
+	// other decode error is a client bug and we surface 400 instead
+	// of silently dropping the hints and running a blank refine.
 	var body prototypes.RefineRequest
-	_ = json.NewDecoder(r.Body).Decode(&body)
-
-	// Archive the CURRENT live version before we overwrite it. Uses
-	// the pre-refine version number (n), so after this call the
-	// archive at v{n} contains what was just the live copy.
-	if err := h.Prototypes.ArchiveCurrent(existing, body.Hints); err != nil {
-		internalError(w, "prototype.refine.archive", err)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Defence in depth: the stored format came from disk; if someone
+	// hand-edited the frontmatter to an unknown value, refuse to
+	// synthesize rather than silently falling back to ScreenFlow.
+	if !h.PrototypeSynth.Registry().Has(existing.Format) {
+		http.Error(w, "prototype format is unknown: "+existing.Format+"; valid: "+strings.Join(h.PrototypeSynth.Registry().Names(), ", "), http.StatusBadRequest)
+		return
+	}
+
+	// Filter SourceRefs to the ones that still exist in the vault. A
+	// moved/renamed/deleted source shouldn't stop the refine — the
+	// previous output still carries that content — but we log per
+	// missing path so the user can see why a refine might have run
+	// with less context than the original synthesis.
+	sources := make([]string, 0, len(existing.SourceRefs))
+	for _, ref := range existing.SourceRefs {
+		if !h.Vault.Exists(ref) {
+			slog.Warn("prototype.refine: source missing", "prototype_id", id, "path", ref)
+			continue
+		}
+		sources = append(sources, ref)
 	}
 
 	// Pick the previous output to show Claude. Raw formats carry the
@@ -225,7 +247,7 @@ func (h *Handler) RefinePrototype(w http.ResponseWriter, r *http.Request) {
 
 	req := prototypes.CreateRequest{
 		Title:          existing.Title,
-		SourcePaths:    existing.SourceRefs,
+		SourcePaths:    sources,
 		Format:         existing.Format,
 		Hints:          body.Hints,
 		SourceThread:   existing.SourceThread,
@@ -236,14 +258,35 @@ func (h *Handler) RefinePrototype(w http.ResponseWriter, r *http.Request) {
 		IsRefine:       true,
 	}
 
+	// Synthesize FIRST. The old ordering archived the live version
+	// before the Claude call, which on synthesis failure left a ghost
+	// archive identical to the still-live copy. Running synthesis
+	// first means a failure leaves the prototype state completely
+	// untouched.
 	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
+		var invalidPaths *prototypes.InvalidSourcePathsError
+		if errors.As(err, &invalidPaths) {
+			slog.Info("prototype.refine: bad source paths", "failures", invalidPaths.Failures)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		internalError(w, "prototype.refine.synthesize", err)
 		return
 	}
-	// Preserve the original ID / created / folder so the URL stays
-	// stable, and bump the version counter. Synthesize returns a
-	// fresh Prototype with Version=1 by default, so we clobber it.
+
+	// Archive the prior version now that the new content is in hand.
+	// Uses the pre-refine version number (n); after this call the
+	// archive at v{n} contains what was the live copy and the live
+	// files will move to v{n+1} via Write below.
+	if err := h.Prototypes.ArchiveCurrent(existing, body.Hints); err != nil {
+		internalError(w, "prototype.refine.archive", err)
+		return
+	}
+
+	// Preserve identity / folder so the URL stays stable, and bump
+	// the version counter. Synthesize returns a fresh Prototype with
+	// Version=1 by default, so we clobber it.
 	p.ID = existing.ID
 	p.Created = existing.Created
 	p.FolderPath = existing.FolderPath
@@ -341,8 +384,7 @@ func (h *Handler) GetPrototypeVersionHTML(w http.ResponseWriter, r *http.Request
 }
 
 func parseVersion(raw string) (int, error) {
-	var v int
-	_, err := fmt.Sscanf(raw, "%d", &v)
+	v, err := strconv.Atoi(raw)
 	if err != nil || v <= 0 {
 		return 0, fmt.Errorf("invalid version")
 	}
@@ -362,6 +404,14 @@ func (h *Handler) CreatePrototype(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.SourcePaths) == 0 {
 		http.Error(w, "source_paths required", http.StatusBadRequest)
+		return
+	}
+	// Format validation: a typo in the request previously synthesized
+	// as ScreenFlow via the Registry's silent fallback while persisting
+	// the bad name — creating a mismatch between stored metadata and
+	// rendered content. Reject unknown formats at the boundary.
+	if !h.PrototypeSynth.Registry().Has(req.Format) {
+		http.Error(w, "unknown format: "+req.Format+"; valid: "+strings.Join(h.PrototypeSynth.Registry().Names(), ", "), http.StatusBadRequest)
 		return
 	}
 	// Traversal guard (CR-01).

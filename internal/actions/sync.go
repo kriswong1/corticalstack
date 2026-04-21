@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kriswong/corticalstack/internal/vault"
 )
 
 // Sync writes an action's canonical line to every location where it should
@@ -36,7 +38,7 @@ func (s *Store) Sync(a *Action) error {
 	}
 
 	for _, loc := range locations {
-		if err := writeOrReplaceLine(s.vault.Path(), loc, a.ID, line); err != nil {
+		if err := writeOrReplaceLine(s.vault, loc, a.ID, line); err != nil {
 			// Non-fatal per location so one broken file doesn't block others.
 			slog.Warn("actions.Sync: write failed", "location", loc, "error", err)
 		}
@@ -48,8 +50,18 @@ func (s *Store) Sync(a *Action) error {
 // inside relPath and replaces it. If no match exists, appends the line
 // under the "## Open Items" header (or at end of file if no header).
 // Creates the file if it doesn't exist.
-func writeOrReplaceLine(vaultPath, relPath, id, newLine string) error {
-	full := filepath.Join(vaultPath, relPath)
+//
+// relPath is routed through vault.SafeRelPath before any disk op so a
+// Claude-extracted SourceNote carrying a traversal payload (../../etc/
+// passwd) cannot escape the vault root. Every other callsite already
+// writes through vault.WriteFile, which applies the same guard; this
+// function pre-dates that helper and bypassed it.
+func writeOrReplaceLine(v *vault.Vault, relPath, id, newLine string) error {
+	safe, err := v.SafeRelPath(relPath)
+	if err != nil {
+		return err
+	}
+	full := filepath.Join(v.Path(), safe)
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		return err
 	}

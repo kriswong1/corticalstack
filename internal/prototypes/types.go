@@ -48,6 +48,12 @@ type VersionInfo struct {
 }
 
 // RefineRequest is POST /api/prototypes/{id}/refine.
+//
+// Only the three fields below are client-supplied. On refine, the
+// server looks up the existing prototype and constructs an internal
+// CreateRequest that *additionally* carries PreviousOutput (the prior
+// spec or HTML body) and IsRefine=true — those fields are internal-only
+// on CreateRequest (json:"-") and are not accepted from the wire.
 type RefineRequest struct {
 	Hints     string               `json:"hints,omitempty"`
 	Questions []questions.Question `json:"questions,omitempty"`

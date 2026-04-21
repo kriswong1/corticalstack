@@ -76,6 +76,33 @@ func (l *Loader) BuildContextPrompt() string {
 	return prompt
 }
 
+// ContextBuilder is the subset of *Loader that consumers call to get the
+// persona prompt prefix. Every consumer (intent classifier, shapeup
+// advancer, PRD/prototype/usecase synthesizers, pipeline extractor)
+// holds this interface so constructors can substitute NoopContextBuilder
+// when the caller passes a nil *Loader, instead of relying on a
+// nil-receiver guard at every call site.
+type ContextBuilder interface {
+	BuildContextPrompt() string
+}
+
+// NoopContextBuilder returns an empty prompt prefix. Used by consumer
+// constructors when persona context is disabled.
+type NoopContextBuilder struct{}
+
+// BuildContextPrompt on NoopContextBuilder always returns "".
+func (NoopContextBuilder) BuildContextPrompt() string { return "" }
+
+// ResolveContextBuilder returns p if non-nil, otherwise NoopContextBuilder{}.
+// Consumer constructors use this to keep accepting *Loader as their public
+// argument while storing a non-nil interface internally.
+func ResolveContextBuilder(p *Loader) ContextBuilder {
+	if p == nil {
+		return NoopContextBuilder{}
+	}
+	return p
+}
+
 // fingerprintsEqual compares two name→length maps field-by-field. Used by
 // BuildContextPrompt to decide whether the cached prompt is still valid.
 func fingerprintsEqual(a, b map[Name]int) bool {

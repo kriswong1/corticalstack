@@ -26,20 +26,21 @@ type Synthesizer struct {
 	model       string
 	retriever   *Retriever
 	actionStore *actions.Store
-	persona     *persona.Loader
+	persona     persona.ContextBuilder
 	asker       *questions.Asker
 }
 
 // NewSynthesizer wires a synthesizer bound to a retriever and action store.
 // actionStore may be nil if you don't want open questions to flow into actions.
-// personaLoader may be nil to skip persona context injection.
+// personaLoader may be nil; the zero-prompt NoopContextBuilder is substituted
+// so call sites never dereference a nil.
 func NewSynthesizer(workingDir, model string, r *Retriever, as *actions.Store, p *persona.Loader) *Synthesizer {
 	return &Synthesizer{
 		workingDir:  workingDir,
 		model:       model,
 		retriever:   r,
 		actionStore: as,
-		persona:     p,
+		persona:     persona.ResolveContextBuilder(p),
 		asker:       questions.NewAsker(workingDir, model),
 	}
 }

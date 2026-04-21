@@ -5,11 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kriswong/corticalstack/internal/agent"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/questions"
 )
+
+// trackerLinger is how long the progress-tracker entry stays visible
+// after Advance returns, so the UI's periodic poll can observe the
+// final "done"/"error" state before it's cleared.
+const trackerLinger = 5 * time.Second
 
 // Advancer runs Claude to generate the next stage's content given all prior
 // stages in a thread. The result is a filled markdown body; the store wraps
@@ -17,17 +23,18 @@ import (
 type Advancer struct {
 	workingDir string
 	model      string
-	persona    *persona.Loader
+	persona    persona.ContextBuilder
 	asker      *questions.Asker
 }
 
 // NewAdvancer creates an advancer bound to a working directory.
-// The persona loader is optional; pass nil to skip persona context injection.
+// The persona loader is optional; nil is substituted with
+// persona.NoopContextBuilder so call sites never dereference a nil.
 func NewAdvancer(workingDir, model string, p *persona.Loader) *Advancer {
 	return &Advancer{
 		workingDir: workingDir,
 		model:      model,
-		persona:    p,
+		persona:    persona.ResolveContextBuilder(p),
 		asker:      questions.NewAsker(workingDir, model),
 	}
 }
@@ -78,15 +85,12 @@ func (a *Advancer) Advance(ctx context.Context, thread *Thread, target Stage, hi
 	tracker := DefaultTracker
 	tracker.Start(thread.ID, string(target), 10)
 	defer func() {
-		// Brief delay before clearing so the frontend's next poll
-		// sees the final state. In practice the 2s poll interval
-		// covers this.
-		go func() {
-			// Don't block the caller — just let the entry linger
-			// for a few seconds then clean up.
-			<-ctx.Done()
-			tracker.Clear(thread.ID)
-		}()
+		// Let the entry linger briefly so the UI's periodic poll sees
+		// the final "done"/"error" state, then clear it. AfterFunc
+		// bounds the cleanup regardless of ctx's lifetime — the old
+		// implementation waited on ctx.Done() which leaked the
+		// goroutine whenever the caller passed context.Background().
+		time.AfterFunc(trackerLinger, func() { tracker.Clear(thread.ID) })
 	}()
 
 	ag := &agent.Agent{
