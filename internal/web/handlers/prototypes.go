@@ -128,9 +128,14 @@ func (h *Handler) ViewPrototypeHTML(w http.ResponseWriter, r *http.Request) {
 	// sandbox="allow-scripts" (without allow-same-origin) is the real
 	// security boundary — it gives the prototype a null origin so it
 	// cannot access CorticalStack's cookies, localStorage, or APIs.
+	//
+	// The CSP `sandbox allow-scripts` directive belt-and-suspenders the
+	// iframe attribute: even if the outer shell were somehow rendered
+	// without the iframe wrapper, the document itself would still be
+	// sandboxed to a null origin by the browser.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy",
-		"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+		"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; sandbox allow-scripts")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
