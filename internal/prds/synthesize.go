@@ -76,7 +76,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 	}
 
 	answerBlock := questions.FormatAnswers(req.Questions, req.Answers)
-	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, contextNotes, answerBlock)
+	prompt := s.persona.BuildContextPrompt() + buildPRDPrompt(req.PitchPath, pitchBody, contextNotes, answerBlock, req.Hints, req.PreviousOutput, req.IsRefine)
 
 	ag := &agent.Agent{
 		Model:      s.model,
@@ -130,14 +130,34 @@ func (s *Synthesizer) Synthesize(ctx context.Context, v *vault.Vault, req Create
 // recognizes the fenced content as data-to-analyze rather than
 // instructions-to-follow. The top-of-prompt directive includes
 // UntrustedFenceNotice so the model knows what the fences mean.
-func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote, answerBlock string) string {
+//
+// On refine (isRefine=true), the previous PRD body is shown first so
+// Claude has a concrete reference to modify instead of regenerating
+// from scratch. Hints read as "changes to apply" in that framing.
+func buildPRDPrompt(pitchPath, pitch string, context []RetrievedNote, answerBlock, hints, previous string, isRefine bool) string {
 	var b strings.Builder
-	b.WriteString("You are a senior product manager. Turn the pitch below into a full PRD.\n\n")
+	if isRefine {
+		b.WriteString("You are a senior product manager. Revise the existing PRD below. Produce a new version that incorporates the user's hints and Q&A answers — preserve what works, change only what the refinement asks for. Do not regenerate from scratch.\n\n")
+	} else {
+		b.WriteString("You are a senior product manager. Turn the pitch below into a full PRD.\n\n")
+	}
 	b.WriteString(questions.UntrustedFenceNotice)
 	b.WriteString("\n\n")
 
+	if isRefine && strings.TrimSpace(previous) != "" {
+		b.WriteString("## Current PRD (revise this)\n\n")
+		b.WriteString(questions.FenceUntrustedBlock(previous))
+		b.WriteString("\n")
+	}
+
 	if answerBlock != "" {
 		b.WriteString(answerBlock)
+	}
+
+	if hints != "" {
+		b.WriteString("## User hints\n")
+		b.WriteString(questions.FenceUntrustedBlock(hints))
+		b.WriteString("\n")
 	}
 
 	b.WriteString("## Pitch (primary source)\n\n")

@@ -56,13 +56,21 @@ type Synthesis struct {
 }
 
 // CreateRequest is POST /api/prds.
+//
+// PreviousOutput + IsRefine are internal fields set by the refine
+// handler so synthesis can show Claude the current PRD body and ask
+// for a modification rather than a fresh draft. They're not exposed
+// on the public create endpoint (json:"-" — no inbound field names).
 type CreateRequest struct {
 	PitchPath         string               `json:"pitch_path"`
 	ExtraContextTags  []string             `json:"extra_context_tags,omitempty"`
 	ExtraContextPaths []string             `json:"extra_context_paths,omitempty"`
 	ProjectIDs        []string             `json:"project_ids,omitempty"`
+	Hints             string               `json:"hints,omitempty"`
 	Questions         []questions.Question `json:"questions,omitempty"`
 	Answers           []questions.Answer   `json:"answers,omitempty"`
+	PreviousOutput    string               `json:"-"`
+	IsRefine          bool                 `json:"-"`
 }
 
 // QuestionsRequest is POST /api/prds/questions.
@@ -71,4 +79,27 @@ type QuestionsRequest struct {
 	ExtraContextTags  []string `json:"extra_context_tags,omitempty"`
 	ExtraContextPaths []string `json:"extra_context_paths,omitempty"`
 	ProjectIDs        []string `json:"project_ids,omitempty"`
+}
+
+// RefineRequest is POST /api/prds/{id}/refine.
+//
+// Only the three fields below are client-supplied. On refine, the server
+// looks up the existing PRD and constructs an internal CreateRequest
+// that additionally carries PreviousOutput (the prior rendered body)
+// and IsRefine=true — those fields are internal-only (json:"-") and
+// not accepted from the wire.
+type RefineRequest struct {
+	Hints     string               `json:"hints,omitempty"`
+	Questions []questions.Question `json:"questions,omitempty"`
+	Answers   []questions.Answer   `json:"answers,omitempty"`
+}
+
+// VersionInfo describes one archived version of a PRD. Returned by
+// Store.ListVersions so the UI can (eventually) render a switcher;
+// for now the refine endpoint just writes archives and leaves the
+// viewer work to a follow-up.
+type VersionInfo struct {
+	Version int       `json:"version"`
+	Created time.Time `json:"created"`
+	Hints   string    `json:"hints,omitempty"`
 }

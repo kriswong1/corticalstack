@@ -818,6 +818,30 @@ function PRDsSection({
     },
   })
 
+  // Inline hints refine — mirrors the prototype iterate pattern (#9).
+  // The user types what to change; Claude rewrites the PRD with the
+  // previous body as a reference. Results overwrite the live file and
+  // bump the version counter; prior versions are archived.
+  const refineMutation = useMutation({
+    mutationFn: ({ id, hints }: { id: string; hints: string }) =>
+      api.refinePRD(id, { hints }),
+    onSuccess: (prd) => {
+      queryClient.invalidateQueries({ queryKey: ["prds"] })
+      toast.success("PRD refined")
+      if (prd?.id) {
+        setExpandedId(prd.id)
+        // Bust the vault-file cache for this PRD's path so the
+        // expanded body re-reads from disk.
+        if (prd.path) {
+          queryClient.invalidateQueries({ queryKey: ["vault-file", prd.path] })
+        }
+      }
+    },
+    onError: (err) => {
+      toast.error(`Refine failed: ${getErrorMessage(err)}`)
+    },
+  })
+
   const startGenerate = () => {
     setQuestions(null)
     setModalOpen(true)
@@ -845,13 +869,19 @@ function PRDsSection({
               onToggleExpand={() =>
                 setExpandedId(expandedId === prd.id ? null : prd.id)
               }
-              onIterate={startGenerate}
+              onInlineIterate={(hints) =>
+                refineMutation.mutate({ id: prd.id, hints })
+              }
               onMarkFinal={() =>
                 statusMutation.mutate({ id: prd.id, status: "shipped" })
               }
               statusPending={
                 statusMutation.isPending &&
                 statusMutation.variables?.id === prd.id
+              }
+              iteratePending={
+                refineMutation.isPending &&
+                refineMutation.variables?.id === prd.id
               }
             />
           ))}
@@ -913,21 +943,38 @@ function PRDsSection({
 // PRDRow is a single expandable PRD card: meta row on top, markdown
 // preview + actions when expanded. Mark-final is terminal (status →
 // shipped) so once set the button disappears.
+//
+// Iterate expands an inline prompt input ("what do you want to
+// change?") rather than regenerating from scratch. Submit sends the
+// hints to refinePRD, which overwrites the live file with a new
+// version informed by the previous body.
 function PRDRow({
   prd,
   expanded,
   onToggleExpand,
-  onIterate,
+  onInlineIterate,
   onMarkFinal,
   statusPending,
+  iteratePending,
 }: {
   prd: PRD
   expanded: boolean
   onToggleExpand: () => void
-  onIterate: () => void
+  onInlineIterate: (hints: string) => void
   onMarkFinal: () => void
   statusPending: boolean
+  iteratePending: boolean
 }) {
+  const [iterating, setIterating] = useState(false)
+  const [iterateHints, setIterateHints] = useState("")
+
+  const submitInline = () => {
+    const trimmed = iterateHints.trim()
+    if (!trimmed) return
+    onInlineIterate(trimmed)
+    setIterating(false)
+    setIterateHints("")
+  }
   const { data: rawContent, isLoading } = useQuery<string>({
     queryKey: ["vault-file", prd.path],
     queryFn: () => api.getVaultFile(prd.path!),
@@ -1002,8 +1049,9 @@ function PRDRow({
               size="sm"
               onClick={(e) => {
                 e.stopPropagation()
-                onIterate()
+                setIterating((v) => !v)
               }}
+              disabled={iteratePending}
               className="h-7 gap-1.5 rounded-sm text-[11px] font-normal"
             >
               <RotateCcw className="h-3 w-3" />
@@ -1034,6 +1082,60 @@ function PRDRow({
               </Badge>
             )}
           </div>
+          {iterating && (
+            <div className="mx-3 mb-3 rounded-md border border-dashed border-border bg-muted/20 p-2.5">
+              <Label className="text-[11px] font-normal text-muted-foreground">
+                What do you want to change?
+              </Label>
+              <Input
+                autoFocus
+                value={iterateHints}
+                onChange={(e) => setIterateHints(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    submitInline()
+                  } else if (e.key === "Escape") {
+                    e.preventDefault()
+                    setIterating(false)
+                    setIterateHints("")
+                  }
+                }}
+                placeholder="e.g. reframe rollout around mobile first, drop analytics goal"
+                className="mt-1 h-8 rounded-sm border-border text-xs"
+                disabled={iteratePending}
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={submitInline}
+                  disabled={iteratePending || !iterateHints.trim()}
+                  className="h-7 rounded-sm bg-primary text-[11px] font-normal text-primary-foreground hover:bg-[var(--stripe-purple-hover)]"
+                >
+                  {iteratePending ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                      Applying...
+                    </>
+                  ) : (
+                    "Apply"
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setIterating(false)
+                    setIterateHints("")
+                  }}
+                  disabled={iteratePending}
+                  className="h-7 text-[11px] font-normal"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

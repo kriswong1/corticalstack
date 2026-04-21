@@ -174,6 +174,8 @@ func (s *Server) routes() {
 	r.Get("/api/prds", s.Handler.ListPRDs)
 	r.Post("/api/prds", s.Handler.CreatePRD)
 	r.Post("/api/prds/questions", s.Handler.QuestionsForPRD)
+	r.Post("/api/prds/{id}/refine", s.Handler.RefinePRD)
+	r.Get("/api/prds/{id}/versions", s.Handler.ListPRDVersions)
 	r.Post("/api/prds/{id}/status", s.Handler.SetPRDStatus)
 
 	// SPA catch-all: serve Vite-built React app for all non-API routes.

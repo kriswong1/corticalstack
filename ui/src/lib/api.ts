@@ -27,6 +27,8 @@ import type {
   PRD,
   CreatePRDRequest,
   PRDQuestionsRequest,
+  RefinePRDRequest,
+  PRDVersionInfo,
   PersonaResponse,
   PersonaEnhanceRequest,
   QuestionsResponse,
@@ -359,6 +361,10 @@ export const api = {
   createPRD: (body: CreatePRDRequest) => postLong<PRD>("/api/prds", body),
   prdQuestions: (body: PRDQuestionsRequest) =>
     postLong<QuestionsResponse>("/api/prds/questions", body),
+  refinePRD: (id: string, body: RefinePRDRequest) =>
+    postLong<PRD>(`/api/prds/${id}/refine`, body),
+  listPRDVersions: (id: string) =>
+    request<PRDVersionInfo[]>(`/api/prds/${id}/versions`),
   setPRDStatus: (id: string, status: string) =>
     post<PRD>(`/api/prds/${id}/status`, { status }),
 

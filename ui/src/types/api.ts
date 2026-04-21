@@ -266,6 +266,18 @@ export interface RefinePrototypeRequest {
   answers?: Answer[]
 }
 
+export interface RefinePRDRequest {
+  hints?: string
+  questions?: Question[]
+  answers?: Answer[]
+}
+
+export interface PRDVersionInfo {
+  version: number
+  created: string
+  hints?: string
+}
+
 export interface CreatePrototypeRequest {
   title: string
   source_paths: string[]

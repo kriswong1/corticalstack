@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -114,6 +116,122 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, p)
+}
+
+// RefinePRD handles POST /api/prds/{id}/refine. Runs synthesis with
+// the previous PRD body shown as a reference, archives the prior
+// version only after the new content is in hand, then overwrites the
+// live file. Accepts optional {"hints": "...", "questions": [...],
+// "answers": [...]} — hints are the primary input ("reframe the
+// rollout phases around mobile first"); the Q&A flow is a secondary
+// affordance for users who want Claude to surface what to clarify.
+//
+// Ordering mirrors RefinePrototype (#17): synthesize first, archive
+// on success only, so a failed Claude call leaves the live PRD
+// untouched and doesn't produce a ghost archive slot.
+func (h *Handler) RefinePRD(w http.ResponseWriter, r *http.Request) {
+	if h.PRDs == nil || h.PRDSynth == nil {
+		http.Error(w, "prd store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up the existing PRD so we have the pitch path, context
+	// refs, projects, and the body to show Claude as the reference.
+	list, err := h.PRDs.List()
+	if err != nil {
+		internalError(w, "prd.refine.list", err)
+		return
+	}
+	var existing *prds.PRD
+	for _, p := range list {
+		if p.ID == id {
+			existing = p
+			break
+		}
+	}
+	if existing == nil {
+		http.Error(w, "prd not found", http.StatusNotFound)
+		return
+	}
+
+	// Parse optional body. EOF is fine (refine-without-hints is legal,
+	// mirrors the prototype refine button). Any other decode error is
+	// a client bug.
+	var body prds.RefineRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Defence in depth for the pitch path — it came from disk, but
+	// validate before passing to synthesis so a hand-edited frontmatter
+	// with a traversal payload is rejected at the boundary.
+	if _, err := h.Vault.SafeRelPath(existing.SourcePitch); err != nil {
+		http.Error(w, "prd source_pitch is unsafe: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	req := prds.CreateRequest{
+		PitchPath:      existing.SourcePitch,
+		ProjectIDs:     existing.Projects,
+		Hints:          body.Hints,
+		Questions:      body.Questions,
+		Answers:        body.Answers,
+		PreviousOutput: existing.Body,
+		IsRefine:       true,
+	}
+
+	// Synthesize FIRST. On failure, the live PRD is untouched and no
+	// archive is produced.
+	refreshed, err := h.PRDSynth.Synthesize(r.Context(), h.Vault, req)
+	if err != nil {
+		internalError(w, "prd.refine.synthesize", err)
+		return
+	}
+
+	// Archive the prior version now that the new content is in hand.
+	if err := h.PRDs.ArchiveCurrent(existing, body.Hints); err != nil {
+		internalError(w, "prd.refine.archive", err)
+		return
+	}
+
+	// Preserve identity and path so the URL stays stable, bump version.
+	// Synthesize returns a fresh PRD without an ID or path set — we
+	// substitute the existing ones.
+	refreshed.ID = existing.ID
+	refreshed.Created = existing.Created
+	refreshed.Path = existing.Path
+	refreshed.Status = existing.Status
+	refreshed.SourceThread = existing.SourceThread
+	refreshed.Version = existing.Version + 1
+
+	if err := h.PRDs.Write(refreshed); err != nil {
+		internalError(w, "prd.refine.write", err)
+		return
+	}
+	writeJSON(w, refreshed)
+}
+
+// ListPRDVersions handles GET /api/prds/{id}/versions. Returns the
+// archived versions (v1 … v{n-1}); the current live version lives
+// on the PRD itself.
+func (h *Handler) ListPRDVersions(w http.ResponseWriter, r *http.Request) {
+	if h.PRDs == nil {
+		writeJSON(w, []prds.VersionInfo{})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	versions, err := h.PRDs.ListVersions(id)
+	if err != nil {
+		internalError(w, "prd.versions.list", err)
+		return
+	}
+	writeJSON(w, versions)
 }
 
 // SetPRDStatus handles POST /api/prds/{id}/status. Body is

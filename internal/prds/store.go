@@ -13,7 +13,10 @@ import (
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
-const prdsDir = "prds"
+const (
+	prdsDir     = "prds"
+	versionsDir = "_versions"
+)
 
 // Store manages PRD files at vault/prds/<date>_<slug>.md.
 type Store struct {
@@ -28,7 +31,10 @@ func (s *Store) EnsureFolder() error {
 	return os.MkdirAll(filepath.Join(s.vault.Path(), prdsDir), 0o700)
 }
 
-// Write persists a PRD to the vault.
+// Write persists a PRD to the vault. If p.Path is already set (refine
+// flow), it's preserved — otherwise a fresh date_slug.md path is
+// computed. Preserving Path on refine keeps the URL stable even when
+// Claude proposes a different title for the new version.
 func (s *Store) Write(p *PRD) error {
 	if p.ID == "" {
 		p.ID = uuid.NewString()
@@ -42,10 +48,87 @@ func (s *Store) Write(p *PRD) error {
 	if p.Status == "" {
 		p.Status = StatusDraft
 	}
-	p.Path = relPathFor(p)
+	if p.Path == "" {
+		p.Path = relPathFor(p)
+	}
 
 	note := &vault.Note{Frontmatter: buildFrontmatter(p), Body: p.Body}
 	return s.vault.WriteNote(p.Path, note)
+}
+
+// ArchiveCurrent copies the current live PRD file into
+// `prds/_versions/<id>/v{n}.md`, along with an optional hints.txt
+// recording the refinement prompt. Returns nil if the PRD has no
+// live file yet (fresh draft). Called by the refine handler AFTER
+// synthesis succeeds — on failure the live file stays untouched and
+// no ghost archive is produced (mirrors the prototype fix from #17).
+func (s *Store) ArchiveCurrent(p *PRD, hints string) error {
+	if p.Path == "" || p.ID == "" {
+		return fmt.Errorf("prd has no path or id")
+	}
+	srcFull := filepath.Join(s.vault.Path(), filepath.FromSlash(p.Path))
+	data, err := os.ReadFile(srcFull)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading current prd: %w", err)
+	}
+	verFolder := filepath.Join(s.vault.Path(), prdsDir, versionsDir, p.ID)
+	if err := os.MkdirAll(verFolder, 0o700); err != nil {
+		return fmt.Errorf("creating version folder: %w", err)
+	}
+	dst := filepath.Join(verFolder, fmt.Sprintf("v%d.md", p.Version))
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return fmt.Errorf("writing archived prd: %w", err)
+	}
+	if strings.TrimSpace(hints) != "" {
+		hintsPath := filepath.Join(verFolder, fmt.Sprintf("v%d.hints.txt", p.Version))
+		if err := os.WriteFile(hintsPath, []byte(hints), 0o600); err != nil {
+			return fmt.Errorf("writing hints: %w", err)
+		}
+	}
+	return nil
+}
+
+// ListVersions returns every archived version for a PRD, oldest first.
+// An empty list means the PRD is still on v1. Does not include the
+// live version — callers get that from the PRD itself.
+func (s *Store) ListVersions(id string) ([]VersionInfo, error) {
+	verRoot := filepath.Join(s.vault.Path(), prdsDir, versionsDir, id)
+	entries, err := os.ReadDir(verRoot)
+	if os.IsNotExist(err) {
+		return []VersionInfo{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []VersionInfo
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, "v") || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		numPart := strings.TrimSuffix(strings.TrimPrefix(name, "v"), ".md")
+		var n int
+		if _, scanErr := fmt.Sscanf(numPart, "%d", &n); scanErr != nil || n <= 0 {
+			continue
+		}
+		info := VersionInfo{Version: n}
+		if stat, err := os.Stat(filepath.Join(verRoot, name)); err == nil {
+			info.Created = stat.ModTime()
+		}
+		hintsPath := filepath.Join(verRoot, fmt.Sprintf("v%d.hints.txt", n))
+		if data, err := os.ReadFile(hintsPath); err == nil {
+			info.Hints = strings.TrimSpace(string(data))
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+	return out, nil
 }
 
 // Get returns a single PRD by relative path.
@@ -181,8 +264,18 @@ func fromNote(note *vault.Note) *PRD {
 	if title, ok := note.Frontmatter["title"].(string); ok {
 		p.Title = title
 	}
-	if v, ok := note.Frontmatter["version"].(int); ok {
+	// Version can be int / int64 / float64 depending on how the YAML
+	// parser interpreted the frontmatter value.
+	switch v := note.Frontmatter["version"].(type) {
+	case int:
 		p.Version = v
+	case int64:
+		p.Version = int(v)
+	case float64:
+		p.Version = int(v)
+	}
+	if p.Version <= 0 {
+		p.Version = 1
 	}
 	if status, ok := note.Frontmatter["status"].(string); ok {
 		p.Status = Status(status)

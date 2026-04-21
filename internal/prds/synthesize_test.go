@@ -148,7 +148,7 @@ func TestBuildPRDPrompt(t *testing.T) {
 		{Bucket: "design", Title: "Design System", Path: "design/system.md", Body: "Design body"},
 		{Bucket: "engineering", Title: "Auth Middleware", Path: "eng/auth.md", Body: "Eng body"},
 	}
-	got := buildPRDPrompt("pitches/foo.md", "The pitch body", context, "")
+	got := buildPRDPrompt("pitches/foo.md", "The pitch body", context, "", "", "", false)
 
 	wantHas := []string{
 		"senior product manager",
@@ -170,7 +170,7 @@ func TestBuildPRDPrompt(t *testing.T) {
 }
 
 func TestBuildPRDPromptTruncatesPitch(t *testing.T) {
-	got := buildPRDPrompt("x.md", strings.Repeat("p", 20000), nil, "")
+	got := buildPRDPrompt("x.md", strings.Repeat("p", 20000), nil, "", "", "", false)
 	if !strings.Contains(got, "[...truncated]") {
 		t.Errorf("expected truncation for long pitch")
 	}
@@ -180,8 +180,32 @@ func TestBuildPRDPromptTruncatesContextBody(t *testing.T) {
 	context := []RetrievedNote{
 		{Bucket: "design", Title: "Long", Path: "x.md", Body: strings.Repeat("p", 5000)},
 	}
-	got := buildPRDPrompt("x.md", "short", context, "")
+	got := buildPRDPrompt("x.md", "short", context, "", "", "", false)
 	if !strings.Contains(got, "[...truncated]") {
 		t.Errorf("expected truncation for long context body")
+	}
+}
+
+func TestBuildPRDPromptRefineIncludesPrevious(t *testing.T) {
+	got := buildPRDPrompt("pitches/foo.md", "pitch", nil, "", "reduce scope for v2", "PREVIOUS_BODY", true)
+	for _, sub := range []string{
+		"Revise the existing PRD",
+		"Current PRD (revise this)",
+		"PREVIOUS_BODY",
+		"reduce scope for v2",
+	} {
+		if !strings.Contains(got, sub) {
+			t.Errorf("refine prompt missing %q", sub)
+		}
+	}
+}
+
+func TestBuildPRDPromptNonRefineOmitsPrevious(t *testing.T) {
+	got := buildPRDPrompt("pitches/foo.md", "pitch", nil, "", "", "PREVIOUS_BODY", false)
+	if strings.Contains(got, "Current PRD") {
+		t.Errorf("non-refine prompt should not include previous-version block")
+	}
+	if strings.Contains(got, "PREVIOUS_BODY") {
+		t.Errorf("non-refine prompt should not leak previous body")
 	}
 }
