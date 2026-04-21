@@ -193,12 +193,24 @@ function PersonaEditor({ name }: { name: string }) {
     queryFn: () => api.getPersona(name),
   })
 
+  // Tracks whether the user has unsaved edits. When clean (dirty=false)
+  // a background refetch of the persona content is allowed to overwrite
+  // `content` — that's how the Enhance mutation's invalidation surfaces
+  // the new body. When dirty, we leave `content` alone so the user
+  // doesn't lose mid-edit work to a background poll. The previous
+  // setState-in-render pattern clobbered edits unconditionally.
   const [content, setContent] = useState(persona?.content ?? "")
-  const [syncedContent, setSyncedContent] = useState(persona?.content ?? "")
-  if (persona?.content != null && persona.content !== syncedContent) {
-    setSyncedContent(persona.content)
-    setContent(persona.content)
-  }
+  const [dirty, setDirty] = useState(false)
+  const lastServerContent = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (persona?.content == null) return
+    if (persona.content === lastServerContent.current) return
+    lastServerContent.current = persona.content
+    if (!dirty) {
+      setContent(persona.content)
+    }
+  }, [persona?.content, dirty])
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
@@ -218,6 +230,10 @@ function PersonaEditor({ name }: { name: string }) {
     onMutate: () => setSaveStatus("saving"),
     onSuccess: () => {
       setSaveStatus("saved")
+      // Content is now in sync with the server — allow the next
+      // background refetch to overwrite `content` if the server
+      // returns something different.
+      setDirty(false)
       queryClient.invalidateQueries({ queryKey: ["persona", name] })
       queryClient.invalidateQueries({ queryKey: ["onboarding-status"] })
       if (saveStatusTimerRef.current != null) {
@@ -252,6 +268,10 @@ function PersonaEditor({ name }: { name: string }) {
       }),
     onSuccess: (result) => {
       setContent(result.content)
+      // Enhance gives us new content that hasn't been saved to disk
+      // yet — treat it as dirty so a background refetch doesn't
+      // overwrite it with the still-stale disk version.
+      setDirty(true)
       setSaveStatus("idle")
       setQuestions(null)
       setModalOpen(false)
@@ -324,7 +344,10 @@ function PersonaEditor({ name }: { name: string }) {
 
       <Textarea
         value={content}
-        onChange={(e) => setContent(e.target.value)}
+        onChange={(e) => {
+          setContent(e.target.value)
+          setDirty(true)
+        }}
         rows={18}
         className="border-border rounded-sm font-mono text-xs leading-relaxed"
         placeholder={`Enter ${name.toUpperCase()} content...`}

@@ -178,6 +178,40 @@ function postLong<T>(path: string, body: unknown, init: RequestInitWithTimeout =
   return post<T>(path, body, { timeoutMs: LONG_TIMEOUT_MS, ...init })
 }
 
+// fetchText is the raw-text equivalent of request<T> — used by
+// endpoints that return plain markdown or HTML (vault file bodies,
+// archived prototype specs). Honors the same timeout ceiling and
+// throws ApiError on non-2xx so callers can error-boundary the same
+// way. A previous version of this file inlined the timeout dance at
+// each callsite; centralizing here prevents the two copies from
+// drifting (one had no timeout at all).
+async function fetchText(path: string, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("request timeout", "TimeoutError")),
+    timeoutMs,
+  )
+  try {
+    let r: Response
+    try {
+      r = await fetch(path, { signal: controller.signal })
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "TimeoutError") {
+        throw new ApiError(0, "request timeout")
+      }
+      if (e instanceof DOMException && e.name === "AbortError") throw e
+      throw new ApiError(0, e instanceof Error ? e.message : "network error")
+    }
+    if (!r.ok) {
+      const text = await r.text().catch(() => "")
+      throw new ApiError(r.status, text.slice(0, 500) || r.statusText)
+    }
+    return r.text()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export const api = {
   // Status
   getStatus: () => request<StatusResponse>("/api/status"),
@@ -268,27 +302,8 @@ export const api = {
 
   // Vault
   getVaultTree: () => request<VaultTreeNode>("/api/vault/tree"),
-  getVaultFile: async (path: string) => {
-    // Raw text response, not JSON — inline the fetch but still honor
-    // DEFAULT_TIMEOUT_MS so hangs are bounded.
-    const controller = new AbortController()
-    const timer = setTimeout(
-      () => controller.abort(new DOMException("request timeout", "TimeoutError")),
-      DEFAULT_TIMEOUT_MS,
-    )
-    try {
-      const r = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
-        signal: controller.signal,
-      })
-      if (!r.ok) {
-        const text = await r.text().catch(() => "")
-        throw new ApiError(r.status, text.slice(0, 500) || r.statusText)
-      }
-      return r.text()
-    } finally {
-      clearTimeout(timer)
-    }
-  },
+  getVaultFile: (path: string) =>
+    fetchText(`/api/vault/file?path=${encodeURIComponent(path)}`),
 
   // Projects
   listProjects: () => request<Project[]>("/api/projects"),
@@ -351,10 +366,7 @@ export const api = {
   prototypeVersionHTMLUrl: (id: string, version: number) =>
     `/api/prototypes/${id}/versions/${version}/html`,
   getPrototypeVersionSpec: (id: string, version: number) =>
-    fetch(`/api/prototypes/${id}/versions/${version}/spec`).then((r) => {
-      if (!r.ok) throw new Error(`version fetch failed: ${r.status}`)
-      return r.text()
-    }),
+    fetchText(`/api/prototypes/${id}/versions/${version}/spec`),
 
   // PRDs
   listPRDs: () => request<PRD[]>("/api/prds"),

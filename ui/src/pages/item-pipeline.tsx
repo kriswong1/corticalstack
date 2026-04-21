@@ -133,12 +133,22 @@ interface PipelineData {
   error: string | null
 }
 
-function useProductData(id: string): PipelineData {
-  const { data, isLoading, error } = useQuery<ShapeUpThread>({
+// useThread is the single query hook for a product thread. Used both
+// by useProductData (which derives PipelineData for the page chrome)
+// and by the outer page body (which needs the raw ShapeUpThread to map
+// artifacts onto stages). React Query dedupes calls with the same key,
+// but centralizing the key shape + enabled predicate here prevents the
+// two call sites from drifting apart.
+function useThread(id: string, enabled: boolean) {
+  return useQuery<ShapeUpThread>({
     queryKey: ["thread", id],
     queryFn: () => api.getThread(id),
-    enabled: !!id,
+    enabled: enabled && !!id,
   })
+}
+
+function useProductData(id: string): PipelineData {
+  const { data, isLoading, error } = useThread(id, true)
   return {
     title: data?.title ?? "",
     currentStage: normalizeStage("product", data?.current_stage ?? "idea"),
@@ -236,12 +246,10 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
   const { title, currentStage, contentPath, hasHTML, prototypeId, prototype: protoObj, audioSourced, audioSourcePath, isLoading, error } = pipelineData
   const accent = PIPELINE_ACCENT[type] ?? "#8B8FA3"
 
-  // Product artifact data
-  const { data: threadData } = useQuery<ShapeUpThread>({
-    queryKey: ["thread", id],
-    queryFn: () => api.getThread(id),
-    enabled: type === "product" && !!id,
-  })
+  // Product artifact data — same query key as useProductData; React
+  // Query dedupes the network call so only one request is made per
+  // thread, and useThread keeps both call sites in lockstep.
+  const { data: threadData } = useThread(id, type === "product")
 
   const artifactPathByStage = useMemo(() => {
     const map = new Map<string, string>()
@@ -345,9 +353,20 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
     },
     onSuccess: () => {
       toast.success(`Advanced to ${label(nextStage!)}`)
-      if (type === "meeting") queryClient.invalidateQueries({ queryKey: ["meetings"] })
-      else if (type === "document") queryClient.invalidateQueries({ queryKey: ["document", id] })
-      else queryClient.invalidateQueries({ queryKey: ["prototypes"] })
+      // Invalidate both the list query and any per-id detail query
+      // for the advancing type. Different surfaces use different
+      // shapes (list vs detail) and the advancing page shouldn't need
+      // to know which surface is currently cached elsewhere.
+      if (type === "meeting") {
+        queryClient.invalidateQueries({ queryKey: ["meetings"] })
+        queryClient.invalidateQueries({ queryKey: ["meeting", id] })
+      } else if (type === "document") {
+        queryClient.invalidateQueries({ queryKey: ["documents"] })
+        queryClient.invalidateQueries({ queryKey: ["document", id] })
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["prototypes"] })
+        queryClient.invalidateQueries({ queryKey: ["prototype", id] })
+      }
       queryClient.invalidateQueries({ queryKey: ["card-detail", type] })
       queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       setSelectedStage(null)
@@ -468,6 +487,15 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
     queryFn: () => api.listPrototypeVersions(id),
     enabled: type === "prototype" && !!id,
   })
+
+  // Newest-first ordering for the version switcher. Memoized so the
+  // reversed array is stable across renders (the map callback in the
+  // switcher would otherwise produce a fresh children array each time
+  // and defeat React's reconciliation key tracking).
+  const protoVersionsDesc = useMemo(
+    () => (protoVersions ?? []).slice().reverse(),
+    [protoVersions],
+  )
 
   // When viewing an older prototype version, selectedVersion holds
   // the version number. null means "current live version".
@@ -709,10 +737,7 @@ export function ItemPipelinePage({ type: typeProp }: ItemPipelinePageProps = {})
                 >
                   v{protoObj.version} (current)
                 </button>
-                {protoVersions!
-                  .slice()
-                  .reverse()
-                  .map((v) => (
+                {protoVersionsDesc.map((v) => (
                     <button
                       key={v.version}
                       type="button"

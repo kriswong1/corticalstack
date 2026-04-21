@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
 import Markdown from "react-markdown"
@@ -1160,6 +1160,16 @@ function UseCasesSection({
   const [modalOpen, setModalOpen] = useState(false)
   const [questions, setQuestions] = useState<Question[] | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Reset prdId when the prds list changes and the current selection
+  // is no longer valid (e.g. the selected PRD was archived). Without
+  // this the Select would keep rendering a stale id while the derived
+  // sourcePath silently fell back to prds[0] — a quiet inconsistency.
+  useEffect(() => {
+    if (prdId && !prds.find((p) => p.id === prdId)) {
+      setPrdId(prds[0]?.id ?? "")
+    }
+  }, [prds, prdId])
 
   const selectedPRD = prds.find((p) => p.id === prdId) ?? prds[0]
   const sourcePath = selectedPRD?.path ?? ""
