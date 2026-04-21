@@ -28,7 +28,7 @@ import {
   Sun,
   Moon,
   Mic,
-  File,
+  File as FileIcon,
 } from "lucide-react"
 
 const mainItems = [
@@ -58,7 +58,7 @@ const productItems = [
 // detail pages but aren't part of the product-synthesis flow.
 const pipelineItems = [
   { to: "/meetings", label: "Meetings", icon: Mic },
-  { to: "/documents", label: "Documents", icon: File },
+  { to: "/documents", label: "Documents", icon: FileIcon },
 ]
 
 const systemItems = [
