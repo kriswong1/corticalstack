@@ -426,6 +426,23 @@ func (h *Handler) CreatePrototype(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Phase 4 inheritance: if no ProjectIDs supplied, inherit from the
+	// parent thread (looked up by SourceThread or by walking artifacts
+	// that match SourcePaths).
+	var parentProjects []string
+	if req.SourceThread != "" && h.ShapeUp != nil {
+		if parent, err := h.ShapeUp.GetThread(req.SourceThread); err == nil && parent != nil {
+			parentProjects = parent.Projects
+		}
+	}
+	if parentProjects == nil && len(req.SourcePaths) > 0 {
+		if parent := findThreadByArtifactPath(h.ShapeUp, req.SourcePaths[0]); parent != nil {
+			parentProjects = parent.Projects
+		}
+	}
+	req.ProjectIDs = resolveParentProjects(h.Projects, req.ProjectIDs, parentProjects)
+
 	p, err := h.PrototypeSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
 		var invalidPaths *prototypes.InvalidSourcePathsError

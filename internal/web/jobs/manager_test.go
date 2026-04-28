@@ -81,7 +81,14 @@ type stubProjects struct {
 }
 
 func (s *stubProjects) List() []*projects.Project { return s.list }
-func (s *stubProjects) EnsureExists(id string)     {}
+func (s *stubProjects) Get(idOrSlug string) *projects.Project {
+	for _, p := range s.list {
+		if p.UUID == idOrSlug || p.Slug == idOrSlug {
+			return p
+		}
+	}
+	return nil
+}
 
 // newTestManager wires Manager with stubs and returns it plus the
 // stubs for direct manipulation.

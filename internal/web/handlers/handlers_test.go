@@ -60,8 +60,8 @@ func (s *stubClassifier) Classify(ctx context.Context, doc *pipeline.TextDocumen
 
 type stubProjectList struct{}
 
-func (s *stubProjectList) List() []*projects.Project { return nil }
-func (s *stubProjectList) EnsureExists(id string)     {}
+func (s *stubProjectList) List() []*projects.Project        { return nil }
+func (s *stubProjectList) Get(_ string) *projects.Project   { return nil }
 
 // newTestHandler wires a Handler with tmpdir vault and a real jobs.Manager
 // backed by stubs. Routes through the same chi router the server uses so

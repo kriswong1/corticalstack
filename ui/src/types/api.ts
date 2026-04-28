@@ -19,6 +19,14 @@ export interface PreviewResult {
   suggested_title?: string
   suggested_project_ids?: string[]
   suggested_tags?: string[]
+  /**
+   * Phase 4: when no active project fits but the content clearly belongs
+   * to a *new* project, Claude returns the proposed name here. The
+   * preview panel surfaces a "Create new project «foo»?" affordance —
+   * confirming creates the project explicitly. Ingest no longer
+   * silently auto-creates from arbitrary frontmatter strings.
+   */
+  proposed_project_name?: string
   reasoning?: string
 }
 

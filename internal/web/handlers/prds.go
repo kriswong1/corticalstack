@@ -106,6 +106,16 @@ func (h *Handler) CreatePRD(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Phase 4 inheritance: if the caller didn't supply ProjectIDs, fall
+	// back to the parent Pitch thread's Projects. Funnels through the
+	// canonicalizer either way so we never write slugs or dangling UUIDs.
+	var parentProjects []string
+	if parent := findThreadByArtifactPath(h.ShapeUp, req.PitchPath); parent != nil {
+		parentProjects = parent.Projects
+	}
+	req.ProjectIDs = resolveParentProjects(h.Projects, req.ProjectIDs, parentProjects)
+
 	p, err := h.PRDSynth.Synthesize(r.Context(), h.Vault, req)
 	if err != nil {
 		internalError(w, "prd.synthesize", err)

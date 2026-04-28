@@ -48,9 +48,16 @@ type docClassifier interface {
 }
 
 // projectLister is the subset of *projects.Store that Manager needs.
+//
+// Phase 4: EnsureExists is no longer called from runConfirm — ingest
+// stops silently auto-creating projects. Get is used to validate that
+// every confirmed project_id resolves to a known project; unknown
+// values are logged + dropped so the extraction still proceeds with
+// the survivors. Explicit project creation now goes through the
+// "Create new project «foo»?" preview affordance.
 type projectLister interface {
 	List() []*projects.Project
-	EnsureExists(id string)
+	Get(idOrSlug string) *projects.Project
 }
 
 // Status is a job's terminal-or-running state.
@@ -299,16 +306,29 @@ func (m *Manager) runPreview(ctx context.Context, job *Job, input *pipeline.RawI
 }
 
 func (m *Manager) runConfirm(ctx context.Context, job *Job, doc *pipeline.TextDocument, payload ConfirmPayload) {
-	// Auto-create projects referenced in the preview that don't exist yet.
+	// Phase 4: validate project IDs against the store rather than
+	// silently auto-creating. Unknown values are dropped + logged so
+	// the user notices when their preview pointed at a project that
+	// doesn't exist (typo, deleted project, classifier hallucination).
+	// Explicit creation goes through the preview "Create new?" path.
+	validated := make([]string, 0, len(payload.ProjectIDs))
 	for _, pid := range payload.ProjectIDs {
-		m.projects.EnsureExists(pid)
+		if pid == "" {
+			continue
+		}
+		if p := m.projects.Get(pid); p != nil {
+			validated = append(validated, p.UUID)
+			continue
+		}
+		slog.Warn("jobs: dropping unknown project_id from confirm payload",
+			"job_id", job.ID, "project_ref", pid)
 	}
 
 	m.setStatus(job, StatusExtracting, "Extracting structured data")
 
 	cfg := pipeline.DefaultConfigForSource(doc.Source)
 	cfg.Intention = payload.Intention
-	cfg.Projects = payload.ProjectIDs
+	cfg.Projects = validated
 	cfg.Why = payload.Why
 	if payload.Title != "" {
 		doc.Title = payload.Title

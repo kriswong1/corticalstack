@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/usecases"
 )
 
@@ -106,6 +107,28 @@ func (h *Handler) GenerateUseCasesFromDoc(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid source_path: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Phase 4 inheritance: if the source_path resolves to a known PRD or
+	// thread artifact, default-fill ProjectIDs from it. The caller can
+	// still override by passing project_ids explicitly.
+	var parentProjects []string
+	if h.PRDs != nil {
+		if list, err := h.PRDs.List(); err == nil {
+			for _, prd := range list {
+				if prd.Path == req.SourcePath {
+					parentProjects = prd.Projects
+					break
+				}
+			}
+		}
+	}
+	if parentProjects == nil {
+		if parent := findThreadByArtifactPath(h.ShapeUp, req.SourcePath); parent != nil {
+			parentProjects = parent.Projects
+		}
+	}
+	req.ProjectIDs = resolveParentProjects(h.Projects, req.ProjectIDs, parentProjects)
+
 	cases, err := h.UseCaseGen.FromDoc(r.Context(), h.Vault, req)
 	if err != nil {
 		internalError(w, "usecase.from_doc", err)
@@ -126,6 +149,10 @@ func (h *Handler) GenerateUseCasesFromText(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Phase 4 inheritance: from-text has no parent reference, so the
+	// canonicalizer just normalizes whatever the caller supplied.
+	req.ProjectIDs = projects.CanonicalizeProjectIDs(h.Projects, req.ProjectIDs)
+
 	cases, err := h.UseCaseGen.FromText(r.Context(), req)
 	if err != nil {
 		internalError(w, "usecase.from_text", err)
