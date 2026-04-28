@@ -110,6 +110,8 @@ func (s *Server) routes() {
 	r.Patch("/api/projects/{id}", s.Handler.UpdateProject)
 	r.Delete("/api/projects/{id}", s.Handler.DeleteProject)
 	r.Get("/api/projects/{id}/content", s.Handler.GetProjectContent)
+	r.Get("/api/projects/{id}/canvas", s.Handler.GetProjectCanvas)
+	r.Put("/api/projects/{id}/canvas", s.Handler.SetProjectCanvas)
 
 	// API: usage telemetry
 	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)

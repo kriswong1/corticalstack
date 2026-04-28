@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import { usePinnedProject } from "@/hooks/use-pinned-project"
 import {
   Select,
   SelectContent,
@@ -28,7 +29,11 @@ export const ALL_PROJECTS = "__all__"
  */
 export function useProjectFilter(): [string | null, (v: string | null) => void] {
   const [params, setParams] = useSearchParams()
-  const value = params.get("project")
+  const [pinned] = usePinnedProject()
+  // URL takes precedence; pinned project is the implicit default when no
+  // ?project= is set. Setting null clears the URL but does not clear the
+  // pin — the pin is a sticky preference, the URL is a one-shot override.
+  const value = params.get("project") ?? pinned
 
   const setValue = (next: string | null) => {
     setParams(

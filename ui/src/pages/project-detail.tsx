@@ -27,6 +27,7 @@ import {
 import { api, getErrorMessage } from "@/lib/api"
 import type { ProjectStatus } from "@/types/api"
 import { Pencil, Trash2 } from "lucide-react"
+import { CanvasEditor } from "@/components/projects/canvas-editor"
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -142,6 +143,7 @@ export function ProjectDetailPage() {
             <CountCard label="Documents" value={counts.documents} />
             <CountCard label="Meetings" value={counts.meetings} />
           </div>
+          <CanvasEditor projectId={p.uuid} />
           <Card className="rounded-md border-border shadow-stripe-elevated">
             <CardHeader>
               <CardTitle className="text-base font-light">Metadata</CardTitle>

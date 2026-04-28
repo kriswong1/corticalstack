@@ -538,6 +538,10 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 	return p, nil
 }
 
+// writeManifest writes the project's manifest in split-mode: deterministic
+// header + frontmatter, user-editable `## Canvas` section preserved
+// across writes, deterministic footer regenerated each time. The canvas
+// is read off the existing manifest body (if any) and round-tripped.
 func (s *Store) writeManifest(p *Project) error {
 	fm := map[string]interface{}{
 		"uuid":   p.UUID,
@@ -553,19 +557,65 @@ func (s *Store) writeManifest(p *Project) error {
 	}
 	fm["created"] = p.Created.Format(time.RFC3339)
 
-	var body strings.Builder
-	body.WriteString(fmt.Sprintf("# %s\n\n", p.Name))
-	if p.Description != "" {
-		body.WriteString(p.Description)
-		body.WriteString("\n\n")
-	}
-	body.WriteString("## Notes\n\n> CorticalStack notes tagged with this project will backlink here via frontmatter `projects:`.\n\n")
-	body.WriteString("## Action items\n\n> See [[")
-	body.WriteString(filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, "ACTION-ITEMS")))
-	body.WriteString("]].\n")
-
-	note := &vault.Note{Frontmatter: fm, Body: body.String()}
 	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, manifestName))
+
+	// Preserve any existing canvas content. ReadNote returns an error
+	// for missing manifests (initial create); we treat that as empty
+	// canvas and let composeBody emit just the heading.
+	var canvas string
+	if existing, err := s.vault.ReadNote(rel); err == nil {
+		canvas = extractCanvas(existing.Body)
+	}
+
+	note := &vault.Note{Frontmatter: fm, Body: composeBody(p, canvas)}
+	return s.vault.WriteNote(rel, note)
+}
+
+// Canvas returns the user-editable canvas text for a project, or "" if
+// the manifest has no canvas section yet. Lookup accepts UUID or slug.
+func (s *Store) Canvas(idOrSlug string) (string, error) {
+	p := s.Get(idOrSlug)
+	if p == nil {
+		return "", ErrProjectNotFound
+	}
+	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, manifestName))
+	note, err := s.vault.ReadNote(rel)
+	if err != nil {
+		return "", err
+	}
+	return extractCanvas(note.Body), nil
+}
+
+// SetCanvas writes new canvas content into the project's manifest. The
+// rest of the body (header, footer) is recomposed from the project's
+// current state. Returns ErrProjectNotFound if no match.
+func (s *Store) SetCanvas(idOrSlug, canvas string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.byUUID[idOrSlug]
+	if p == nil {
+		p = s.bySlug[idOrSlug]
+	}
+	if p == nil {
+		return ErrProjectNotFound
+	}
+
+	fm := map[string]interface{}{
+		"uuid":   p.UUID,
+		"id":     p.Slug,
+		"name":   p.Name,
+		"status": string(p.Status),
+	}
+	if p.Description != "" {
+		fm["description"] = p.Description
+	}
+	if len(p.Tags) > 0 {
+		fm["tags"] = p.Tags
+	}
+	fm["created"] = p.Created.Format(time.RFC3339)
+
+	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, manifestName))
+	note := &vault.Note{Frontmatter: fm, Body: composeBody(p, canvas)}
 	return s.vault.WriteNote(rel, note)
 }
 

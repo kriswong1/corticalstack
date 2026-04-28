@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/hooks/use-theme"
+import { ProjectPicker } from "@/components/projects/project-picker"
 import {
   Sidebar,
   SidebarContent,
@@ -106,7 +107,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
+      <SidebarHeader className="p-4 space-y-3">
         <NavLink
           to="/dashboard"
           className="flex items-center gap-2 text-sidebar-foreground"
@@ -116,6 +117,7 @@ export function AppSidebar() {
             CORTICAL STACK
           </span>
         </NavLink>
+        <ProjectPicker />
       </SidebarHeader>
 
       <SidebarContent>

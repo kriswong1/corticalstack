@@ -330,6 +330,10 @@ export const api = {
   deleteProject: (id: string) => del<void>(`/api/projects/${id}`),
   getProjectContent: (id: string) =>
     request<ProjectContent>(`/api/projects/${id}/content`),
+  getProjectCanvas: (id: string) =>
+    request<{ canvas: string }>(`/api/projects/${id}/canvas`),
+  setProjectCanvas: (id: string, canvas: string) =>
+    put<void>(`/api/projects/${id}/canvas`, { canvas }),
   syncProjects: () =>
     post<{ created: string[]; created_count: number }>("/api/projects/sync", {}),
 

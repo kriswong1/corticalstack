@@ -103,6 +103,44 @@ func (h *Handler) GetProjectContent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, content)
 }
 
+// GetProjectCanvas returns the user-editable canvas text for a project.
+func (h *Handler) GetProjectCanvas(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	canvas, err := h.Projects.Canvas(id)
+	if err != nil {
+		if errors.Is(err, projects.ErrProjectNotFound) {
+			http.Error(w, "project not found", http.StatusNotFound)
+			return
+		}
+		internalError(w, "projects.canvas", err)
+		return
+	}
+	writeJSON(w, map[string]string{"canvas": canvas})
+}
+
+// SetProjectCanvas writes new canvas content into the project's manifest.
+// Body shape: { "canvas": "..." }. Round-tripped on disk between the
+// deterministic header and footer.
+func (h *Handler) SetProjectCanvas(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req struct {
+		Canvas string `json:"canvas"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Projects.SetCanvas(id, req.Canvas); err != nil {
+		if errors.Is(err, projects.ErrProjectNotFound) {
+			http.Error(w, "project not found", http.StatusNotFound)
+			return
+		}
+		internalError(w, "projects.set_canvas", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // SyncProjects handles POST /api/projects/sync — scans vault notes for
 // project references and auto-creates any that don't exist in the store.
 func (h *Handler) SyncProjects(w http.ResponseWriter, r *http.Request) {
