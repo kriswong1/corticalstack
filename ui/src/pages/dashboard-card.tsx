@@ -136,7 +136,7 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
       let projectIds: string[] = []
       if (ideaProject === "__new__" && newProjectName.trim()) {
         const created = await api.createProject({ name: newProjectName.trim() })
-        projectIds = [created.id]
+        projectIds = [created.uuid]
       } else if (ideaProject && ideaProject !== "__new__") {
         projectIds = [ideaProject]
       }
