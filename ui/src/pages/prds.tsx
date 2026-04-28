@@ -22,6 +22,7 @@ import { api, getErrorMessage } from "@/lib/api"
 import { Link, useNavigate } from "react-router-dom"
 import { Plus, X } from "lucide-react"
 import type { Answer, PRD, Question, ShapeUpThread } from "@/types/api"
+import { ProjectFilter, useProjectFilter } from "@/components/filters/project-filter"
 
 const ANY_PROJECT = "__any__"
 
@@ -52,6 +53,9 @@ export function PRDsPage() {
   // feels the same.
   const [stageFilter, setStageFilter] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Page-level project filter — narrows the table below. Distinct from
+  // the form's project select (which scopes pitch-ready threads).
+  const [pageProjectFilter, setPageProjectFilter] = useProjectFilter()
 
   const { data: prds, isLoading } = useQuery({
     queryKey: ["prds"],
@@ -87,6 +91,15 @@ export function PRDsPage() {
     if (projectFilter === ANY_PROJECT) return pitchReady
     return pitchReady.filter((t) => (t.projects ?? []).includes(projectFilter))
   }, [pitchReady, projectFilter])
+
+  // Apply the page-level project filter to the PRDs list before passing
+  // to the table. This is independent from the form's per-thread filter.
+  const visiblePRDs = useMemo(() => {
+    if (!pageProjectFilter) return prds ?? []
+    return (prds ?? []).filter((prd) =>
+      (prd.projects ?? []).includes(pageProjectFilter),
+    )
+  }, [prds, pageProjectFilter])
 
   const selectedThread = filteredThreads.find((t) => t.id === threadId)
   const currentPitchPath = selectedThread ? pitchPath(selectedThread) : ""
@@ -317,7 +330,7 @@ export function PRDsPage() {
               the PRD titles currently in that status. */}
           <PipelineStageCards
             type="prd"
-            items={(prds ?? []).map((prd) => ({
+            items={visiblePRDs.map((prd) => ({
               id: prd.id,
               title: prd.title,
               stage: prd.status,
@@ -328,6 +341,15 @@ export function PRDsPage() {
               setSelected(new Set())
             }}
           />
+
+          <div className="flex items-center gap-3 mt-4">
+            <span className="text-xs text-muted-foreground">Filter:</span>
+            <ProjectFilter
+              value={pageProjectFilter}
+              onChange={setPageProjectFilter}
+              className="h-7 w-48 text-xs border-border rounded-sm"
+            />
+          </div>
 
           <Card className="rounded-[14px] border-border shadow-stripe mt-5">
             <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3 space-y-0">
@@ -357,7 +379,7 @@ export function PRDsPage() {
             </CardHeader>
             <CardContent className="p-0">
               <PRDItemsTable
-                prds={prds ?? []}
+                prds={visiblePRDs}
                 threads={threads ?? []}
                 stageFilter={stageFilter}
                 selected={selected}

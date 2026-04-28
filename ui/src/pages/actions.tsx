@@ -34,6 +34,7 @@ import { api, ApiError, getErrorMessage } from "@/lib/api"
 import type { Action, ActionStatus, ActionPriority, ActionEffort } from "@/types/api"
 import { useNow } from "@/hooks/use-now"
 import { RefreshCw, Pencil } from "lucide-react"
+import { ProjectFilter, useProjectFilter } from "@/components/filters/project-filter"
 
 const allStatuses: ActionStatus[] = [
   "inbox",
@@ -95,7 +96,9 @@ export function ActionsPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(
     searchParams.get("status"),
   )
-  const [filterProject, setFilterProject] = useState<string | null>(null)
+  // Project filter is URL-synced via ?project=<uuid> by the shared
+  // ProjectFilter component — single source of truth across every list page.
+  const [filterProject, setFilterProject] = useProjectFilter()
   const [filterContext, setFilterContext] = useState<string | null>(null)
   const [filterStalled, setFilterStalled] = useState<boolean>(
     searchParams.get("stalled") === "true",
@@ -138,18 +141,8 @@ export function ActionsPage() {
     queryFn: api.getActionCounts,
   })
 
-  // Derive unique projects and contexts from actions for filter
-  // dropdowns. Memoized on `actions` so they don't re-sort on every
-  // unrelated render (filter chip click, etc.). The type guard on
-  // `context` is load-bearing: `filter(Boolean)` loses the nullability
-  // proof in strict-null mode and `as string[]` would lie about it.
-  const uniqueProjects = useMemo(
-    () =>
-      Array.from(
-        new Set(actions?.flatMap((a) => a.project_ids ?? []) ?? []),
-      ).sort(),
-    [actions],
-  )
+  // ProjectFilter owns its own list (queryKey ["projects"]); we only
+  // need the contexts derived from action data here.
   const uniqueContexts = useMemo(
     () =>
       Array.from(
@@ -264,19 +257,11 @@ export function ActionsPage() {
       )}
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        {uniqueProjects.length > 0 && (
-          <Select value={filterProject ?? "_all"} onValueChange={(v) => setFilterProject(v === "_all" ? null : v)}>
-            <SelectTrigger className="h-7 w-36 text-xs border-border rounded-sm">
-              <SelectValue placeholder="All projects" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_all">All projects</SelectItem>
-              {uniqueProjects.map((p) => (
-                <SelectItem key={p} value={p}>{p}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <ProjectFilter
+          value={filterProject}
+          onChange={setFilterProject}
+          className="h-7 w-36 text-xs border-border rounded-sm"
+        />
         {uniqueContexts.length > 0 && (
           <Select value={filterContext ?? "_all"} onValueChange={(v) => setFilterContext(v === "_all" ? null : v)}>
             <SelectTrigger className="h-7 w-36 text-xs border-border rounded-sm">

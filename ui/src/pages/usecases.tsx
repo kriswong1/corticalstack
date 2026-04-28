@@ -18,6 +18,7 @@ import { Link } from "react-router-dom"
 import { Plus, X } from "lucide-react"
 import { api, getErrorMessage } from "@/lib/api"
 import type { Answer, Question, PRD, ShapeUpThread, UseCase } from "@/types/api"
+import { ProjectFilter, useProjectFilter } from "@/components/filters/project-filter"
 
 type FlowKind = "doc" | "text"
 
@@ -89,6 +90,8 @@ export function UseCasesPage() {
   // dashboard-card behavior so every pipeline surface feels the same.
   const [stageFilter, setStageFilter] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Page-level project filter — URL ?project=<uuid>.
+  const [projectFilter, setProjectFilter] = useProjectFilter()
 
   const { data: useCases, isLoading } = useQuery({
     queryKey: ["usecases"],
@@ -233,9 +236,14 @@ export function UseCasesPage() {
       : fromTextMutation.isPending
 
   // Filtered items and selection bookkeeping for the shared table.
-  const visibleItems = (useCases ?? []).filter((uc) =>
-    stageFilter ? primaryActor(uc) === stageFilter : true,
-  )
+  // Project filter applies first, then the actor (stage) filter.
+  const visibleItems = (useCases ?? [])
+    .filter((uc) =>
+      projectFilter ? (uc.projects ?? []).includes(projectFilter) : true,
+    )
+    .filter((uc) =>
+      stageFilter ? primaryActor(uc) === stageFilter : true,
+    )
   const visibleIds = visibleItems.map((uc) => uc.id)
   const allSelected =
     visibleItems.length > 0 && visibleIds.every((id) => selected.has(id))
@@ -397,6 +405,15 @@ export function UseCasesPage() {
               setSelected(new Set())
             }}
           />
+
+          <div className="flex items-center gap-3 mt-4">
+            <span className="text-xs text-muted-foreground">Filter:</span>
+            <ProjectFilter
+              value={projectFilter}
+              onChange={setProjectFilter}
+              className="h-7 w-48 text-xs border-border rounded-sm"
+            />
+          </div>
 
           <Card className="rounded-[14px] border-border shadow-stripe mt-5">
             <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3 space-y-0">

@@ -640,6 +640,7 @@ export interface CardItem {
   stage: string
   updated?: string
   view_url: string
+  projects?: string[]
 }
 
 export interface CardDetail {

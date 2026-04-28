@@ -24,6 +24,7 @@ import {
   type PipelineItemsTableItem,
 } from "@/components/shared/pipeline-items-table"
 import { api, getErrorMessage } from "@/lib/api"
+import { ProjectFilter, useProjectFilter } from "@/components/filters/project-filter"
 import { toast } from "sonner"
 import type { CardDetail, ItemUsageAggregate, Project, Prototype, ShapeUpThread } from "@/types/api"
 import { Loader2, Plus, Upload, X } from "lucide-react"
@@ -97,6 +98,9 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
   const isMeeting = type === "meeting"
   const isDocument = type === "document"
   const isPrototype = type === "prototype"
+
+  // Page-level project filter — URL ?project=<uuid>.
+  const [projectFilter, setProjectFilter] = useProjectFilter()
 
   const { data: projects } = useQuery<Project[]>({
     queryKey: ["projects"],
@@ -268,12 +272,13 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
   }
 
   const items = detail.items ?? []
-  // Stage-filtered view of items — the stage cards at the top drive
-  // this, so clicking a card narrows the table to that stage. Null
-  // means "all items, no filter".
-  const visibleItems = stageFilter
-    ? items.filter((i) => i.stage === stageFilter)
-    : items
+  // Stage-filtered + project-filtered view of items. Project filter is
+  // URL-synced via the shared <ProjectFilter />.
+  const visibleItems = items
+    .filter((i) =>
+      projectFilter ? (i.projects ?? []).includes(projectFilter) : true,
+    )
+    .filter((i) => (stageFilter ? i.stage === stageFilter : true))
   const allIds = visibleItems.map((i) => i.id)
   const allSelected =
     visibleItems.length > 0 && allIds.every((id) => selected.has(id))
@@ -652,8 +657,18 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
       {/* Usage card */}
       {usage && <UsageCard usage={usage} hasSelection={selected.size > 0} />}
 
+      {/* Project filter — page-level, URL ?project=<uuid> */}
+      <div className="flex items-center gap-3 mt-5">
+        <span className="text-xs text-muted-foreground">Filter:</span>
+        <ProjectFilter
+          value={projectFilter}
+          onChange={setProjectFilter}
+          className="h-7 w-48 text-xs border-border rounded-sm"
+        />
+      </div>
+
       {/* Items table */}
-      <Card className="rounded-[14px] border-border shadow-stripe mt-5">
+      <Card className="rounded-[14px] border-border shadow-stripe mt-3">
         <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3 space-y-0">
           <CardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
             Items

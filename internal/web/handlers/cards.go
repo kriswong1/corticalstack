@@ -38,12 +38,15 @@ type CardStageCount struct {
 
 // CardItem is one row of the items table on the card detail page.
 // ViewURL is the frontend route the View button should navigate to.
+// Projects carries the entity's project UUIDs so the FE can filter by
+// project (powers the shared <ProjectFilter /> on dashboard-card).
 type CardItem struct {
-	ID      string    `json:"id"`
-	Title   string    `json:"title"`
-	Stage   string    `json:"stage"`
-	Updated time.Time `json:"updated,omitempty"`
-	ViewURL string    `json:"view_url"`
+	ID       string    `json:"id"`
+	Title    string    `json:"title"`
+	Stage    string    `json:"stage"`
+	Updated  time.Time `json:"updated,omitempty"`
+	ViewURL  string    `json:"view_url"`
+	Projects []string  `json:"projects,omitempty"`
 }
 
 // GetCardDetail handles GET /api/cards/{type}. The type URL param
@@ -90,11 +93,12 @@ func (h *Handler) GetCardDetail(w http.ResponseWriter, r *http.Request) {
 					updated = t.Artifacts[len(t.Artifacts)-1].Created
 				}
 				detail.Items = append(detail.Items, CardItem{
-					ID:      t.ID,
-					Title:   t.Title,
-					Stage:   string(st),
-					Updated: updated,
-					ViewURL: "/product?thread=" + t.ID,
+					ID:       t.ID,
+					Title:    t.Title,
+					Stage:    string(st),
+					Updated:  updated,
+					ViewURL:  "/product?thread=" + t.ID,
+					Projects: t.Projects,
 				})
 			}
 		}
@@ -113,11 +117,12 @@ func (h *Handler) GetCardDetail(w http.ResponseWriter, r *http.Request) {
 					updated = m.Created
 				}
 				detail.Items = append(detail.Items, CardItem{
-					ID:      m.ID,
-					Title:   m.Title,
-					Stage:   string(st),
-					Updated: updated,
-					ViewURL: "/meetings/" + m.ID,
+					ID:       m.ID,
+					Title:    m.Title,
+					Stage:    string(st),
+					Updated:  updated,
+					ViewURL:  "/meetings/" + m.ID,
+					Projects: m.Projects,
 				})
 			}
 		}
@@ -136,11 +141,12 @@ func (h *Handler) GetCardDetail(w http.ResponseWriter, r *http.Request) {
 					updated = d.Created
 				}
 				detail.Items = append(detail.Items, CardItem{
-					ID:      d.ID,
-					Title:   d.Title,
-					Stage:   string(st),
-					Updated: updated,
-					ViewURL: "/documents/" + d.ID,
+					ID:       d.ID,
+					Title:    d.Title,
+					Stage:    string(st),
+					Updated:  updated,
+					ViewURL:  "/documents/" + d.ID,
+					Projects: d.Projects,
 				})
 			}
 		}
@@ -162,11 +168,12 @@ func (h *Handler) GetCardDetail(w http.ResponseWriter, r *http.Request) {
 					updated = p.Created
 				}
 				detail.Items = append(detail.Items, CardItem{
-					ID:      p.ID,
-					Title:   p.Title,
-					Stage:   string(st),
-					Updated: updated,
-					ViewURL: "/prototypes?id=" + p.ID,
+					ID:       p.ID,
+					Title:    p.Title,
+					Stage:    string(st),
+					Updated:  updated,
+					ViewURL:  "/prototypes?id=" + p.ID,
+					Projects: p.Projects,
 				})
 			}
 		}
