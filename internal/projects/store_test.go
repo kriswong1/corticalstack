@@ -26,8 +26,11 @@ func TestCreateAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if p.ID != "licenseninja" {
-		t.Errorf("id: got %q want %q", p.ID, "licenseninja")
+	if p.Slug != "licenseninja" {
+		t.Errorf("slug: got %q want %q", p.Slug, "licenseninja")
+	}
+	if p.UUID == "" {
+		t.Error("uuid: expected non-empty UUID, got empty")
 	}
 	if p.Status != StatusActive {
 		t.Errorf("status: got %q want active", p.Status)
@@ -52,7 +55,7 @@ func TestRefreshDiscoversExisting(t *testing.T) {
 		t.Fatalf("refresh: %v", err)
 	}
 	if fresh.Get("alpha") == nil {
-		t.Errorf("expected alpha to be discovered")
+		t.Errorf("expected alpha to be discovered by slug")
 	}
 }
 
@@ -96,7 +99,7 @@ func TestCreateIfMissingIdempotent(t *testing.T) {
 	if created2 {
 		t.Errorf("second call should report created=false")
 	}
-	if p2 == nil || p2.ID != p1.ID {
+	if p2 == nil || p2.UUID != p1.UUID {
 		t.Errorf("second call should return existing project (p1=%v p2=%v)", p1, p2)
 	}
 }

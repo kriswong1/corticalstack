@@ -11,31 +11,52 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/kriswong/corticalstack/internal/vault"
 )
 
 // ErrProjectExists is returned by Create when a project with the derived
-// slug id already exists. Callers that want idempotent creation should
+// slug already exists. Callers that want idempotent creation should
 // use CreateIfMissing instead of catching this error by string.
 var ErrProjectExists = errors.New("project already exists")
+
+// ErrProjectNotFound is returned by Get/Update/Delete when no project
+// matches the provided id (UUID or slug).
+var ErrProjectNotFound = errors.New("project not found")
 
 const (
 	projectsFolder  = "projects"
 	manifestName    = "project.md"
 	actionItemsName = "ACTION-ITEMS.md"
+
+	// trashFolder holds soft-deleted projects. Sibling of projectsFolder
+	// so a `.trash` directory under projects/ doesn't get mistaken for a
+	// project on Refresh (we explicitly skip dotfiles in the walker).
+	trashFolder = ".trash/projects"
 )
 
 // Store reads and writes projects inside the vault.
+//
+// The store keeps two indexes over the same set of projects: byUUID is
+// the canonical lookup, bySlug is a convenience for filesystem and
+// hand-written-manifest lookups. Both maps point to the same *Project
+// values — never duplicate.
 type Store struct {
 	vault *vault.Vault
 
-	mu    sync.RWMutex
-	cache map[string]*Project
+	mu     sync.RWMutex
+	byUUID map[string]*Project
+	bySlug map[string]*Project
 }
 
 // New creates a store bound to a vault. Call Refresh() to populate the cache.
 func New(v *vault.Vault) *Store {
-	return &Store{vault: v, cache: make(map[string]*Project)}
+	return &Store{
+		vault:  v,
+		byUUID: make(map[string]*Project),
+		bySlug: make(map[string]*Project),
+	}
 }
 
 // Refresh rescans vault/projects/*/project.md and rebuilds the in-memory cache.
@@ -50,7 +71,8 @@ func (s *Store) Refresh() error {
 		return fmt.Errorf("reading projects dir: %w", err)
 	}
 
-	next := make(map[string]*Project)
+	nextByUUID := make(map[string]*Project)
+	nextBySlug := make(map[string]*Project)
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
@@ -64,11 +86,13 @@ func (s *Store) Refresh() error {
 			// Skip malformed manifests but don't fail the whole refresh.
 			continue
 		}
-		next[p.ID] = p
+		nextByUUID[p.UUID] = p
+		nextBySlug[p.Slug] = p
 	}
 
 	s.mu.Lock()
-	s.cache = next
+	s.byUUID = nextByUUID
+	s.bySlug = nextBySlug
 	s.mu.Unlock()
 	return nil
 }
@@ -78,8 +102,8 @@ func (s *Store) List() []*Project {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]*Project, 0, len(s.cache))
-	for _, p := range s.cache {
+	out := make([]*Project, 0, len(s.byUUID))
+	for _, p := range s.byUUID {
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -88,44 +112,73 @@ func (s *Store) List() []*Project {
 	return out
 }
 
-// Get returns a project by ID or nil if unknown.
-func (s *Store) Get(id string) *Project {
+// Get returns a project by UUID or slug, or nil if unknown. Accepts either
+// form so HTTP routes (chi.URLParam "id") can match without the caller
+// knowing which shape they have.
+func (s *Store) Get(idOrSlug string) *Project {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.cache[id]
+	if p, ok := s.byUUID[idOrSlug]; ok {
+		return p
+	}
+	return s.bySlug[idOrSlug]
+}
+
+// GetByUUID returns the project with the given UUID, or nil.
+func (s *Store) GetByUUID(u string) *Project {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.byUUID[u]
+}
+
+// GetBySlug returns the project with the given slug, or nil.
+func (s *Store) GetBySlug(slug string) *Project {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.bySlug[slug]
+}
+
+// KnownUUIDs returns the set of UUIDs currently in the cache. Used by
+// CanonicalizeProjectIDs to drop dangling references on write.
+func (s *Store) KnownUUIDs() map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]bool, len(s.byUUID))
+	for u := range s.byUUID {
+		out[u] = true
+	}
+	return out
 }
 
 // Create writes a new project manifest and an empty action items file.
-// Returns ErrProjectExists if the project id already exists.
-//
-// Create holds the write lock for the full check-and-write so a race
-// between two Create calls produces exactly one success and one
-// ErrProjectExists. Callers that want idempotent "create if not
-// present" semantics should use CreateIfMissing.
+// Returns ErrProjectExists if a project with the derived slug already
+// exists. The newly-minted Project carries a fresh UUID — callers should
+// reference projects by UUID rather than slug going forward.
 func (s *Store) Create(req CreateRequest) (*Project, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("project name required")
 	}
-	id := vault.Slugify(name)
-	if id == "" {
+	slug := vault.Slugify(name)
+	if slug == "" {
 		return nil, fmt.Errorf("project name produced empty slug")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.createLocked(id, name, req)
+	return s.createLocked(slug, name, req)
 }
 
 // createLocked is the shared write-under-lock implementation used by both
 // Create and CreateIfMissing. Caller must hold s.mu for writing.
-func (s *Store) createLocked(id, name string, req CreateRequest) (*Project, error) {
-	if _, exists := s.cache[id]; exists {
-		return nil, fmt.Errorf("%w: %q", ErrProjectExists, id)
+func (s *Store) createLocked(slug, name string, req CreateRequest) (*Project, error) {
+	if _, exists := s.bySlug[slug]; exists {
+		return nil, fmt.Errorf("%w: %q", ErrProjectExists, slug)
 	}
 
 	project := &Project{
-		ID:          id,
+		UUID:        uuid.NewString(),
+		Slug:        slug,
 		Name:        name,
 		Status:      StatusActive,
 		Description: strings.TrimSpace(req.Description),
@@ -140,89 +193,204 @@ func (s *Store) createLocked(id, name string, req CreateRequest) (*Project, erro
 		return nil, err
 	}
 
-	s.cache[id] = project
+	s.byUUID[project.UUID] = project
+	s.bySlug[project.Slug] = project
 	return project, nil
 }
 
 // CreateIfMissing is the idempotent, race-safe variant of Create used by
-// fan-out paths like SyncFromVault and EnsureExists. Returns:
+// fan-out paths like SyncFromVault. Returns:
 //   - (project, true, nil)  — a new project was created
-//   - (project, false, nil) — a project with that id already existed
+//   - (project, false, nil) — a project with that slug already existed
 //   - (nil,     false, err) — slug was invalid or disk write failed
 //
 // The check-and-create runs under a single write lock so concurrent
-// callers for the same project id produce exactly one "created" and one
+// callers for the same project slug produce exactly one "created" and one
 // "already existed" — never a "both created" or "silent disk error".
-// MD-06 / MD-07: replaces the old read-unlock-then-create TOCTOU pattern.
 func (s *Store) CreateIfMissing(req CreateRequest) (*Project, bool, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, false, fmt.Errorf("project name required")
 	}
-	id := vault.Slugify(name)
-	if id == "" {
+	slug := vault.Slugify(name)
+	if slug == "" {
 		return nil, false, fmt.Errorf("project name produced empty slug")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.cache[id]; ok {
+	if existing, ok := s.bySlug[slug]; ok {
 		return existing, false, nil
 	}
-	project, err := s.createLocked(id, name, req)
+	project, err := s.createLocked(slug, name, req)
 	if err != nil {
 		return nil, false, err
 	}
 	return project, true, nil
 }
 
-// EnsureExists creates a project with the given id if it doesn't already exist.
-// Used during ingest to auto-create projects referenced in the preview panel.
+// EnsureExists creates a project with the given id (slug-form name) if it
+// doesn't already exist. Used by SyncFromVault to backfill projects
+// referenced in note frontmatter.
 //
-// MD-07: now routes through CreateIfMissing so the existence check and
-// the create run under a single lock, and disk-write failures are logged
-// at Warn level instead of silently dropped. Still returns no value
-// because ingest callers are fire-and-forget — they just want the
-// project to exist by the time they look it up.
+// DEPRECATED: ingest no longer auto-creates projects via this path — Phase 4
+// removed the silent-create behavior in favor of an explicit "Create new
+// project «foo»?" preview affordance. SyncFromVault still uses this for
+// hand-edited frontmatter, but the classifier and runConfirm path do not.
 func (s *Store) EnsureExists(id string) {
 	if id == "" {
 		return
 	}
-	// Auto-create with the id as the name; user can rename later.
 	if _, _, err := s.CreateIfMissing(CreateRequest{Name: id}); err != nil {
 		slog.Warn("projects: auto-create failed",
 			"project_id", id, "error", err)
 	}
 }
 
-// SyncFromVault scans all markdown notes in the vault for frontmatter
-// `projects:` entries and ensures each referenced project exists in the store.
-// Returns the list of newly created project IDs.
+// Update applies a partial patch to an existing project. If req.Name is
+// supplied and changes, the directory is renamed (slug regenerates) but
+// the UUID stays stable so cross-references survive. Returns the updated
+// project or ErrProjectNotFound.
+func (s *Store) Update(idOrSlug string, req UpdateRequest) (*Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p := s.byUUID[idOrSlug]
+	if p == nil {
+		p = s.bySlug[idOrSlug]
+	}
+	if p == nil {
+		return nil, ErrProjectNotFound
+	}
+
+	oldSlug := p.Slug
+	updated := *p // copy so a mid-write failure leaves the cache untouched
+
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			return nil, fmt.Errorf("name cannot be empty")
+		}
+		newSlug := vault.Slugify(name)
+		if newSlug == "" {
+			return nil, fmt.Errorf("name produced empty slug")
+		}
+		if newSlug != oldSlug {
+			if _, taken := s.bySlug[newSlug]; taken {
+				return nil, fmt.Errorf("%w: %q", ErrProjectExists, newSlug)
+			}
+		}
+		updated.Name = name
+		updated.Slug = newSlug
+	}
+	if req.Description != nil {
+		updated.Description = strings.TrimSpace(*req.Description)
+	}
+	if req.Status != nil {
+		updated.Status = *req.Status
+	}
+	if req.Tags != nil {
+		updated.Tags = *req.Tags
+	}
+
+	// Rename directory before writing the new manifest so we don't end up
+	// with a half-renamed state if the write fails.
+	if updated.Slug != oldSlug {
+		oldDir := filepath.Join(s.vault.Path(), projectsFolder, oldSlug)
+		newDir := filepath.Join(s.vault.Path(), projectsFolder, updated.Slug)
+		if err := os.Rename(oldDir, newDir); err != nil {
+			return nil, fmt.Errorf("rename project dir: %w", err)
+		}
+	}
+
+	if err := s.writeManifest(&updated); err != nil {
+		return nil, fmt.Errorf("write manifest: %w", err)
+	}
+
+	// Rewrite action-items header (carries the project name).
+	if err := s.writeEmptyActionItemsIfMissing(&updated); err != nil {
+		slog.Warn("projects: action-items header refresh failed",
+			"uuid", updated.UUID, "error", err)
+	}
+
+	if oldSlug != updated.Slug {
+		delete(s.bySlug, oldSlug)
+	}
+	s.byUUID[updated.UUID] = &updated
+	s.bySlug[updated.Slug] = &updated
+	return &updated, nil
+}
+
+// Delete soft-deletes a project by moving its directory to vault/.trash/projects/
+// with a timestamp suffix. Returns ErrProjectNotFound if no match.
 //
-// MD-06: now uses CreateIfMissing (single-lock check-and-create) and
-// logs disk-write failures at Warn level instead of dropping them. Also
-// accepts both `[]interface{}` (yaml-round-trip) and `[]string`
-// (in-memory writer) shapes for the `projects:` frontmatter field — see
-// MD-04 in aggregator.go for the canonical form of this parse.
+// Referencing notes are left alone — their `projects:` arrays keep the
+// dangling UUID. CanonicalizeProjectIDs drops unknown UUIDs at next write,
+// and restoring the project (move folder back, Refresh) reanimates them.
+func (s *Store) Delete(idOrSlug string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p := s.byUUID[idOrSlug]
+	if p == nil {
+		p = s.bySlug[idOrSlug]
+	}
+	if p == nil {
+		return ErrProjectNotFound
+	}
+
+	src := filepath.Join(s.vault.Path(), projectsFolder, p.Slug)
+	trashRoot := filepath.Join(s.vault.Path(), trashFolder)
+	if err := os.MkdirAll(trashRoot, 0o700); err != nil {
+		return fmt.Errorf("ensuring trash dir: %w", err)
+	}
+	dst := filepath.Join(trashRoot, fmt.Sprintf("%s-%d", p.Slug, time.Now().Unix()))
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("move to trash: %w", err)
+	}
+
+	delete(s.byUUID, p.UUID)
+	delete(s.bySlug, p.Slug)
+	return nil
+}
+
+// SyncFromVault scans all markdown notes in the vault for frontmatter
+// `projects:` entries. After Phase 1 migration the values are UUIDs; pre-
+// migration values may be slugs. Either form auto-creates a project (slug
+// referenced) or is left alone (UUID already known).
+//
+// Returns the list of newly created project slugs.
 func (s *Store) SyncFromVault() ([]string, error) {
 	var created []string
 	seen := map[string]bool{}
 
 	err := s.vault.Walk(func(relPath string, note *vault.Note) {
-		for _, pid := range parseProjectsField(note.Frontmatter) {
-			if pid == "" || seen[pid] {
+		for _, ref := range parseProjectsField(note.Frontmatter) {
+			if ref == "" || seen[ref] {
 				continue
 			}
-			seen[pid] = true
+			seen[ref] = true
 
-			_, wasCreated, err := s.CreateIfMissing(CreateRequest{Name: pid})
+			// If the reference is a known UUID or slug, nothing to do.
+			if s.Get(ref) != nil {
+				continue
+			}
+			// Unknown reference. If it parses as a UUID, leave it alone —
+			// it's likely a dangling reference to a deleted project, and
+			// we don't want SyncFromVault to resurrect deleted projects.
+			if _, err := uuid.Parse(ref); err == nil {
+				continue
+			}
+
+			// Looks like a slug. Backfill the project.
+			_, wasCreated, err := s.CreateIfMissing(CreateRequest{Name: ref})
 			if err != nil {
 				slog.Warn("projects: sync-from-vault create failed",
-					"project_id", pid, "note", relPath, "error", err)
+					"project_ref", ref, "note", relPath, "error", err)
 				continue
 			}
 			if wasCreated {
-				created = append(created, pid)
+				created = append(created, ref)
 			}
 		}
 	})
@@ -270,16 +438,40 @@ func parseProjectsField(fm map[string]interface{}) []string {
 }
 
 // ActionItemsPath returns the relative vault path of a project's action items file.
-func (s *Store) ActionItemsPath(id string) string {
-	return filepath.ToSlash(filepath.Join(projectsFolder, id, actionItemsName))
+// Lookup accepts UUID or slug.
+func (s *Store) ActionItemsPath(idOrSlug string) string {
+	s.mu.RLock()
+	p := s.byUUID[idOrSlug]
+	if p == nil {
+		p = s.bySlug[idOrSlug]
+	}
+	s.mu.RUnlock()
+	slug := idOrSlug
+	if p != nil {
+		slug = p.Slug
+	}
+	return filepath.ToSlash(filepath.Join(projectsFolder, slug, actionItemsName))
 }
 
 // ProjectDir returns the relative vault path of a project's directory.
-func (s *Store) ProjectDir(id string) string {
-	return filepath.ToSlash(filepath.Join(projectsFolder, id))
+// Lookup accepts UUID or slug.
+func (s *Store) ProjectDir(idOrSlug string) string {
+	s.mu.RLock()
+	p := s.byUUID[idOrSlug]
+	if p == nil {
+		p = s.bySlug[idOrSlug]
+	}
+	s.mu.RUnlock()
+	slug := idOrSlug
+	if p != nil {
+		slug = p.Slug
+	}
+	return filepath.ToSlash(filepath.Join(projectsFolder, slug))
 }
 
-// loadManifest reads and parses vault/projects/<id>/project.md.
+// loadManifest reads and parses vault/projects/<slug>/project.md.
+// Generates a UUID if the manifest lacks one (legacy pre-Phase-1 manifests);
+// the migrator persists the freshly-generated value on its next pass.
 func (s *Store) loadManifest(relPath string) (*Project, error) {
 	note, err := s.vault.ReadNote(relPath)
 	if err != nil {
@@ -287,8 +479,11 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 	}
 
 	p := &Project{Status: StatusActive}
+	if u, ok := note.Frontmatter["uuid"].(string); ok {
+		p.UUID = u
+	}
 	if id, ok := note.Frontmatter["id"].(string); ok {
-		p.ID = id
+		p.Slug = id
 	}
 	if name, ok := note.Frontmatter["name"].(string); ok {
 		p.Name = name
@@ -299,9 +494,6 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 	if desc, ok := note.Frontmatter["description"].(string); ok {
 		p.Description = desc
 	}
-	// MD-04: accept both yaml-round-trip ([]interface{}) and in-memory
-	// ([]string) shapes plus the scalar one-element form. This matches the
-	// dashboard's parseFrontmatterStrings so every reader agrees.
 	if tagsRaw, ok := note.Frontmatter["tags"]; ok {
 		switch v := tagsRaw.(type) {
 		case []interface{}:
@@ -330,13 +522,17 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 		}
 	}
 
-	if p.ID == "" {
-		// Derive from folder name as a fallback
-		dir := filepath.Base(filepath.Dir(relPath))
-		p.ID = dir
+	// Slug fallback: derive from folder name if not in frontmatter.
+	if p.Slug == "" {
+		p.Slug = filepath.Base(filepath.Dir(relPath))
 	}
 	if p.Name == "" {
-		p.Name = p.ID
+		p.Name = p.Slug
+	}
+	// UUID fallback: mint one for legacy manifests. The migrator persists
+	// this on its next pass; until then the in-memory copy carries it.
+	if p.UUID == "" {
+		p.UUID = uuid.NewString()
 	}
 
 	return p, nil
@@ -344,7 +540,8 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 
 func (s *Store) writeManifest(p *Project) error {
 	fm := map[string]interface{}{
-		"id":     p.ID,
+		"uuid":   p.UUID,
+		"id":     p.Slug,
 		"name":   p.Name,
 		"status": string(p.Status),
 	}
@@ -364,11 +561,11 @@ func (s *Store) writeManifest(p *Project) error {
 	}
 	body.WriteString("## Notes\n\n> CorticalStack notes tagged with this project will backlink here via frontmatter `projects:`.\n\n")
 	body.WriteString("## Action items\n\n> See [[")
-	body.WriteString(filepath.ToSlash(filepath.Join(projectsFolder, p.ID, "ACTION-ITEMS")))
+	body.WriteString(filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, "ACTION-ITEMS")))
 	body.WriteString("]].\n")
 
 	note := &vault.Note{Frontmatter: fm, Body: body.String()}
-	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.ID, manifestName))
+	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, manifestName))
 	return s.vault.WriteNote(rel, note)
 }
 
@@ -386,8 +583,18 @@ purpose: Action items for project %s
 
 ## Open Items
 
-`, p.ID, p.Name, p.Name)
+`, p.Slug, p.Name, p.Name)
 
-	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.ID, actionItemsName))
+	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, actionItemsName))
 	return s.vault.WriteFile(rel, header)
+}
+
+// writeEmptyActionItemsIfMissing only writes the header file if it doesn't
+// already exist. Used after a rename so we don't clobber a populated tracker.
+func (s *Store) writeEmptyActionItemsIfMissing(p *Project) error {
+	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, actionItemsName))
+	if s.vault.Exists(rel) {
+		return nil
+	}
+	return s.writeEmptyActionItems(p)
 }

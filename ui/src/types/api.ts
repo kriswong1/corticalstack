@@ -103,8 +103,13 @@ export interface ReconcileResult {
 
 export type ProjectStatus = "active" | "paused" | "archived"
 
+// Project carries both a canonical UUID (stable across rename) and a slug
+// (renameable filesystem alias). The UUID is what other entities'
+// project_ids arrays reference; the slug is what shows up in URLs and the
+// vault directory name.
 export interface Project {
-  id: string
+  uuid: string
+  slug: string
   name: string
   status: ProjectStatus
   description?: string
@@ -115,6 +120,13 @@ export interface Project {
 export interface CreateProjectRequest {
   name: string
   description?: string
+  tags?: string[]
+}
+
+export interface UpdateProjectRequest {
+  name?: string
+  description?: string
+  status?: ProjectStatus
   tags?: string[]
 }
 
@@ -380,7 +392,8 @@ export interface ActionsWidget {
 }
 
 export interface ProjectTouch {
-  id: string
+  id: string // canonical UUID
+  slug: string
   name: string
   last_touched: string
 }

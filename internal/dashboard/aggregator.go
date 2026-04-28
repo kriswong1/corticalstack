@@ -473,58 +473,30 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 	}
 	cutoff := now.Add(-StalledThreshold)
 
-	// Build a case-insensitive id+name lookup against the canonical
-	// project store. Note references that match (ignoring case) collapse
-	// onto the canonical ID — so "Surveil" and "surveil" both resolve to
-	// the one registered "surveil" project.
-	//
-	// MD-05: ID matches win over Name matches. A project whose Name
-	// happens to lowercase-collide with another project's ID (e.g.
-	// project A has ID="alpha", project B has Name="alpha") no longer
-	// silently absorbs the first into the second — the ID binding is
-	// authoritative. Name-based lookups only populate keys that don't
-	// already have an ID binding, and any skipped collision is logged at
-	// Warn so the operator can see the name clash instead of blaming the
-	// widget for mis-grouping.
-	canonicalID := make(map[string]string) // lowercased-key → canonical id
-	nameByID := make(map[string]string)    // canonical id → display name
-	// First pass: register every project's ID as the authoritative key.
+	// Build a UUID-canonical lookup against the project store. Note
+	// references after Phase 1 migration are UUIDs; pre-migration values
+	// or hand-edited slugs resolve through the slug index. Case-insensitive
+	// fallback on slugs preserves the legacy "Surveil" → "surveil" collapse.
+	canonicalID := make(map[string]string) // lowercased-key → canonical UUID
+	nameByID := make(map[string]string)    // canonical UUID → display name
 	for _, p := range a.projects.List() {
-		key := strings.ToLower(p.ID)
-		if existing, ok := canonicalID[key]; ok && existing != p.ID {
-			slog.Warn("dashboard: project ID collision after lowercasing",
-				"key", key, "first", existing, "second", p.ID,
-				"widget", "active_projects")
-		}
-		canonicalID[key] = p.ID
-		nameByID[p.ID] = p.Name
-	}
-	// Second pass: register Name→ID bindings only where no ID already owns
-	// the key. This preserves the convenience of matching "Surveil" against
-	// project ID "surveil", without letting a later project's Name steal an
-	// earlier project's ID.
-	for _, p := range a.projects.List() {
-		key := strings.ToLower(p.Name)
-		if key == "" {
-			continue
-		}
-		if existing, ok := canonicalID[key]; ok {
-			if existing != p.ID {
-				slog.Warn("dashboard: project name collides with another project's id",
-					"key", key, "id_owner", existing, "name_owner", p.ID,
-					"widget", "active_projects")
+		nameByID[p.UUID] = p.Name
+		canonicalID[strings.ToLower(p.UUID)] = p.UUID
+		canonicalID[strings.ToLower(p.Slug)] = p.UUID
+		// Name fallback for hand-edited frontmatter that uses display name.
+		if key := strings.ToLower(p.Name); key != "" {
+			if _, taken := canonicalID[key]; !taken {
+				canonicalID[key] = p.UUID
 			}
-			continue
 		}
-		canonicalID[key] = p.ID
 	}
 
 	normalize := func(raw string) string {
 		if canonical, ok := canonicalID[strings.ToLower(raw)]; ok {
 			return canonical
 		}
-		// Unknown ID — use lowercase so different casings of the same
-		// unknown project still collapse onto one row in the widget.
+		// Unknown reference — use lowercase so different casings collapse
+		// onto one row in the widget.
 		return strings.ToLower(raw)
 	}
 
@@ -584,21 +556,34 @@ func (a *Aggregator) buildProjectsWidget(ingestNotes []ingestNote, now time.Time
 	}
 
 	w := ProjectsWidget{Active: len(lastTouchByID), Top: []ProjectTouch{}}
+	// Slug+Name lookup off the same store pass so we don't hit the lock
+	// per-entry below.
+	slugByUUID := make(map[string]string, len(canonicalID))
+	for _, p := range a.projects.List() {
+		slugByUUID[p.UUID] = p.Slug
+	}
 	for id, when := range lastTouchByID {
 		name, ok := nameByID[id]
 		if !ok {
 			name = id
 		}
-		w.Top = append(w.Top, ProjectTouch{ID: id, Name: name, LastTouched: when})
+		w.Top = append(w.Top, ProjectTouch{
+			ID:          id,
+			Slug:        slugByUUID[id], // empty if id is an unknown UUID/slug — that's fine
+			Name:        name,
+			LastTouched: when,
+		})
 	}
-	// NT-04: secondary sort by ID so two projects with identical
-	// LastTouched (plausible after a batch ingest) get a deterministic
-	// order across dashboard refreshes. Without this, map iteration
-	// order leaks into the sort and the user sees projects flipping
-	// positions between polls.
+	// NT-04: secondary sort by Name (then UUID) so two projects with
+	// identical LastTouched get a deterministic, user-meaningful order
+	// across dashboard refreshes. Sorting by UUID alone is deterministic
+	// but visually random; Name first keeps the FE list predictable.
 	sort.Slice(w.Top, func(i, j int) bool {
 		if !w.Top[i].LastTouched.Equal(w.Top[j].LastTouched) {
 			return w.Top[i].LastTouched.After(w.Top[j].LastTouched)
+		}
+		if !strings.EqualFold(w.Top[i].Name, w.Top[j].Name) {
+			return strings.ToLower(w.Top[i].Name) < strings.ToLower(w.Top[j].Name)
 		}
 		return w.Top[i].ID < w.Top[j].ID
 	})

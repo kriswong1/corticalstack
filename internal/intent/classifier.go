@@ -62,7 +62,7 @@ func buildClassifyPrompt(doc *pipeline.TextDocument, activeProjects []*projects.
 			if p.Status == projects.StatusArchived {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("- `%s` — %s\n", p.ID, firstNonEmpty(p.Description, p.Name)))
+			b.WriteString(fmt.Sprintf("- `%s` — %s\n", p.Slug, firstNonEmpty(p.Description, p.Name)))
 		}
 		b.WriteString("\n")
 	}

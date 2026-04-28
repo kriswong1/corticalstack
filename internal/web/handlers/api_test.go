@@ -264,8 +264,11 @@ func TestCreateProjectValidJSON(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if p.ID == "" {
-		t.Error("expected non-empty project ID")
+	if p.UUID == "" {
+		t.Error("expected non-empty project UUID")
+	}
+	if p.Slug == "" {
+		t.Error("expected non-empty project slug")
 	}
 	if p.Name != "Test Project" {
 		t.Errorf("name = %q, want %q", p.Name, "Test Project")
@@ -527,8 +530,8 @@ func TestCreateThenGetProjectRoundTrip(t *testing.T) {
 		t.Fatalf("decode create: %v", err)
 	}
 
-	// Fetch it back by ID.
-	getReq := httptest.NewRequest("GET", "/api/projects/"+created.ID, nil)
+	// Fetch it back by UUID (route accepts either UUID or slug).
+	getReq := httptest.NewRequest("GET", "/api/projects/"+created.UUID, nil)
 	getRec := httptest.NewRecorder()
 	r.ServeHTTP(getRec, getReq)
 
@@ -540,8 +543,8 @@ func TestCreateThenGetProjectRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(getRec.Body.Bytes(), &fetched); err != nil {
 		t.Fatalf("decode get: %v", err)
 	}
-	if fetched.ID != created.ID {
-		t.Errorf("ID = %q, want %q", fetched.ID, created.ID)
+	if fetched.UUID != created.UUID {
+		t.Errorf("UUID = %q, want %q", fetched.UUID, created.UUID)
 	}
 	if fetched.Name != "Round Trip" {
 		t.Errorf("name = %q, want %q", fetched.Name, "Round Trip")

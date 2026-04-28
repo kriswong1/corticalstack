@@ -133,7 +133,7 @@ export function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {projects?.map((p) => (
-            <Card key={p.id} className="rounded-md border-border shadow-stripe-elevated">
+            <Card key={p.uuid} className="rounded-md border-border shadow-stripe-elevated">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base font-light text-foreground truncate">
@@ -160,7 +160,7 @@ export function ProjectsPage() {
                   </div>
                 )}
                 <p className="mt-2 text-xs text-muted-foreground font-mono">
-                  {p.id}
+                  {p.slug}
                 </p>
               </CardContent>
             </Card>

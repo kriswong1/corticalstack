@@ -80,7 +80,7 @@ export function PRDsPage() {
     for (const t of pitchReady) {
       for (const pid of t.projects ?? []) ids.add(pid)
     }
-    return (projects ?? []).filter((p) => ids.has(p.id))
+    return (projects ?? []).filter((p) => ids.has(p.uuid))
   }, [projects, pitchReady])
 
   const filteredThreads = useMemo(() => {
@@ -228,7 +228,7 @@ export function PRDsPage() {
                     <SelectContent>
                       <SelectItem value={ANY_PROJECT}>All projects</SelectItem>
                       {projectsWithPitches.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
+                        <SelectItem key={p.uuid} value={p.uuid}>
                           {p.name}
                         </SelectItem>
                       ))}

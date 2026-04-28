@@ -848,8 +848,9 @@ func TestBuildProjectsWidget_deterministicTieBreak(t *testing.T) {
 	if len(w.Top) != 2 {
 		t.Fatalf("Top len = %d, want 2", len(w.Top))
 	}
-	// Apple should sort before Zebra by ID after the LastTouched tie.
-	if w.Top[0].ID != "apple" || w.Top[1].ID != "zebra" {
+	// Apple should sort before Zebra by Name after the LastTouched tie.
+	// Names are user-meaningful; UUIDs alone would be visually random.
+	if w.Top[0].Slug != "apple" || w.Top[1].Slug != "zebra" {
 		t.Errorf("tie-break order wrong: got %v, want [apple zebra]", w.Top)
 	}
 

@@ -147,9 +147,12 @@ type ProjectsWidget struct {
 	Top []ProjectTouch `json:"top"`
 }
 
-// ProjectTouch is one entry in the Top list.
+// ProjectTouch is one entry in the Top list. ID carries the project's
+// canonical UUID; Slug is the renameable filesystem alias (the FE uses
+// either for routing, and renders Name).
 type ProjectTouch struct {
-	ID          string    `json:"id"`
+	ID          string    `json:"id"` // canonical UUID
+	Slug        string    `json:"slug"`
 	Name        string    `json:"name"`
 	LastTouched time.Time `json:"last_touched"`
 }

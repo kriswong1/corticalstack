@@ -423,7 +423,7 @@ export function DashboardCardPage({ type: typeProp }: DashboardCardPageProps = {
                     </SelectTrigger>
                     <SelectContent>
                       {(projects ?? []).map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
+                        <SelectItem key={p.uuid} value={p.uuid}>
                           {p.name}
                         </SelectItem>
                       ))}

@@ -145,10 +145,19 @@ func main() {
 	pipe := pipeline.New(v, workingDir, claudeModel, deepgram, buildTransformers, actionStore, shapeupStore, personaLoader)
 	pipe.EnsureFolders(v)
 
-	// Projects store
+	// Projects store. After Refresh loads existing manifests (which mint
+	// in-memory UUIDs for any legacy manifests missing them), Migrate
+	// persists those UUIDs and rewrites every other note's `projects:`
+	// frontmatter from slug-form to UUID-form. Idempotent — re-running
+	// on an already-migrated vault is a no-op.
 	projectStore := projects.New(v)
 	if err := projectStore.Refresh(); err != nil {
 		slog.Warn("project discovery failed", "error", err)
+	}
+	if migrateRes, err := projects.Migrate(projectStore); err != nil {
+		slog.Warn("projects: migration failed", "error", err)
+	} else {
+		projects.LogMigrateResult(migrateRes)
 	}
 
 	// Intent classifier (Claude CLI)

@@ -99,8 +99,8 @@ func TestBuildClassifyPrompt(t *testing.T) {
 		Content: "Go is a language...",
 	}
 	activeProjects := []*projects.Project{
-		{ID: "proj-a", Name: "Project A", Description: "First project", Status: projects.StatusActive},
-		{ID: "proj-b", Name: "Project B", Status: projects.StatusArchived}, // should be filtered out
+		{UUID: "uuid-a", Slug: "proj-a", Name: "Project A", Description: "First project", Status: projects.StatusActive},
+		{UUID: "uuid-b", Slug: "proj-b", Name: "Project B", Status: projects.StatusArchived}, // should be filtered out
 	}
 
 	got := buildClassifyPrompt(doc, activeProjects)
