@@ -377,6 +377,8 @@ export const api = {
     postLong<PRD>(`/api/prds/${id}/refine`, body),
   listPRDVersions: (id: string) =>
     request<PRDVersionInfo[]>(`/api/prds/${id}/versions`),
+  getPRDVersionBody: (id: string, version: number) =>
+    fetchText(`/api/prds/${id}/versions/${version}`),
   setPRDStatus: (id: string, status: string) =>
     post<PRD>(`/api/prds/${id}/status`, { status }),
 

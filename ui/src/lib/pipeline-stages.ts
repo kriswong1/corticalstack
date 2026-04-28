@@ -23,8 +23,9 @@ export function routeFor(type: string, id?: string): string {
 
 export const stageOrders: Record<string, string[]> = {
   product: ["idea", "frame", "shape", "breadboard", "pitch"],
-  // Meetings render a 3-stage flow. The "audio" step is synthetic —
-  // inferred from the source file, not a real backend stage.
+  // Meetings can enter at either Audio (file dropped or uploaded,
+  // awaiting Deepgram) or Transcript (text supplied directly), then
+  // progress through Note once Claude extracts the summary.
   meeting: ["audio", "transcript", "note"],
   document: ["input", "note"],
   prototype: ["breadboard", "in_progress", "final"],

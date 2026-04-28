@@ -165,13 +165,15 @@ func (d *DailyLogDestination) Accept(doc *TextDocument, extracted *Extracted) (s
 
 // --- Helpers ---
 
-// sourceFolder picks the top-level vault folder per document source.
+// sourceFolder picks the vault folder per document source. Audio
+// transcripts (Deepgram-sourced or supplied as VTT) land under
+// meetings/transcripts/ so they show up in the meetings dashboard at
+// the Transcript stage; the original audio bytes are archived
+// separately at meetings/audio/ by the Deepgram transformer.
 func sourceFolder(source string) string {
 	switch source {
-	case "deepgram", "audio":
-		return "audio"
-	case "vtt":
-		return "transcripts"
+	case "deepgram", "audio", "vtt":
+		return "meetings/transcripts"
 	case "pdf", "docx":
 		return "documents"
 	case "youtube":
@@ -187,7 +189,10 @@ func sourceFolder(source string) string {
 
 // EnsureVaultFolders creates the standard folder layout used by route.go.
 func EnsureVaultFolders(v *vault.Vault) {
-	folders := []string{"notes", "audio", "transcripts", "documents", "articles", "videos", "inbox", "daily", "projects"}
+	folders := []string{
+		"notes", "documents", "articles", "videos", "inbox", "daily", "projects",
+		"meetings/audio", "meetings/transcripts", "meetings/notes",
+	}
 	for _, f := range folders {
 		_ = os.MkdirAll(filepath.Join(v.Path(), f), 0o700)
 	}

@@ -48,6 +48,13 @@ export interface PipelineItemsTableProps<T extends PipelineItemsTableItem> {
   viewLinkPrefix?: string
   /** Override the row's View link target. */
   viewLinkFor?: (item: T) => string
+  /**
+   * When set, the View control renders as a button that calls this
+   * callback instead of a navigation Link. Used by surfaces that show
+   * an in-place preview dialog (e.g. PRDs) rather than routing to a
+   * detail page. Takes precedence over viewLinkFor / viewLinkPrefix.
+   */
+  onViewItem?: (item: T) => void
   /** Override the stage-column color. Defaults to shared colorFor. */
   colorForStage?: (stage: string) => string
   /** Override the stage-column label. Defaults to shared stageLabel. */
@@ -70,6 +77,7 @@ export function PipelineItemsTable<T extends PipelineItemsTableItem>({
   extraColumns,
   viewLinkPrefix,
   viewLinkFor,
+  onViewItem,
   colorForStage,
   labelForStage,
   emptyMessage = "No items in this pipeline.",
@@ -150,19 +158,30 @@ export function PipelineItemsTable<T extends PipelineItemsTableItem>({
               {formatDate(item.updated)}
             </TableCell>
             <TableCell>
-              <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs">
-                <Link
-                  to={
-                    viewLinkFor
-                      ? viewLinkFor(item)
-                      : viewLinkPrefix
-                        ? `${viewLinkPrefix}/${item.id}`
-                        : routeFor(type, item.id)
-                  }
+              {onViewItem ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => onViewItem(item)}
                 >
                   View
-                </Link>
-              </Button>
+                </Button>
+              ) : (
+                <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                  <Link
+                    to={
+                      viewLinkFor
+                        ? viewLinkFor(item)
+                        : viewLinkPrefix
+                          ? `${viewLinkPrefix}/${item.id}`
+                          : routeFor(type, item.id)
+                    }
+                  >
+                    View
+                  </Link>
+                </Button>
+              )}
             </TableCell>
           </TableRow>
         ))}

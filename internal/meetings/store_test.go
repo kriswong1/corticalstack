@@ -32,8 +32,8 @@ func writeNote(t *testing.T, root, relPath, content string) {
 
 func TestEnsureFolderCreatesAllStages(t *testing.T) {
 	_, dir := newTestStore(t)
-	// Two canonical folders for the two-stage pipeline.
-	for _, name := range []string{"transcripts", "notes"} {
+	// Three canonical folders for the three-stage pipeline.
+	for _, name := range []string{"audio", "transcripts", "notes"} {
 		if _, err := os.Stat(filepath.Join(dir, "meetings", name)); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -119,17 +119,11 @@ created: 2026-04-14T11:00:00Z
 	}
 }
 
-func TestListReadsLegacyAudioFolder(t *testing.T) {
-	// Legacy audio folder notes should now classify as transcript.
+func TestListReadsAudioFiles(t *testing.T) {
+	// An audio file in meetings/audio/ should surface as an Audio-stage
+	// meeting with ID derived from the filename stem.
 	s, dir := newTestStore(t)
-	writeNote(t, dir, "meetings/audio/2026-04-15_call.md", `---
-id: meeting-2
-title: Discovery Call
-stage: audio
-created: 2026-04-15T09:00:00Z
----
-# Audio capture
-`)
+	writeNote(t, dir, "meetings/audio/2026-04-15_discovery-call.mp3", "fake-bytes")
 	got, err := s.List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -137,8 +131,59 @@ created: 2026-04-15T09:00:00Z
 	if len(got) != 1 {
 		t.Fatalf("len = %d", len(got))
 	}
+	if got[0].Stage != StageAudio {
+		t.Errorf("stage = %q, want audio", got[0].Stage)
+	}
+	if got[0].ID != "2026-04-15_discovery-call" {
+		t.Errorf("id = %q", got[0].ID)
+	}
+}
+
+func TestListIgnoresMarkdownInAudioFolder(t *testing.T) {
+	// meetings/audio/ is reserved for raw audio files; .md files
+	// dropped there are ignored (stale or hand-edited junk).
+	s, dir := newTestStore(t)
+	writeNote(t, dir, "meetings/audio/wrong.md", `---
+id: m
+title: Misplaced
+---
+body`)
+	got, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("len = %d, want 0", len(got))
+	}
+}
+
+func TestListSuppressesAudioWhenTranscriptClaims(t *testing.T) {
+	// When a transcript carries a source_audio frontmatter pointing
+	// at an audio file under meetings/audio/, the audio entry is
+	// suppressed so the meeting only counts at the transcript stage.
+	s, dir := newTestStore(t)
+	writeNote(t, dir, "meetings/audio/2026-04-15_call.mp3", "fake-bytes")
+	writeNote(t, dir, "meetings/transcripts/2026-04-15_call.md", `---
+id: call-1
+title: Discovery Call
+stage: transcript
+source_audio: meetings/audio/2026-04-15_call.mp3
+created: 2026-04-15T11:00:00Z
+---
+[00:00:01] hello
+`)
+	got, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1 (audio claimed by transcript)", len(got))
+	}
 	if got[0].Stage != StageTranscript {
-		t.Errorf("stage = %q, want transcript (legacy audio normalized)", got[0].Stage)
+		t.Errorf("stage = %q, want transcript", got[0].Stage)
+	}
+	if got[0].SourceAudio != "meetings/audio/2026-04-15_call.mp3" {
+		t.Errorf("source_audio = %q", got[0].SourceAudio)
 	}
 }
 
@@ -221,8 +266,8 @@ func TestListSkipsNonMarkdownFiles(t *testing.T) {
 }
 
 func TestIsValidStage(t *testing.T) {
-	// Two canonical stages plus legacy aliases.
-	for _, st := range []string{"transcript", "note", "summary", "audio"} {
+	// Three canonical stages plus the legacy "summary" alias.
+	for _, st := range []string{"audio", "transcript", "note", "summary"} {
 		if !IsValidStage(st) {
 			t.Errorf("IsValidStage(%q) = false", st)
 		}

@@ -515,10 +515,13 @@ export interface UsageSummary {
 
 export type UsageRecentResponse = UsageInvocation[]
 
-// --- Meetings (transcript → summary pipeline) ---
+// --- Meetings (audio → transcript → note pipeline) ---
 
-// Updated meeting stage — 2-stage pipeline: transcript → note
-export type MeetingStage = "transcript" | "note"
+// 3-stage pipeline. "audio" entries are raw audio files in
+// vault/meetings/audio/ awaiting transcription; "transcript" entries
+// are text transcripts (Deepgram-produced or supplied directly);
+// "note" entries are Claude-extracted summaries.
+export type MeetingStage = "audio" | "transcript" | "note"
 
 export interface Meeting {
   id: string
@@ -527,6 +530,10 @@ export interface Meeting {
   path: string
   source_id?: string
   source_path?: string
+  // source_audio links a transcript back to the audio file it was
+  // generated from. The backend uses this to suppress the audio entry
+  // from List() once the meeting has progressed past the Audio stage.
+  source_audio?: string
   projects?: string[]
   created: string
   updated?: string

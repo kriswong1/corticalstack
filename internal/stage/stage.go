@@ -55,10 +55,14 @@ const (
 	StagePitch      Stage = "pitch"
 )
 
-// Meeting stages — two-stage capture flow: raw transcript in, structured
-// note out. "summary" and "audio" are legacy values still on disk;
-// Normalize folds them into "note" and "transcript" respectively.
+// Meeting stages — three-stage capture flow. A meeting may enter at
+// either StageAudio (raw audio file dropped or uploaded; awaiting
+// transcription) or StageTranscript (transcript text supplied directly,
+// e.g. pasted notes / VTT). Both progress through StageNote once Claude
+// extracts the structured summary. "summary" is a legacy value still on
+// disk; Normalize folds it into "note".
 const (
+	StageAudio      Stage = "audio"
 	StageTranscript Stage = "transcript"
 	StageNote       Stage = "note"
 )
@@ -88,7 +92,7 @@ func AllStages(entity EntityType) []Stage {
 	case EntityProduct:
 		return []Stage{StageIdea, StageFrame, StageShape, StageBreadboard, StagePitch}
 	case EntityMeeting:
-		return []Stage{StageTranscript, StageNote}
+		return []Stage{StageAudio, StageTranscript, StageNote}
 	case EntityDocument:
 		return []Stage{StageInput, StageNote}
 	case EntityPrototype:
@@ -118,6 +122,9 @@ func FallbackStage(entity EntityType) Stage {
 	case EntityProduct:
 		return StageIdea
 	case EntityMeeting:
+		// Transcript is the fallback (not Audio) so a meeting note
+		// missing a stage frontmatter still renders alongside other
+		// transcript-stage entries — most legacy data is text.
 		return StageTranscript
 	case EntityDocument:
 		return StageInput
@@ -152,11 +159,12 @@ func Normalize(entity EntityType, raw string) Stage {
 			return StageIdea
 		}
 	case EntityMeeting:
-		switch v {
-		case "summary":
+		// "summary" → "note" remains a legacy alias. "audio" used to
+		// be folded into Transcript when audio wasn't a real stage;
+		// it is now canonical, so the switch is a no-op for that
+		// value (the canonical Validate path below picks it up).
+		if v == "summary" {
 			return StageNote
-		case "audio":
-			return StageTranscript
 		}
 	case EntityDocument:
 		switch v {

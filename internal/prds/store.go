@@ -91,6 +91,20 @@ func (s *Store) ArchiveCurrent(p *PRD, hints string) error {
 	return nil
 }
 
+// ReadVersion returns the archived body bytes for a specific version
+// of a PRD. Used by the PRD detail page's version switcher so the
+// user can inspect an earlier draft without affecting the live file.
+// Returns os.ErrNotExist when the version folder exists but the
+// requested version file is missing.
+func (s *Store) ReadVersion(id string, version int) (string, error) {
+	path := filepath.Join(s.vault.Path(), prdsDir, versionsDir, id, fmt.Sprintf("v%d.md", version))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // ListVersions returns every archived version for a PRD, oldest first.
 // An empty list means the PRD is still on v1. Does not include the
 // live version — callers get that from the PRD itself.

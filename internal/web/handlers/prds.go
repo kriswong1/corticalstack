@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kriswong/corticalstack/internal/prds"
@@ -232,6 +233,35 @@ func (h *Handler) ListPRDVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, versions)
+}
+
+// GetPRDVersionBody handles GET /api/prds/{id}/versions/{v}. Returns
+// the archived PRD body as text/markdown so the detail page's version
+// switcher can render it read-only (parallel to the prototype
+// GetPrototypeVersionSpec endpoint).
+func (h *Handler) GetPRDVersionBody(w http.ResponseWriter, r *http.Request) {
+	if h.PRDs == nil {
+		http.Error(w, "prd store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	vStr := chi.URLParam(r, "v")
+	v, err := parseVersion(vStr)
+	if err != nil {
+		http.Error(w, "invalid version: "+vStr, http.StatusBadRequest)
+		return
+	}
+	body, err := h.PRDs.ReadVersion(id, v)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.Error(w, "version not found", http.StatusNotFound)
+			return
+		}
+		internalError(w, "prd.version.body", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	_, _ = w.Write([]byte(body))
 }
 
 // SetPRDStatus handles POST /api/prds/{id}/status. Body is

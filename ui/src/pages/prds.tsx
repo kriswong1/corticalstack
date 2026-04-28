@@ -19,7 +19,7 @@ import { ProductSubnav } from "@/components/product-subnav"
 import { PipelineStageCards } from "@/components/shared/pipeline-stage-cards"
 import { PipelineItemsTable } from "@/components/shared/pipeline-items-table"
 import { api, getErrorMessage } from "@/lib/api"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Plus, X } from "lucide-react"
 import type { Answer, PRD, Question, ShapeUpThread } from "@/types/api"
 
@@ -39,6 +39,7 @@ function pitchPath(t: ShapeUpThread): string {
 
 export function PRDsPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
   const [projectFilter, setProjectFilter] = useState<string>(ANY_PROJECT)
   const [threadId, setThreadId] = useState("")
@@ -376,6 +377,7 @@ export function PRDsPage() {
                     return next
                   })
                 }
+                onView={(prd) => navigate(`/prds/${prd.id}`)}
               />
             </CardContent>
           </Card>
@@ -414,6 +416,7 @@ function PRDItemsTable({
   selected,
   onToggleItem,
   onToggleAll,
+  onView,
 }: {
   prds: PRD[]
   threads: ShapeUpThread[]
@@ -421,6 +424,7 @@ function PRDItemsTable({
   selected: Set<string>
   onToggleItem: (id: string) => void
   onToggleAll: (ids: string[], allSelected: boolean) => void
+  onView: (prd: PRD) => void
 }) {
   const tableItems = prds
     .filter((prd) => !stageFilter || prd.status === stageFilter)
@@ -444,13 +448,13 @@ function PRDItemsTable({
       onToggleItem={onToggleItem}
       onToggleAll={() => onToggleAll(ids, allSelected)}
       allSelected={allSelected}
-      // There's no standalone PRD detail page — PRDs live inside the
-      // source thread's downstream-artifacts section. "View" jumps to
-      // that thread so users land in context. PRDs with no source
-      // thread dead-end at the listing to avoid a 404.
-      viewLinkFor={(item) => {
+      // "View" opens an in-place preview dialog so the rendered PRD
+      // body is one click away — previously it jumped to the source
+      // thread's hub, which dead-ended at /prds when a PRD had no
+      // source_thread.
+      onViewItem={(item) => {
         const prd = (item as typeof item & { _prd: PRD })._prd
-        return prd.source_thread ? `/product/${prd.source_thread}` : "/prds"
+        onView(prd)
       }}
       emptyMessage={
         stageFilter

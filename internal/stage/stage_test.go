@@ -5,7 +5,7 @@ import "testing"
 func TestAllStages(t *testing.T) {
 	cases := map[EntityType]int{
 		EntityProduct:   5,
-		EntityMeeting:   2,
+		EntityMeeting:   3,
 		EntityDocument:  2,
 		EntityPrototype: 3,
 	}
@@ -30,6 +30,7 @@ func TestValidateAcceptsCanonical(t *testing.T) {
 		{EntityProduct, "shape"},
 		{EntityProduct, "breadboard"},
 		{EntityProduct, "pitch"},
+		{EntityMeeting, "audio"},
 		{EntityMeeting, "transcript"},
 		{EntityMeeting, "note"},
 		{EntityDocument, "input"},
@@ -52,7 +53,6 @@ func TestValidateRejectsLegacyAndBogus(t *testing.T) {
 	}{
 		{EntityProduct, "raw"},
 		{EntityMeeting, "summary"},
-		{EntityMeeting, "audio"},
 		{EntityPrototype, "draft"},
 		{EntityPrototype, "exported"},
 		{EntityProduct, ""},
@@ -76,7 +76,7 @@ func TestNormalizeLegacyAliases(t *testing.T) {
 		{EntityProduct, "RAW", StageIdea},
 		{EntityProduct, "  raw  ", StageIdea},
 		{EntityMeeting, "summary", StageNote},
-		{EntityMeeting, "audio", StageTranscript},
+		{EntityMeeting, "audio", StageAudio},
 		{EntityDocument, "need", StageInput},
 		{EntityDocument, "in_progress", StageDocNote},
 		{EntityDocument, "final", StageDocNote},

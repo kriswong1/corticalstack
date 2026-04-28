@@ -46,6 +46,8 @@ func (s *Store) EnsureFolder() error {
 // stagePlural maps a stage key to its on-disk subfolder.
 func stagePlural(st stage.Stage) string {
 	switch st {
+	case stage.StageAudio:
+		return "audio"
 	case stage.StageTranscript:
 		return "transcripts"
 	case stage.StageNote:
@@ -55,15 +57,13 @@ func stagePlural(st stage.Stage) string {
 	}
 }
 
-// legacyFolderStage maps an on-disk folder name back to a Stage,
-// including legacy folders (summaries, audio) so existing notes
-// still surface in List().
-func legacyFolderStage(folder string) (stage.Stage, bool) {
+// folderStage maps an on-disk folder name back to a Stage. Includes
+// the legacy "summaries" folder so older notes still surface in List().
+func folderStage(folder string) (stage.Stage, bool) {
 	switch folder {
-	case "transcripts":
-		return stage.StageTranscript, true
 	case "audio":
-		// Legacy: audio files are now classified as transcripts.
+		return stage.StageAudio, true
+	case "transcripts":
 		return stage.StageTranscript, true
 	case "notes":
 		return stage.StageNote, true
@@ -74,14 +74,31 @@ func legacyFolderStage(folder string) (stage.Stage, bool) {
 }
 
 // scanFolders is the canonical list of subfolders the store reads
-// from. Includes legacy folders (audio, summaries) for backward compat.
+// from. Includes the legacy "summaries" folder for backward compat.
 func scanFolders() []string {
-	return []string{"transcripts", "audio", "notes", "summaries"}
+	return []string{"audio", "transcripts", "notes", "summaries"}
 }
 
-// List returns every meeting note in the vault, newest first. A
+// audioExts are the file extensions recognised as audio-stage
+// meetings when found under meetings/audio/. Mirrors the set the
+// Deepgram transformer accepts in CanHandle.
+var audioExts = map[string]bool{
+	".mp3":  true,
+	".wav":  true,
+	".m4a":  true,
+	".ogg":  true,
+	".flac": true,
+	".webm": true,
+}
+
+// List returns every meeting record in the vault, newest first. A
 // missing meetings folder returns an empty slice with no error — the
 // dashboard renders empty pipelines gracefully.
+//
+// Audio files in meetings/audio/ surface as Audio-stage meetings only
+// when no transcript references them via `source_audio` frontmatter.
+// Once transcribed, the meeting moves to the transcript record and
+// the underlying audio file no longer counts as a separate entry.
 func (s *Store) List() ([]*Meeting, error) {
 	root := filepath.Join(s.vault.Path(), meetingsDir)
 	if _, err := os.Stat(root); os.IsNotExist(err) {
@@ -89,34 +106,94 @@ func (s *Store) List() ([]*Meeting, error) {
 	}
 
 	var out []*Meeting
+	claimedAudio := map[string]bool{}
+
 	for _, folder := range scanFolders() {
 		dir := filepath.Join(root, folder)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
-		dirStage, ok := legacyFolderStage(folder)
+		dirStage, ok := folderStage(folder)
 		if !ok {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			if e.IsDir() {
 				continue
 			}
 			relPath := filepath.ToSlash(filepath.Join(meetingsDir, folder, e.Name()))
+
+			if dirStage == stage.StageAudio {
+				if !audioExts[strings.ToLower(filepath.Ext(e.Name()))] {
+					continue
+				}
+				m, err := s.readAudio(relPath)
+				if err != nil {
+					slog.Warn("meetings: skipping audio", "path", relPath, "error", err)
+					continue
+				}
+				out = append(out, m)
+				continue
+			}
+
+			if !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
 			m, err := s.readMeeting(relPath, dirStage)
 			if err != nil {
 				slog.Warn("meetings: skipping note", "path", relPath, "error", err)
 				continue
 			}
+			if m.SourceAudio != "" {
+				claimedAudio[m.SourceAudio] = true
+			}
 			out = append(out, m)
 		}
+	}
+
+	if len(claimedAudio) > 0 {
+		out = filterClaimedAudio(out, claimedAudio)
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].Created.After(out[j].Created)
 	})
 	return out, nil
+}
+
+// filterClaimedAudio drops audio-stage entries whose path is referenced
+// by some transcript or note's source_audio frontmatter — that meeting
+// has progressed past Audio and shouldn't double-count.
+func filterClaimedAudio(in []*Meeting, claimed map[string]bool) []*Meeting {
+	out := in[:0]
+	for _, m := range in {
+		if m.Stage == stage.StageAudio && claimed[m.Path] {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// readAudio builds a Meeting record from a raw audio file under
+// vault/meetings/audio/. ID and title come from the filename stem
+// since audio files have no frontmatter to read.
+func (s *Store) readAudio(relPath string) (*Meeting, error) {
+	abs := filepath.Join(s.vault.Path(), relPath)
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	stem := strings.TrimSuffix(filepath.Base(relPath), filepath.Ext(relPath))
+	return &Meeting{
+		ID:      stem,
+		Title:   stem,
+		Stage:   stage.StageAudio,
+		Path:    relPath,
+		Created: info.ModTime(),
+		Updated: info.ModTime(),
+	}, nil
 }
 
 // SetStage rewrites the `stage` (and `updated`) frontmatter keys on
@@ -199,6 +276,9 @@ func (s *Store) readMeeting(relPath string, dirStage stage.Stage) (*Meeting, err
 	}
 	if sp, ok := fm["source_path"].(string); ok {
 		m.SourcePath = sp
+	}
+	if sa, ok := fm["source_audio"].(string); ok {
+		m.SourceAudio = filepath.ToSlash(sa)
 	}
 	if projects, ok := fm["projects"].([]interface{}); ok {
 		for _, p := range projects {

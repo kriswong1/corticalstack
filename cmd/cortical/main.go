@@ -139,8 +139,8 @@ func main() {
 	shapeupAdvancer := shapeup.NewAdvancer(workingDir, claudeModel, personaLoader)
 
 	// Pipeline wiring
-	buildTransformers := func(dg *integrations.DeepgramClient) []pipeline.Transformer {
-		return transformers.NewDefault(dg)
+	buildTransformers := func(dg *integrations.DeepgramClient, vlt *vault.Vault) []pipeline.Transformer {
+		return transformers.NewDefault(dg, vlt)
 	}
 	pipe := pipeline.New(v, workingDir, claudeModel, deepgram, buildTransformers, actionStore, shapeupStore, personaLoader)
 	pipe.EnsureFolders(v)
@@ -184,6 +184,14 @@ func main() {
 	if err := meetingsStore.EnsureFolder(); err != nil {
 		slog.Warn("could not create meetings folders", "error", err)
 	}
+
+	// Drop-in audio watcher: scans vault/meetings/audio/ on a 30s
+	// tick and runs Deepgram on any file that doesn't yet have a
+	// matching transcript. Pairs with the UI-upload path (which
+	// transcribes inline) so users can drop audio via Finder/Explorer
+	// and get the same outcome. No-ops when Deepgram isn't configured.
+	meetingsWatcher := meetings.NewWatcher(meetingsStore, v, deepgram, meetings.DefaultWatchInterval)
+	go meetingsWatcher.Run(rootCtx)
 
 	// v6: Documents (need / in-progress / final pipeline) — new
 	// store added with the unified-dashboard refactor. Wraps the
@@ -267,6 +275,7 @@ func main() {
 	if err := jm.Shutdown(shutdownCtx); err != nil {
 		slog.Error("jobs shutdown", "error", err)
 	}
+	meetingsWatcher.Close()
 	personaChatStore.Close()
 	slog.Info("bye")
 }

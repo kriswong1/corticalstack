@@ -69,6 +69,17 @@ func buildFrontmatter(doc *TextDocument, extracted *Extracted, intention string)
 	if inputFile := doc.Metadata["input_file"]; inputFile != "" {
 		fm["input_file"] = inputFile
 	}
+	// source_audio links a transcript back to the audio file it was
+	// generated from (set by the Deepgram transformer after archiving
+	// to meetings/audio/). The meetings store reads this to suppress
+	// the audio entry from List() once the meeting has progressed past
+	// the Audio stage.
+	if sa := doc.Metadata["source_audio"]; sa != "" {
+		fm["source_audio"] = sa
+	}
+	if dur := doc.Metadata["audio_duration"]; dur != "" {
+		fm["audio_duration"] = dur
+	}
 	// Pass through video metadata from the youtube transformer so callers
 	// can search / group by channel or reference duration without opening
 	// the note. These keys are only set when the transformer provides them.

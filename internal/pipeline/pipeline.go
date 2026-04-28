@@ -33,8 +33,11 @@ type ProcessResult struct {
 
 // BuildFn is a constructor that returns the list of transformers for a
 // pipeline. Accepting this lets main.go wire integrations without an
-// import cycle between pipeline and transformers.
-type BuildFn func(deepgram *integrations.DeepgramClient) []Transformer
+// import cycle between pipeline and transformers. The vault is passed
+// through so transformers that need to write side-artifacts (audio
+// archival under meetings/audio/) can do so without main.go needing to
+// know which transformers care.
+type BuildFn func(deepgram *integrations.DeepgramClient, v *vault.Vault) []Transformer
 
 // New creates a fully wired pipeline.
 func New(
@@ -47,7 +50,7 @@ func New(
 	personaLoader *persona.Loader,
 ) *Pipeline {
 	return &Pipeline{
-		transformers: buildTransformers(deepgram),
+		transformers: buildTransformers(deepgram, v),
 		extractor:    NewClaudeExtractor(workingDir, claudeModel, personaLoader),
 		destinations: []Destination{
 			NewVaultNoteDestination(v),

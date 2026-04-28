@@ -5,14 +5,14 @@ import (
 )
 
 func TestNewDefaultReturnsNonEmpty(t *testing.T) {
-	transformers := NewDefault(nil)
+	transformers := NewDefault(nil, nil)
 	if len(transformers) == 0 {
-		t.Fatal("NewDefault(nil) returned empty slice")
+		t.Fatal("NewDefault(nil, nil) returned empty slice")
 	}
 }
 
 func TestNewDefaultAllHaveNames(t *testing.T) {
-	transformers := NewDefault(nil)
+	transformers := NewDefault(nil, nil)
 	for i, tr := range transformers {
 		name := tr.Name()
 		if name == "" {
@@ -22,7 +22,7 @@ func TestNewDefaultAllHaveNames(t *testing.T) {
 }
 
 func TestNewDefaultExpectedTransformers(t *testing.T) {
-	transformers := NewDefault(nil)
+	transformers := NewDefault(nil, nil)
 	names := make(map[string]bool)
 	for _, tr := range transformers {
 		names[tr.Name()] = true
@@ -31,13 +31,13 @@ func TestNewDefaultExpectedTransformers(t *testing.T) {
 	expected := []string{"passthrough", "youtube", "linkedin", "webpage", "html", "pdf", "docx", "deepgram", "vtt"}
 	for _, name := range expected {
 		if !names[name] {
-			t.Errorf("expected transformer %q not found in NewDefault(nil); got %v", name, names)
+			t.Errorf("expected transformer %q not found in NewDefault(nil, nil); got %v", name, names)
 		}
 	}
 }
 
 func TestNewDefaultPassthroughIsLast(t *testing.T) {
-	transformers := NewDefault(nil)
+	transformers := NewDefault(nil, nil)
 	last := transformers[len(transformers)-1]
 	if last.Name() != "passthrough" {
 		t.Errorf("last transformer = %q, want %q (passthrough should be the fallback)", last.Name(), "passthrough")
@@ -45,7 +45,7 @@ func TestNewDefaultPassthroughIsLast(t *testing.T) {
 }
 
 func TestNewDefaultNoDuplicateNames(t *testing.T) {
-	transformers := NewDefault(nil)
+	transformers := NewDefault(nil, nil)
 	seen := make(map[string]int)
 	for i, tr := range transformers {
 		name := tr.Name()

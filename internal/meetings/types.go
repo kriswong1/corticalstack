@@ -1,12 +1,21 @@
-// Package meetings models recorded meetings as a two-stage pipeline:
-// raw transcripts and structured notes (decisions, action items, key
-// topics) live as markdown files under vault/meetings/{transcripts,
-// notes}/. The store is a thin read/write scanner — most notes land
-// in the vault via the existing ingest pipeline (audio → Deepgram →
-// transcript) or by hand-drop; the only mutation this store performs
-// is SetStage for the dashboard's per-card stage advance.
+// Package meetings models recorded meetings as a three-stage pipeline:
+// audio files awaiting transcription (vault/meetings/audio/), raw
+// transcripts (vault/meetings/transcripts/), and structured notes
+// (vault/meetings/notes/). A meeting may enter at either Audio (a
+// dropped or uploaded audio file) or Transcript (pasted text / VTT)
+// and progresses through Note once Claude extracts the summary.
 //
-// Legacy aliases: "summary" → "note", "audio" → "transcript".
+// The store is a thin read/write scanner — files land in the vault
+// via the ingest pipeline or by hand-drop. The only mutation this
+// store performs is SetStage for the dashboard's per-card stage
+// advance. Audio files are detected by extension (.mp3 / .wav /
+// .m4a / .ogg / .flac / .webm); transcripts and notes are markdown
+// with `stage` frontmatter. A transcript carrying a `source_audio`
+// frontmatter pointing at a file in vault/meetings/audio/ is
+// considered the same meeting that started at the Audio stage —
+// List() suppresses the audio entry to avoid double-counting.
+//
+// Legacy alias: "summary" → "note".
 package meetings
 
 import (
@@ -20,6 +29,7 @@ import (
 type Stage = stage.Stage
 
 const (
+	StageAudio      = stage.StageAudio
 	StageTranscript = stage.StageTranscript
 	StageNote       = stage.StageNote
 	// StageSummary is the legacy alias for StageNote.
@@ -31,8 +41,8 @@ func AllStages() []Stage {
 	return stage.AllStages(stage.EntityMeeting)
 }
 
-// IsValidStage reports whether s names a real stage. Accepts legacy
-// "summary" and "audio" values so on-disk notes still classify.
+// IsValidStage reports whether s names a real stage. Accepts the
+// legacy "summary" value so on-disk notes still classify.
 func IsValidStage(s string) bool {
 	if s == "" {
 		return false
@@ -42,12 +52,14 @@ func IsValidStage(s string) bool {
 			return true
 		}
 	}
-	return s == "summary" || s == "audio"
+	return s == "summary"
 }
 
-// Meeting is one stage-tagged note in the vault. The same meeting may
-// appear twice in a List() result if both a transcript and a summary
-// note exist for it (linked by SourceID); the dashboard groups them.
+// Meeting is one stage-tagged record in the vault. Most are markdown
+// files (transcripts, notes); audio-stage meetings are the audio file
+// itself with no markdown wrapper. The same meeting may appear twice
+// in a List() result if both a transcript and a note exist for it
+// (linked by SourceID); the dashboard groups them.
 type Meeting struct {
 	ID         string    `json:"id"`
 	Title      string    `json:"title"`
@@ -55,7 +67,12 @@ type Meeting struct {
 	Path       string    `json:"path"`
 	SourceID   string    `json:"source_id,omitempty"`
 	SourcePath string    `json:"source_path,omitempty"`
-	Projects   []string  `json:"projects,omitempty"`
-	Created    time.Time `json:"created"`
-	Updated    time.Time `json:"updated,omitempty"`
+	// SourceAudio, when set on a transcript, is the vault-relative
+	// path to the audio file the transcript was generated from. Used
+	// by the store to suppress the matching audio entry so a meeting
+	// that has progressed past Audio doesn't appear twice in List().
+	SourceAudio string    `json:"source_audio,omitempty"`
+	Projects    []string  `json:"projects,omitempty"`
+	Created     time.Time `json:"created"`
+	Updated     time.Time `json:"updated,omitempty"`
 }

@@ -9,6 +9,7 @@ import { ProjectsPage } from "@/pages/projects"
 import { ActionsPage } from "@/pages/actions"
 import { UseCasesPage } from "@/pages/usecases"
 import { PRDsPage } from "@/pages/prds"
+import { PRDDetailPage } from "@/pages/prd-detail"
 import { ItemPipelinePage } from "@/pages/item-pipeline"
 import { RedirectLegacyDashboard } from "@/components/redirect-legacy-dashboard"
 
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       // PRDs and Use Cases keep their own pages (distinct forms +
       // data shape) but visually align with the pipeline surfaces.
       { path: "prds", element: <PRDsPage /> },
+      { path: "prds/:id", element: <PRDDetailPage /> },
       { path: "usecases", element: <UseCasesPage /> },
 
       // Legacy redirects — keep old /dashboard/:type URLs working.
