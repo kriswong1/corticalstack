@@ -28,6 +28,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/pipeline/transformers"
 	"github.com/kriswong/corticalstack/internal/prds"
+	"github.com/kriswong/corticalstack/internal/projectcontent"
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/prototypes"
 	"github.com/kriswong/corticalstack/internal/shapeup"
@@ -224,6 +225,14 @@ func main() {
 		WithDocuments(documentsStore)
 	dashCache := dashboard.NewCache(dashAgg, dashboard.CacheTTL, nil)
 
+	// Project-content fan-out (powers /api/projects/:id/content +
+	// the /projects/:id detail page). Built last so every entity store
+	// is already wired.
+	projectContent := projectcontent.New(
+		projectStore, actionStore, prdStore, prototypeStore,
+		useCaseStore, shapeupStore, documentsStore, meetingsStore,
+	)
+
 	// Build the handler Deps bundle
 	deps := handlers.Deps{
 		Vault:           v,
@@ -232,6 +241,7 @@ func main() {
 		Bus:             bus,
 		Registry:        reg,
 		Projects:        projectStore,
+		ProjectContent:  projectContent,
 		Actions:         actionStore,
 		Persona:         personaLoader,
 		PersonaInitCreated: initResult.Created,

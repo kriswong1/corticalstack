@@ -107,6 +107,9 @@ func (s *Server) routes() {
 	r.Post("/api/projects", s.Handler.CreateProject)
 	r.Post("/api/projects/sync", s.Handler.SyncProjects)
 	r.Get("/api/projects/{id}", s.Handler.GetProject)
+	r.Patch("/api/projects/{id}", s.Handler.UpdateProject)
+	r.Delete("/api/projects/{id}", s.Handler.DeleteProject)
+	r.Get("/api/projects/{id}/content", s.Handler.GetProjectContent)
 
 	// API: usage telemetry
 	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)

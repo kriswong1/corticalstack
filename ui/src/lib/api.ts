@@ -7,7 +7,9 @@ import type {
   Action,
   ReconcileResult,
   Project,
+  ProjectContent,
   CreateProjectRequest,
+  UpdateProjectRequest,
   VaultTreeNode,
   ShapeUpThread,
   Artifact,
@@ -170,6 +172,19 @@ function put<T>(path: string, body: unknown, init: RequestInitWithTimeout = {}):
   })
 }
 
+function patch<T>(path: string, body: unknown, init: RequestInitWithTimeout = {}): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+    body: JSON.stringify(body),
+  })
+}
+
+function del<T>(path: string, init: RequestInitWithTimeout = {}): Promise<T> {
+  return request<T>(path, { ...init, method: "DELETE" })
+}
+
 // postLong wraps post<> with a higher default timeout for LLM-backed
 // synthesis endpoints (PRD, prototype, use-case, persona enhance,
 // shapeup advance). Callers can still pass their own `timeoutMs` to
@@ -305,11 +320,16 @@ export const api = {
   getVaultFile: (path: string) =>
     fetchText(`/api/vault/file?path=${encodeURIComponent(path)}`),
 
-  // Projects
+  // Projects. Routes accept either UUID or slug as `id`.
   listProjects: () => request<Project[]>("/api/projects"),
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
   createProject: (body: CreateProjectRequest) =>
     post<Project>("/api/projects", body),
+  updateProject: (id: string, body: UpdateProjectRequest) =>
+    patch<Project>(`/api/projects/${id}`, body),
+  deleteProject: (id: string) => del<void>(`/api/projects/${id}`),
+  getProjectContent: (id: string) =>
+    request<ProjectContent>(`/api/projects/${id}/content`),
   syncProjects: () =>
     post<{ created: string[]; created_count: number }>("/api/projects/sync", {}),
 

@@ -22,6 +22,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/prds"
+	"github.com/kriswong/corticalstack/internal/projectcontent"
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/prototypes"
 	"github.com/kriswong/corticalstack/internal/shapeup"
@@ -52,6 +53,7 @@ type Deps struct {
 	Bus                *sse.EventBus
 	Registry           *integrations.Registry
 	Projects           *projects.Store
+	ProjectContent     *projectcontent.Aggregator
 	Actions            *actions.Store
 	Persona            *persona.Loader
 	PersonaInitCreated []persona.Name
@@ -77,9 +79,10 @@ type Handler struct {
 	Pipeline pipelineInfo
 	Jobs     *jobs.Manager
 	Bus      *sse.EventBus
-	Registry *integrations.Registry
-	Projects *projects.Store
-	Actions  *actions.Store
+	Registry       *integrations.Registry
+	Projects       *projects.Store
+	ProjectContent *projectcontent.Aggregator
+	Actions        *actions.Store
 
 	// Persona (SOUL/USER/MEMORY)
 	Persona            *persona.Loader
@@ -125,6 +128,7 @@ func New(deps Deps) *Handler {
 		Bus:                deps.Bus,
 		Registry:           deps.Registry,
 		Projects:           deps.Projects,
+		ProjectContent:     deps.ProjectContent,
 		Actions:            deps.Actions,
 		Persona:            deps.Persona,
 		PersonaInitCreated: deps.PersonaInitCreated,

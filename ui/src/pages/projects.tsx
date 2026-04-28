@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
@@ -133,7 +134,12 @@ export function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {projects?.map((p) => (
-            <Card key={p.uuid} className="rounded-md border-border shadow-stripe-elevated">
+            <Link
+              key={p.uuid}
+              to={`/projects/${p.uuid}`}
+              className="block transition-shadow hover:shadow-stripe-deep"
+            >
+            <Card className="rounded-md border-border shadow-stripe-elevated h-full">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base font-light text-foreground truncate">
@@ -164,6 +170,7 @@ export function ProjectsPage() {
                 </p>
               </CardContent>
             </Card>
+            </Link>
           ))}
           {projects?.length === 0 && (
             <p className="text-sm text-muted-foreground col-span-full">No projects yet.</p>

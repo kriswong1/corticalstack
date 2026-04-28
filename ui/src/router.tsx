@@ -6,6 +6,7 @@ import { IngestPage } from "@/pages/ingest"
 import { LibraryPage } from "@/pages/library"
 import { ConfigPage } from "@/pages/config"
 import { ProjectsPage } from "@/pages/projects"
+import { ProjectDetailPage } from "@/pages/project-detail"
 import { ActionsPage } from "@/pages/actions"
 import { UseCasesPage } from "@/pages/usecases"
 import { PRDsPage } from "@/pages/prds"
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
       { path: "library", element: <LibraryPage /> },
       { path: "config", element: <ConfigPage /> },
       { path: "projects", element: <ProjectsPage /> },
+      { path: "projects/:id", element: <ProjectDetailPage /> },
       { path: "actions", element: <ActionsPage /> },
 
       // Pipeline surfaces — one listing + one item route per type.

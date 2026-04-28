@@ -130,6 +130,34 @@ export interface UpdateProjectRequest {
   tags?: string[]
 }
 
+export interface ProjectCounts {
+  actions: number
+  prds: number
+  prototypes: number
+  usecases: number
+  threads: number
+  documents: number
+  meetings: number
+}
+
+// ProjectContent is GET /api/projects/:id/content — fan-out across every
+// entity store filtered to one project. Powers the detail page tabs.
+// Imports of Action/PRD/Prototype/UseCase/ShapeUpThread/Document/Meeting
+// happen via deferred type references — declare-only here, resolved by
+// tsc through the rest of this file.
+export interface ProjectContent {
+  project: Project
+  counts: ProjectCounts
+  actions: Action[]
+  prds: PRD[]
+  prototypes: Prototype[]
+  usecases: UseCase[]
+  threads: ShapeUpThread[]
+  documents: Document[]
+  meetings: Meeting[]
+  warnings?: string[]
+}
+
 // --- Vault ---
 
 export interface VaultTreeNode {
