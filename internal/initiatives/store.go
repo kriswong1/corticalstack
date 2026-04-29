@@ -256,6 +256,14 @@ func (s *Store) Update(idOrSlug string, req UpdateRequest) (*Initiative, error) 
 			updated.TeamID = req.TeamID
 		}
 	}
+	if req.TeamKey != nil {
+		if strings.TrimSpace(*req.TeamKey) == "" {
+			updated.TeamKey = nil
+		} else {
+			v := *req.TeamKey
+			updated.TeamKey = &v
+		}
+	}
 
 	if updated.Slug != oldSlug {
 		oldDir := filepath.Join(s.vault.Path(), initiativesFolder, oldSlug)
@@ -362,6 +370,9 @@ func (s *Store) loadManifest(relPath string) (*Initiative, error) {
 	if team, ok := note.Frontmatter["team_id"].(string); ok && team != "" {
 		i.TeamID = &team
 	}
+	if tk, ok := note.Frontmatter["team_key"].(string); ok && tk != "" {
+		i.TeamKey = &tk
+	}
 	if lid, ok := note.Frontmatter["linear_id"].(string); ok {
 		i.LinearID = lid
 	}
@@ -409,6 +420,9 @@ func (s *Store) writeManifest(i *Initiative) error {
 	}
 	if i.TeamID != nil && *i.TeamID != "" {
 		fm["team_id"] = *i.TeamID
+	}
+	if i.TeamKey != nil && *i.TeamKey != "" {
+		fm["team_key"] = *i.TeamKey
 	}
 	if i.LinearID != "" {
 		fm["linear_id"] = i.LinearID

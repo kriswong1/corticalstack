@@ -58,6 +58,10 @@ import type {
   UpdateInitiativeRequest,
   LinearSyncResponse,
   LinearGenerateResponse,
+  Workspace,
+  WorkspaceContent,
+  CreateWorkspaceRequest,
+  UpdateWorkspaceRequest,
 } from "@/types/api"
 
 export class ApiError extends Error {
@@ -366,6 +370,17 @@ export const api = {
   deleteInitiative: (id: string) => del<void>(`/api/initiatives/${id}`),
   getInitiativeContent: (id: string) =>
     request<InitiativeContent>(`/api/initiatives/${id}/content`),
+
+  // Workspaces (L7 — top-level tenancy boundary)
+  listWorkspaces: () => request<Workspace[]>("/api/workspaces"),
+  getWorkspace: (id: string) => request<Workspace>(`/api/workspaces/${id}`),
+  createWorkspace: (body: CreateWorkspaceRequest) =>
+    post<Workspace>("/api/workspaces", body),
+  updateWorkspace: (id: string, body: UpdateWorkspaceRequest) =>
+    patch<Workspace>(`/api/workspaces/${id}`, body),
+  deleteWorkspace: (id: string) => del<void>(`/api/workspaces/${id}`),
+  getWorkspaceContent: (id: string) =>
+    request<WorkspaceContent>(`/api/workspaces/${id}/content`),
 
   // Linear sync — two-step dry-run/confirm flow per docs/linear/README.md §5.
   previewProjectSync: (id: string) =>

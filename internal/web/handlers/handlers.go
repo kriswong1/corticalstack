@@ -27,6 +27,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/projectcontent"
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/prototypes"
+	"github.com/kriswong/corticalstack/internal/workspaces"
 	"github.com/kriswong/corticalstack/internal/shapeup"
 	"github.com/kriswong/corticalstack/internal/usecases"
 	"github.com/kriswong/corticalstack/internal/vault"
@@ -57,6 +58,7 @@ type Deps struct {
 	LinearWebhooks     *linear.Webhooks
 	Projects           *projects.Store
 	Initiatives        *initiatives.Store
+	Workspaces         *workspaces.Store
 	ProjectContent     *projectcontent.Aggregator
 	Actions            *actions.Store
 	Persona            *persona.Loader
@@ -87,6 +89,7 @@ type Handler struct {
 	LinearWebhooks *linear.Webhooks
 	Projects       *projects.Store
 	Initiatives    *initiatives.Store
+	Workspaces     *workspaces.Store
 	ProjectContent *projectcontent.Aggregator
 	Actions        *actions.Store
 
@@ -136,6 +139,7 @@ func New(deps Deps) *Handler {
 		LinearWebhooks:     deps.LinearWebhooks,
 		Projects:           deps.Projects,
 		Initiatives:        deps.Initiatives,
+		Workspaces:         deps.Workspaces,
 		ProjectContent:     deps.ProjectContent,
 		Actions:            deps.Actions,
 		Persona:            deps.Persona,

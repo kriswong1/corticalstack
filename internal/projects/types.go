@@ -40,6 +40,14 @@ type Project struct {
 	InitiativeID    *string    `json:"initiative_id,omitempty"    yaml:"initiative_id,omitempty"`
 	LinearProjectID string     `json:"linear_project_id,omitempty" yaml:"linear_project_id,omitempty"`
 	LastSyncedAt    *time.Time `json:"last_synced_at,omitempty"    yaml:"last_synced_at,omitempty"`
+
+	// L7 (Workspace + Team layers) — optional overrides used by the
+	// resolution chain in linear.Resolve. WorkspaceID points at a
+	// vault/workspaces/<slug>/ manifest carrying per-workspace API key
+	// and team defaults; TeamKey is the per-project Tb override that
+	// short-circuits the chain (highest priority).
+	WorkspaceID *string `json:"workspace_id,omitempty" yaml:"workspace_id,omitempty"`
+	TeamKey     *string `json:"team_key,omitempty"     yaml:"team_key,omitempty"`
 }
 
 // CreateRequest is the payload for POST /api/projects.
@@ -62,4 +70,8 @@ type UpdateRequest struct {
 	// LinearProjectID and LastSyncedAt are sync-flow-owned (not exposed
 	// here) and won't be patched via PATCH /api/projects/{id}.
 	InitiativeID *string `json:"initiative_id,omitempty"`
+
+	// L7 (Workspace + Team layers) — optional. Empty-string clears.
+	WorkspaceID *string `json:"workspace_id,omitempty"`
+	TeamKey     *string `json:"team_key,omitempty"`
 }

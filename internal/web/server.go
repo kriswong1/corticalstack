@@ -132,6 +132,14 @@ func (s *Server) routes() {
 	r.Delete("/api/initiatives/{id}", s.Handler.DeleteInitiative)
 	r.Get("/api/initiatives/{id}/content", s.Handler.GetInitiativeContent)
 
+	// API: workspaces (L7 — top-level tenancy boundary)
+	r.Get("/api/workspaces", s.Handler.ListWorkspaces)
+	r.Post("/api/workspaces", s.Handler.CreateWorkspace)
+	r.Get("/api/workspaces/{id}", s.Handler.GetWorkspace)
+	r.Patch("/api/workspaces/{id}", s.Handler.UpdateWorkspace)
+	r.Delete("/api/workspaces/{id}", s.Handler.DeleteWorkspace)
+	r.Get("/api/workspaces/{id}/content", s.Handler.GetWorkspaceContent)
+
 	// API: usage telemetry
 	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)
 	r.Get("/api/usage/summary", s.Handler.GetUsageSummary)

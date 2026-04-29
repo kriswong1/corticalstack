@@ -9,6 +9,7 @@ import (
 
 	"github.com/kriswong/corticalstack/internal/initiatives"
 	"github.com/kriswong/corticalstack/internal/projects"
+	"github.com/kriswong/corticalstack/internal/workspaces"
 )
 
 // ListProjects returns all projects as JSON.
@@ -64,6 +65,15 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.InitiativeID = &canonical
+	}
+	// L7 — same canonicalization for workspace_id.
+	if req.WorkspaceID != nil && *req.WorkspaceID != "" {
+		canonical := workspaces.CanonicalizeWorkspaceID(h.Workspaces, *req.WorkspaceID)
+		if canonical == "" {
+			http.Error(w, "unknown workspace_id", http.StatusBadRequest)
+			return
+		}
+		req.WorkspaceID = &canonical
 	}
 
 	updated, err := h.Projects.Update(id, req)

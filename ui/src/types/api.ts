@@ -130,6 +130,10 @@ export interface Project {
   initiative_id?: string
   linear_project_id?: string
   last_synced_at?: string
+
+  // L7 (Workspace + Team layers)
+  workspace_id?: string
+  team_key?: string
 }
 
 // --- Initiatives (L2 strategic tier above Projects) ---
@@ -146,6 +150,7 @@ export interface Initiative {
   owner?: string
   parent_initiative_id?: string
   team_id?: string
+  team_key?: string  // L7
   linear_id?: string
   created: string
 }
@@ -183,6 +188,52 @@ export interface UpdateInitiativeRequest {
   target_date?: string
   parent_initiative_id?: string
   team_id?: string
+  team_key?: string  // L7
+}
+
+// --- Workspaces (L7 — top-level tenancy boundary) ---
+
+export interface Workspace {
+  uuid: string
+  slug: string
+  name: string
+  description?: string
+  linear_workspace_id?: string
+  linear_team_key?: string
+  linear_api_key_env?: string
+  created: string
+}
+
+export interface WorkspaceCounts {
+  projects: number
+}
+
+export interface WorkspaceContent {
+  workspace: Workspace
+  projects: {
+    uuid: string
+    slug: string
+    name: string
+    status: ProjectStatus
+    description?: string
+  }[]
+  counts: WorkspaceCounts
+}
+
+export interface CreateWorkspaceRequest {
+  name: string
+  description?: string
+  linear_workspace_id?: string
+  linear_team_key?: string
+  linear_api_key_env?: string
+}
+
+export interface UpdateWorkspaceRequest {
+  name?: string
+  description?: string
+  linear_workspace_id?: string
+  linear_team_key?: string
+  linear_api_key_env?: string
 }
 
 // --- Linear sync (L3 + L4) ---
@@ -255,6 +306,9 @@ export interface UpdateProjectRequest {
   tags?: string[]
   // L2 (Linear integration). Empty string clears the link.
   initiative_id?: string
+  // L7. Empty string clears.
+  workspace_id?: string
+  team_key?: string
 }
 
 export interface ProjectCounts {

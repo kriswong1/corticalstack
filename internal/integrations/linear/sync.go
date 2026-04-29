@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/initiatives"
 	"github.com/kriswong/corticalstack/internal/prds"
 	"github.com/kriswong/corticalstack/internal/projects"
+	"github.com/kriswong/corticalstack/internal/workspaces"
 )
 
 // SyncPreview is the diff returned by a dry-run sync. The frontend
@@ -50,6 +52,7 @@ type SyncResult struct {
 type SyncStores struct {
 	Projects    *projects.Store
 	Initiatives *initiatives.Store
+	Workspaces  *workspaces.Store // L7 — optional (M1/M2 leave it nil)
 	PRDs        *prds.Store
 	Actions     *actions.Store
 }
@@ -68,6 +71,59 @@ type Orchestrator struct {
 // error if the API key is missing.
 func NewOrchestrator(c *Client, stores SyncStores, defaultTeam string) *Orchestrator {
 	return &Orchestrator{Client: c, Stores: stores, DefaultTeam: defaultTeam}
+}
+
+// resolveContext walks the §3 Fork B resolution chain for a project +
+// optional linked initiative and returns the Client + team key the
+// sync call should use. When the project links to a workspace whose
+// LinearAPIKeyEnv points at a populated env var, a fresh Client is
+// constructed with that key; otherwise the orchestrator's default
+// Client is reused.
+//
+// Returns nil error iff a non-empty team key was resolved at some
+// layer of the chain.
+func (o *Orchestrator) resolveContext(p *projects.Project, linkedInitiative *initiatives.Initiative) (*Client, string, error) {
+	in := ResolveInput{DefaultTeamKey: strings.TrimSpace(o.DefaultTeam)}
+
+	// Per-project Tb override (highest priority).
+	if p != nil && p.TeamKey != nil && *p.TeamKey != "" {
+		in.ProjectTeamKey = *p.TeamKey
+	}
+	// Initiative-level override.
+	if linkedInitiative != nil && linkedInitiative.TeamKey != nil && *linkedInitiative.TeamKey != "" {
+		in.InitiativeTeamKey = *linkedInitiative.TeamKey
+	}
+
+	// Workspace-level overrides + per-workspace API key.
+	client := o.Client
+	if p != nil && p.WorkspaceID != nil && *p.WorkspaceID != "" && o.Stores.Workspaces != nil {
+		if w := o.Stores.Workspaces.GetByUUID(*p.WorkspaceID); w != nil {
+			if w.LinearTeamKey != "" {
+				in.WorkspaceTeamKey = w.LinearTeamKey
+			}
+			if w.LinearWorkspaceID != "" {
+				in.WorkspaceLinearID = w.LinearWorkspaceID
+			}
+			if w.LinearAPIKeyEnv != "" {
+				if key := os.Getenv(w.LinearAPIKeyEnv); key != "" {
+					client = NewClient(key)
+				} else {
+					slog.Warn("linear: workspace api-key env unset, falling back to default",
+						"workspace_uuid", w.UUID,
+						"env", w.LinearAPIKeyEnv)
+				}
+			}
+		}
+	}
+
+	target := Resolve(in)
+	if target.TeamKey == "" {
+		return nil, "", fmt.Errorf("linear: no team key resolved (set LINEAR_TEAM_KEY or workspace/initiative/project team_key)")
+	}
+	if client == nil || !client.configured() {
+		return nil, "", fmt.Errorf("linear: not configured (no API key)")
+	}
+	return client, target.TeamKey, nil
 }
 
 // SyncProject upserts a CorticalStack project (and its linked
@@ -92,16 +148,8 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 		return nil, nil, fmt.Errorf("linear: project %q not found", projectIDOrSlug)
 	}
 
-	teamKey := strings.TrimSpace(o.DefaultTeam)
-	if teamKey == "" {
-		return nil, nil, fmt.Errorf("linear: no default team key (set LINEAR_TEAM_KEY)")
-	}
-	teamID, err := o.Client.ResolveTeamID(ctx, teamKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// --- Initiative side ---
+	// --- Initiative side (load first so the resolution chain can pick
+	// up any initiative-level team_key override) ---
 	var linkedInitiative *initiatives.Initiative
 	var initiativeAction string
 	if p.InitiativeID != nil && *p.InitiativeID != "" && o.Stores.Initiatives != nil {
@@ -113,6 +161,16 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 				initiativeAction = "update"
 			}
 		}
+	}
+
+	// L7 resolution: per-project / initiative / workspace / config-default.
+	client, teamKey, err := o.resolveContext(p, linkedInitiative)
+	if err != nil {
+		return nil, nil, err
+	}
+	teamID, err := client.ResolveTeamID(ctx, teamKey)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// --- Project side ---
@@ -174,7 +232,7 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 	var linearInitiativeID string
 	if linkedInitiative != nil {
 		linearInitiativeID = linkedInitiative.LinearID
-		newID, err := o.Client.UpsertInitiative(ctx, linkedInitiative.LinearID, InitiativeToInput(linkedInitiative))
+		newID, err := client.UpsertInitiative(ctx, linkedInitiative.LinearID, InitiativeToInput(linkedInitiative))
 		if err != nil {
 			result.Errors = append(result.Errors, SyncError{Entity: "initiative:" + linkedInitiative.Name, Err: err.Error()})
 		} else {
@@ -192,7 +250,7 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 
 	// Step 2: upsert project.
 	projectInput := ProjectToInput(p, primaryPRD(linkedPRDs), []string{teamID}, linearInitiativeID)
-	newProjectID, err := o.Client.UpsertProject(ctx, p.LinearProjectID, projectInput)
+	newProjectID, err := client.UpsertProject(ctx, p.LinearProjectID, projectInput)
 	if err != nil {
 		result.Errors = append(result.Errors, SyncError{Entity: "project:" + p.Name, Err: err.Error()})
 		return preview, result, nil
@@ -210,7 +268,7 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 	// Step 3: upsert one Project Document per linked PRD.
 	for _, prd := range linkedPRDs {
 		docInput := PRDBodyToProjectDocument(newProjectID, prd)
-		newDocID, err := o.Client.UpsertProjectDocument(ctx, prd.LinearDocumentID, docInput)
+		newDocID, err := client.UpsertProjectDocument(ctx, prd.LinearDocumentID, docInput)
 		if err != nil {
 			result.Errors = append(result.Errors, SyncError{Entity: "document:" + prd.ID, Err: err.Error()})
 			continue
@@ -229,12 +287,12 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 
 	// Step 4 (L4): upsert one Issue per linked Action.
 	if len(linkedActions) > 0 {
-		stateMap, err := o.loadOrBootstrapStateMap(ctx, teamID)
+		stateMap, err := o.loadOrBootstrapStateMap(ctx, client, teamKey, teamID)
 		if err != nil {
 			result.Errors = append(result.Errors, SyncError{Entity: "state_map", Err: err.Error()})
 		} else {
 			for _, a := range linkedActions {
-				if err := o.syncOneAction(ctx, a, teamID, newProjectID, stateMap); err != nil {
+				if err := o.syncOneAction(ctx, client, a, teamID, newProjectID, stateMap); err != nil {
 					result.Errors = append(result.Errors, SyncError{Entity: "issue:" + a.ID, Err: err.Error()})
 					continue
 				}
@@ -254,9 +312,6 @@ func (o *Orchestrator) SyncProject(ctx context.Context, projectIDOrSlug string, 
 // post-mutation auto-sync goroutine triggered from the action handlers.
 // No-op if the project hasn't been synced yet (no LinearProjectID).
 func (o *Orchestrator) SyncAction(ctx context.Context, actionID string) error {
-	if o.Client == nil || !o.Client.configured() {
-		return fmt.Errorf("linear: not configured")
-	}
 	if o.Stores.Actions == nil {
 		return fmt.Errorf("linear: actions store not wired")
 	}
@@ -265,37 +320,46 @@ func (o *Orchestrator) SyncAction(ctx context.Context, actionID string) error {
 		return fmt.Errorf("linear: action %q not found", actionID)
 	}
 	// Find the first linked project that's already synced; bail if none.
-	var projectLinearID string
+	var sourceProject *projects.Project
 	for _, projectUUID := range a.ProjectIDs {
 		if o.Stores.Projects == nil {
 			break
 		}
 		p := o.Stores.Projects.GetByUUID(projectUUID)
 		if p != nil && p.LinearProjectID != "" {
-			projectLinearID = p.LinearProjectID
+			sourceProject = p
 			break
 		}
 	}
-	if projectLinearID == "" {
+	if sourceProject == nil {
 		return nil // not an error — action's project just hasn't been synced yet
 	}
-	teamID, err := o.Client.ResolveTeamID(ctx, o.DefaultTeam)
+	// L7 resolution — pick the right client + team for the source project.
+	var linkedInitiative *initiatives.Initiative
+	if sourceProject.InitiativeID != nil && *sourceProject.InitiativeID != "" && o.Stores.Initiatives != nil {
+		linkedInitiative = o.Stores.Initiatives.GetByUUID(*sourceProject.InitiativeID)
+	}
+	client, teamKey, err := o.resolveContext(sourceProject, linkedInitiative)
 	if err != nil {
 		return err
 	}
-	stateMap, err := o.loadOrBootstrapStateMap(ctx, teamID)
+	teamID, err := client.ResolveTeamID(ctx, teamKey)
 	if err != nil {
 		return err
 	}
-	return o.syncOneAction(ctx, a, teamID, projectLinearID, stateMap)
+	stateMap, err := o.loadOrBootstrapStateMap(ctx, client, teamKey, teamID)
+	if err != nil {
+		return err
+	}
+	return o.syncOneAction(ctx, client, a, teamID, sourceProject.LinearProjectID, stateMap)
 }
 
 // syncOneAction is the shared upsert path for both batch (SyncProject)
 // and single-action (SyncAction) flows.
-func (o *Orchestrator) syncOneAction(ctx context.Context, a *actions.Action, teamID, projectLinearID string, stateMap map[actions.Status]string) error {
+func (o *Orchestrator) syncOneAction(ctx context.Context, client *Client, a *actions.Action, teamID, projectLinearID string, stateMap map[actions.Status]string) error {
 	stateID := stateMap[a.Status]
 	in := ActionToIssueInput(a, teamID, projectLinearID, stateID)
-	newID, err := o.Client.UpsertIssue(ctx, a.LinearIssueID, in)
+	newID, err := client.UpsertIssue(ctx, a.LinearIssueID, in)
 	if err != nil {
 		return err
 	}

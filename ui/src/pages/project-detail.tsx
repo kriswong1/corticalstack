@@ -55,6 +55,10 @@ export function ProjectDetailPage() {
     queryKey: ["initiatives"],
     queryFn: api.listInitiatives,
   })
+  const { data: workspaces } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: api.listWorkspaces,
+  })
 
   const updateMutation = useMutation({
     mutationFn: (body: {
@@ -62,6 +66,8 @@ export function ProjectDetailPage() {
       description?: string
       status?: ProjectStatus
       initiative_id?: string
+      workspace_id?: string
+      team_key?: string
     }) => api.updateProject(id ?? "", body),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] })
@@ -329,8 +335,11 @@ export function ProjectDetailPage() {
               description: p.description ?? "",
               status: p.status,
               initiative_id: p.initiative_id ?? "",
+              workspace_id: p.workspace_id ?? "",
+              team_key: p.team_key ?? "",
             }}
             initiatives={initiatives ?? []}
+            workspaces={workspaces ?? []}
             onSubmit={(patch) => updateMutation.mutate(patch)}
             submitting={updateMutation.isPending}
           />
@@ -456,12 +465,28 @@ function ActionRow({
 function EditForm({
   initial,
   initiatives,
+  workspaces,
   onSubmit,
   submitting,
 }: {
-  initial: { name: string; description: string; status: ProjectStatus; initiative_id: string }
+  initial: {
+    name: string
+    description: string
+    status: ProjectStatus
+    initiative_id: string
+    workspace_id: string
+    team_key: string
+  }
   initiatives: { uuid: string; name: string }[]
-  onSubmit: (patch: { name?: string; description?: string; status?: ProjectStatus; initiative_id?: string }) => void
+  workspaces: { uuid: string; name: string }[]
+  onSubmit: (patch: {
+    name?: string
+    description?: string
+    status?: ProjectStatus
+    initiative_id?: string
+    workspace_id?: string
+    team_key?: string
+  }) => void
   submitting: boolean
 }) {
   const [name, setName] = useState(initial.name)
@@ -470,18 +495,30 @@ function EditForm({
   // "" sentinel = "None"; non-empty = an initiative UUID. The Select
   // can't take an empty string as a value, so use "__none__" internally.
   const [initiativeID, setInitiativeID] = useState<string>(initial.initiative_id || "__none__")
+  const [workspaceID, setWorkspaceID] = useState<string>(initial.workspace_id || "__none__")
+  const [teamKey, setTeamKey] = useState<string>(initial.team_key)
 
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        const patch: { name?: string; description?: string; status?: ProjectStatus; initiative_id?: string } = {}
+        const patch: {
+          name?: string
+          description?: string
+          status?: ProjectStatus
+          initiative_id?: string
+          workspace_id?: string
+          team_key?: string
+        } = {}
         if (name !== initial.name) patch.name = name
         if (description !== initial.description) patch.description = description
         if (status !== initial.status) patch.status = status
         const nextInitiative = initiativeID === "__none__" ? "" : initiativeID
         if (nextInitiative !== initial.initiative_id) patch.initiative_id = nextInitiative
+        const nextWorkspace = workspaceID === "__none__" ? "" : workspaceID
+        if (nextWorkspace !== initial.workspace_id) patch.workspace_id = nextWorkspace
+        if (teamKey !== initial.team_key) patch.team_key = teamKey
         onSubmit(patch)
       }}
     >
@@ -522,6 +559,33 @@ function EditForm({
           </Select>
         </div>
       )}
+      {workspaces.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-sm font-normal">Workspace</Label>
+          <Select value={workspaceID} onValueChange={setWorkspaceID}>
+            <SelectTrigger className="border-border rounded-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— None (use defaults) —</SelectItem>
+              {workspaces.map((w) => (
+                <SelectItem key={w.uuid} value={w.uuid}>{w.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      <div className="space-y-2">
+        <Label className="text-sm font-normal">
+          Team Key Override <span className="text-muted-foreground/60">(optional)</span>
+        </Label>
+        <Input
+          value={teamKey}
+          onChange={(e) => setTeamKey(e.target.value)}
+          placeholder="Override workspace/initiative defaults (e.g. BCN)"
+          className="border-border rounded-sm font-mono text-xs"
+        />
+      </div>
       <Button
         type="submit"
         disabled={submitting || !name.trim()}

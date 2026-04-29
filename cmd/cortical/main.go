@@ -33,6 +33,7 @@ import (
 	"github.com/kriswong/corticalstack/internal/projectcontent"
 	"github.com/kriswong/corticalstack/internal/projects"
 	"github.com/kriswong/corticalstack/internal/prototypes"
+	"github.com/kriswong/corticalstack/internal/workspaces"
 	"github.com/kriswong/corticalstack/internal/shapeup"
 	"github.com/kriswong/corticalstack/internal/telemetry"
 	"github.com/kriswong/corticalstack/internal/usecases"
@@ -177,6 +178,16 @@ func main() {
 	if err := initiativeStore.Refresh(); err != nil {
 		slog.Warn("initiative discovery failed", "error", err)
 	}
+
+	// Workspaces store (L7 — top-level tenancy boundary). Lazy-disclosed:
+	// when no manifests exist, the sidebar group stays hidden.
+	workspaceStore := workspaces.New(v)
+	if err := workspaceStore.EnsureFolder(); err != nil {
+		slog.Warn("could not create workspaces folder", "error", err)
+	}
+	if err := workspaceStore.Refresh(); err != nil {
+		slog.Warn("workspace discovery failed", "error", err)
+	}
 	if migrateRes, err := projects.Migrate(projectStore); err != nil {
 		slog.Warn("projects: migration failed", "error", err)
 	} else {
@@ -260,6 +271,7 @@ func main() {
 	linearWebhooks = linear.NewWebhooks(linear.SyncStores{
 		Projects:    projectStore,
 		Initiatives: initiativeStore,
+		Workspaces:  workspaceStore,
 		PRDs:        prdStore,
 		Actions:     actionStore,
 	})
@@ -274,6 +286,7 @@ func main() {
 		LinearWebhooks:  linearWebhooks,
 		Projects:        projectStore,
 		Initiatives:     initiativeStore,
+		Workspaces:      workspaceStore,
 		ProjectContent:  projectContent,
 		Actions:         actionStore,
 		Persona:         personaLoader,

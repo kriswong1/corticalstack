@@ -33,6 +33,7 @@ import {
   Mic,
   File as FileIcon,
   Compass,
+  Building2,
 } from "lucide-react"
 
 const mainItems = [
@@ -43,6 +44,10 @@ const mainItems = [
 
 const initiativeItems = [
   { to: "/initiatives", label: "Initiatives", icon: Compass },
+]
+
+const workspaceItems = [
+  { to: "/workspaces", label: "Workspaces", icon: Building2 },
 ]
 
 const projectItems = [
@@ -114,12 +119,19 @@ export function AppSidebar() {
 
   // Lazy-disclosure: only surface the Initiatives tier when at least one
   // initiative manifest exists. Solo users without initiatives never see
-  // the section. Per docs/linear/README.md §3 Fork B (Wa+Ta+Ib).
+  // the section. Per docs/linear/README.md §3 Fork B (Wa+Ta+Ib). The
+  // Workspaces tier (L7) follows the same rule — appears when the user
+  // takes on a second Linear workspace.
   const { data: initiatives } = useQuery({
     queryKey: ["initiatives"],
     queryFn: api.listInitiatives,
   })
+  const { data: workspaces } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: api.listWorkspaces,
+  })
   const showInitiatives = (initiatives?.length ?? 0) > 0
+  const showWorkspaces = (workspaces?.length ?? 0) > 0
 
   return (
     <Sidebar>
@@ -138,6 +150,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <NavGroup label="Main" items={mainItems} />
+        {showWorkspaces && <NavGroup label="Tenancy" items={workspaceItems} />}
         {showInitiatives && <NavGroup label="Strategy" items={initiativeItems} />}
         <NavGroup label="Projects" items={projectItems} />
         <NavGroup label="Product" items={productItems} />

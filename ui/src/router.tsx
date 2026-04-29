@@ -7,6 +7,8 @@ import { LibraryPage } from "@/pages/library"
 import { ConfigPage } from "@/pages/config"
 import { InitiativesPage } from "@/pages/initiatives"
 import { InitiativeDetailPage } from "@/pages/initiative-detail"
+import { WorkspacesPage } from "@/pages/workspaces"
+import { WorkspaceDetailPage } from "@/pages/workspace-detail"
 import { ProjectsPage } from "@/pages/projects"
 import { ProjectDetailPage } from "@/pages/project-detail"
 import { ActionsPage } from "@/pages/actions"
@@ -30,6 +32,8 @@ export const router = createBrowserRouter([
       { path: "config", element: <ConfigPage /> },
       { path: "initiatives", element: <InitiativesPage /> },
       { path: "initiatives/:id", element: <InitiativeDetailPage /> },
+      { path: "workspaces", element: <WorkspacesPage /> },
+      { path: "workspaces/:id", element: <WorkspaceDetailPage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "projects/:id", element: <ProjectDetailPage /> },
       { path: "actions", element: <ActionsPage /> },

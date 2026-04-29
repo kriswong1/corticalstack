@@ -44,6 +44,10 @@ type Initiative struct {
 	Owner               string     `json:"owner,omitempty"                 yaml:"owner,omitempty"`
 	ParentInitiativeID  *string    `json:"parent_initiative_id,omitempty"  yaml:"parent_initiative_id,omitempty"`
 	TeamID              *string    `json:"team_id,omitempty"               yaml:"team_id,omitempty"`
+	// L7 — initiative-level Tb override. When set, every project linked
+	// to this initiative routes its sync through this team key instead
+	// of the workspace or config default.
+	TeamKey             *string    `json:"team_key,omitempty"              yaml:"team_key,omitempty"`
 	LinearID            string     `json:"linear_id,omitempty"             yaml:"linear_id,omitempty"`
 	Created             time.Time  `json:"created"                         yaml:"created"`
 }
@@ -68,4 +72,6 @@ type UpdateRequest struct {
 	TargetDate         *string `json:"target_date,omitempty"` // RFC3339 / YYYY-MM-DD; "" clears
 	ParentInitiativeID *string `json:"parent_initiative_id,omitempty"`
 	TeamID             *string `json:"team_id,omitempty"`
+	// L7 — empty string clears.
+	TeamKey            *string `json:"team_key,omitempty"`
 }

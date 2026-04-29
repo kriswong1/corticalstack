@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kriswong/corticalstack/internal/initiatives"
 	"github.com/kriswong/corticalstack/internal/prds"
 )
 
@@ -55,9 +56,6 @@ func newSidecar() *linearSidecar {
 //
 // dryRun=true short-circuits before any writes and returns a preview.
 func (o *Orchestrator) GenerateIssuesFromPRD(ctx context.Context, projectIDOrSlug string, dryRun bool) (*GeneratePreview, *GenerateResult, error) {
-	if o.Client == nil || !o.Client.configured() {
-		return nil, nil, fmt.Errorf("linear: not configured")
-	}
 	if o.Stores.Projects == nil || o.Stores.PRDs == nil {
 		return nil, nil, fmt.Errorf("linear: stores not wired")
 	}
@@ -126,7 +124,18 @@ func (o *Orchestrator) GenerateIssuesFromPRD(ctx context.Context, projectIDOrSlu
 	}
 
 	result := &GenerateResult{PRDID: prd.ID}
-	teamID, err := o.Client.ResolveTeamID(ctx, o.DefaultTeam)
+
+	// L7 resolution — generate uses the same per-project workspace/team
+	// routing as SyncProject so issues land in the right team.
+	var linkedInitiative *initiatives.Initiative
+	if p.InitiativeID != nil && *p.InitiativeID != "" && o.Stores.Initiatives != nil {
+		linkedInitiative = o.Stores.Initiatives.GetByUUID(*p.InitiativeID)
+	}
+	client, teamKey, err := o.resolveContext(p, linkedInitiative)
+	if err != nil {
+		return preview, result, err
+	}
+	teamID, err := client.ResolveTeamID(ctx, teamKey)
 	if err != nil {
 		return preview, result, fmt.Errorf("resolve team: %w", err)
 	}
@@ -137,7 +146,7 @@ func (o *Orchestrator) GenerateIssuesFromPRD(ctx context.Context, projectIDOrSlu
 		milestoneIDs[k] = v
 	}
 	for _, s := range newSlices {
-		mID, err := o.Client.UpsertProjectMilestone(ctx, "", MilestoneInput{
+		mID, err := client.UpsertProjectMilestone(ctx, "", MilestoneInput{
 			ProjectID:  p.LinearProjectID,
 			Name:       s.Name,
 			TargetDate: s.TargetDate,
@@ -153,7 +162,7 @@ func (o *Orchestrator) GenerateIssuesFromPRD(ctx context.Context, projectIDOrSlu
 
 	// Step 2: create new issues. Body = criterion text + behavior
 	// examples (verbatim) so QA scenarios travel with the work item.
-	if _, err := o.loadOrBootstrapStateMap(ctx, teamID); err != nil {
+	if _, err := o.loadOrBootstrapStateMap(ctx, client, teamKey, teamID); err != nil {
 		// Non-fatal — generated issues land in the team's default
 		// starting state when we can't compute the mapping. Log and
 		// proceed.
@@ -183,7 +192,7 @@ func (o *Orchestrator) GenerateIssuesFromPRD(ctx context.Context, projectIDOrSlu
 			ProjectID:          p.LinearProjectID,
 			ProjectMilestoneID: milestoneID,
 		}
-		newID, err := o.Client.UpsertIssue(ctx, "", issueIn)
+		newID, err := client.UpsertIssue(ctx, "", issueIn)
 		if err != nil {
 			result.Errors = append(result.Errors, SyncError{Entity: "issue:" + c.Hash[:8], Err: err.Error()})
 			continue

@@ -35,11 +35,14 @@ type stateMapLoader struct {
 var globalStateMap = &stateMapLoader{}
 
 // loadOrBootstrapStateMap returns a {action.Status → linear stateId}
-// map for the configured team. If the on-disk file is missing or has
-// no entry for this team, a default mapping is computed from the
-// team's workflow states (matched by lowercase name) and persisted.
-func (o *Orchestrator) loadOrBootstrapStateMap(ctx context.Context, teamID string) (map[actions.Status]string, error) {
-	teamKey := strings.TrimSpace(o.DefaultTeam)
+// map for the given team. If the on-disk file is missing or has no
+// entry for this team, a default mapping is computed from the team's
+// workflow states (matched by lowercase name) and persisted.
+//
+// L7: takes an explicit client + teamKey so the caller can route the
+// bootstrap call through whichever workspace's API key applies.
+func (o *Orchestrator) loadOrBootstrapStateMap(ctx context.Context, client *Client, teamKey, teamID string) (map[actions.Status]string, error) {
+	teamKey = strings.TrimSpace(teamKey)
 	if teamKey == "" {
 		return nil, fmt.Errorf("no team key configured")
 	}
@@ -66,7 +69,7 @@ func (o *Orchestrator) loadOrBootstrapStateMap(ctx context.Context, teamID strin
 	teamMap, ok := globalStateMap.loaded.Teams[teamKey]
 	if !ok || len(teamMap) == 0 {
 		// Bootstrap from Linear's workflow states.
-		states, err := o.Client.ListWorkflowStates(ctx, teamID)
+		states, err := client.ListWorkflowStates(ctx, teamID)
 		if err != nil {
 			return nil, fmt.Errorf("bootstrap state map: %w", err)
 		}

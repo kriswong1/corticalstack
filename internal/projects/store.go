@@ -301,6 +301,22 @@ func (s *Store) Update(idOrSlug string, req UpdateRequest) (*Project, error) {
 			updated.InitiativeID = &v
 		}
 	}
+	if req.WorkspaceID != nil {
+		if strings.TrimSpace(*req.WorkspaceID) == "" {
+			updated.WorkspaceID = nil
+		} else {
+			v := *req.WorkspaceID
+			updated.WorkspaceID = &v
+		}
+	}
+	if req.TeamKey != nil {
+		if strings.TrimSpace(*req.TeamKey) == "" {
+			updated.TeamKey = nil
+		} else {
+			v := *req.TeamKey
+			updated.TeamKey = &v
+		}
+	}
 
 	// Rename directory before writing the new manifest so we don't end up
 	// with a half-renamed state if the write fails.
@@ -543,6 +559,12 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 			p.LastSyncedAt = &t
 		}
 	}
+	if ws, ok := note.Frontmatter["workspace_id"].(string); ok && ws != "" {
+		p.WorkspaceID = &ws
+	}
+	if tk, ok := note.Frontmatter["team_key"].(string); ok && tk != "" {
+		p.TeamKey = &tk
+	}
 
 	// Slug fallback: derive from folder name if not in frontmatter.
 	if p.Slug == "" {
@@ -585,6 +607,12 @@ func buildFrontmatter(p *Project) map[string]interface{} {
 	}
 	if p.LastSyncedAt != nil {
 		fm["last_synced_at"] = p.LastSyncedAt.Format(time.RFC3339)
+	}
+	if p.WorkspaceID != nil && *p.WorkspaceID != "" {
+		fm["workspace_id"] = *p.WorkspaceID
+	}
+	if p.TeamKey != nil && *p.TeamKey != "" {
+		fm["team_key"] = *p.TeamKey
 	}
 	return fm
 }
