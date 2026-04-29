@@ -91,6 +91,27 @@ func DeepgramAPIKey() string {
 	return os.Getenv("DEEPGRAM_API_KEY")
 }
 
+// LinearAPIKey returns the Linear personal API key from the environment.
+func LinearAPIKey() string {
+	Load()
+	return os.Getenv("LINEAR_API_KEY")
+}
+
+// LinearTeamKey returns the default Linear team key (e.g. "BCN") that
+// every sync writes against in M1/M2 modes.
+func LinearTeamKey() string {
+	Load()
+	return os.Getenv("LINEAR_TEAM_KEY")
+}
+
+// LinearWebhookSecret returns the HMAC secret used to verify inbound
+// webhook signatures. Set during the Linear webhook registration step;
+// see docs/linear/SETUP.md.
+func LinearWebhookSecret() string {
+	Load()
+	return os.Getenv("LINEAR_WEBHOOK_SECRET")
+}
+
 // MaxUploadBytes returns the upload size cap, defaulting to 200 MB.
 func MaxUploadBytes() int64 {
 	Load()

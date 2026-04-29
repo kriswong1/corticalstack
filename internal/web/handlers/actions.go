@@ -1,16 +1,44 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/config"
+	"github.com/kriswong/corticalstack/internal/integrations/linear"
 )
+
+// kickLinearSync fires a non-blocking Action sync if Linear is
+// configured. Errors are logged, never returned — Action mutations
+// must succeed regardless of Linear availability.
+func (h *Handler) kickLinearSync(actionID string) {
+	li := h.linearIntegration()
+	if li == nil || !li.Configured() || li.CurrentTeamKey() == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stores := linear.SyncStores{
+			Projects:    h.Projects,
+			Initiatives: h.Initiatives,
+			PRDs:        h.PRDs,
+			Actions:     h.Actions,
+		}
+		orch := linear.NewOrchestrator(li.Client, stores, li.CurrentTeamKey())
+		if err := orch.SyncAction(ctx, actionID); err != nil {
+			slog.Warn("linear: action sync failed", "action_id", actionID, "error", err)
+		}
+	}()
+}
 
 // ListActions returns all tracked actions, optionally filtered by ?status=.
 func (h *Handler) ListActions(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +105,7 @@ func (h *Handler) SetActionStatus(w http.ResponseWriter, r *http.Request) {
 		internalError(w, "action.sync_after_status", err)
 		return
 	}
+	h.kickLinearSync(updated.ID)
 	writeJSON(w, updated)
 }
 
@@ -107,6 +136,7 @@ func (h *Handler) UpdateAction(w http.ResponseWriter, r *http.Request) {
 		internalError(w, "action.sync_after_update", err)
 		return
 	}
+	h.kickLinearSync(updated.ID)
 	writeJSON(w, updated)
 }
 

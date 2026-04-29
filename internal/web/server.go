@@ -79,6 +79,15 @@ func (s *Server) routes() {
 	r.Post("/api/integrations/obsidian/save", s.Handler.SaveObsidian)
 	r.Post("/api/integrations/deepgram/test", s.Handler.TestDeepgram)
 	r.Post("/api/integrations/deepgram/save", s.Handler.SaveDeepgram)
+	r.Get("/api/integrations/linear/status", s.Handler.LinearStatus)
+	r.Get("/api/integrations/linear/teams", s.Handler.ListLinearTeams)
+	r.Get("/api/integrations/linear/initiatives", s.Handler.ListLinearInitiatives)
+	r.Get("/api/integrations/linear/projects", s.Handler.ListLinearProjects)
+	r.Post("/api/integrations/linear/test", s.Handler.TestLinear)
+	r.Post("/api/integrations/linear/save", s.Handler.SaveLinear)
+	// Inbound webhook receiver. Mounted outside /api so the path
+	// matches what users register in Linear's webhook UI.
+	r.Post("/webhooks/linear", s.Handler.LinearWebhook)
 
 	// API: dashboard operating view (single aggregator snapshot)
 	r.Get("/api/dashboard", s.Handler.GetDashboard)
@@ -112,6 +121,16 @@ func (s *Server) routes() {
 	r.Get("/api/projects/{id}/content", s.Handler.GetProjectContent)
 	r.Get("/api/projects/{id}/canvas", s.Handler.GetProjectCanvas)
 	r.Put("/api/projects/{id}/canvas", s.Handler.SetProjectCanvas)
+	r.Post("/api/projects/{id}/sync", s.Handler.SyncProjectToLinear)
+	r.Post("/api/projects/{id}/generate-issues-from-prd", s.Handler.GenerateIssuesFromPRD)
+
+	// API: initiatives (L2 — strategic tier above Projects)
+	r.Get("/api/initiatives", s.Handler.ListInitiatives)
+	r.Post("/api/initiatives", s.Handler.CreateInitiative)
+	r.Get("/api/initiatives/{id}", s.Handler.GetInitiative)
+	r.Patch("/api/initiatives/{id}", s.Handler.UpdateInitiative)
+	r.Delete("/api/initiatives/{id}", s.Handler.DeleteInitiative)
+	r.Get("/api/initiatives/{id}/content", s.Handler.GetInitiativeContent)
 
 	// API: usage telemetry
 	r.Get("/api/usage/recent", s.Handler.GetUsageRecent)

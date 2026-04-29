@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/kriswong/corticalstack/internal/initiatives"
 	"github.com/kriswong/corticalstack/internal/projects"
 )
 
@@ -52,6 +53,17 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Canonicalize InitiativeID at the boundary so the on-disk wire
+	// format stays UUID-only. Empty string clears the link.
+	if req.InitiativeID != nil && *req.InitiativeID != "" {
+		canonical := initiatives.CanonicalizeInitiativeID(h.Initiatives, *req.InitiativeID)
+		if canonical == "" {
+			http.Error(w, "unknown initiative_id", http.StatusBadRequest)
+			return
+		}
+		req.InitiativeID = &canonical
 	}
 
 	updated, err := h.Projects.Update(id, req)

@@ -96,6 +96,8 @@ export interface Action {
   source_note: string
   source_title?: string
   project_ids?: string[]
+  // L4 (Linear integration)
+  linear_issue_id?: string
   created: string
   updated: string
 }
@@ -123,6 +125,121 @@ export interface Project {
   description?: string
   tags?: string[]
   created: string
+
+  // L2 (Linear integration)
+  initiative_id?: string
+  linear_project_id?: string
+  last_synced_at?: string
+}
+
+// --- Initiatives (L2 strategic tier above Projects) ---
+
+export type InitiativeStatus = "active" | "paused" | "archived"
+
+export interface Initiative {
+  uuid: string
+  slug: string
+  name: string
+  status: InitiativeStatus
+  description?: string
+  target_date?: string
+  owner?: string
+  parent_initiative_id?: string
+  team_id?: string
+  linear_id?: string
+  created: string
+}
+
+export interface InitiativeCounts {
+  projects: number
+}
+
+export interface InitiativeContent {
+  initiative: Initiative
+  projects: {
+    uuid: string
+    slug: string
+    name: string
+    status: ProjectStatus
+    description?: string
+  }[]
+  counts: InitiativeCounts
+}
+
+export interface CreateInitiativeRequest {
+  name: string
+  description?: string
+  owner?: string
+  target_date?: string
+  parent_initiative_id?: string
+  team_id?: string
+}
+
+export interface UpdateInitiativeRequest {
+  name?: string
+  description?: string
+  status?: InitiativeStatus
+  owner?: string
+  target_date?: string
+  parent_initiative_id?: string
+  team_id?: string
+}
+
+// --- Linear sync (L3 + L4) ---
+
+export interface LinearSyncPreview {
+  project_name: string
+  project_action: "create" | "update"
+  initiative_action?: "create" | "update" | ""
+  initiative_name?: string
+  documents_to_create: number
+  documents_to_update: number
+  document_titles?: string[]
+  issues_to_create: number
+  issues_to_update: number
+  team_key: string
+  warnings?: string[]
+}
+
+export interface LinearSyncError {
+  entity: string
+  error: string
+}
+
+export interface LinearSyncResult {
+  project_linear_id?: string
+  created?: string[]
+  updated?: string[]
+  errors?: LinearSyncError[]
+}
+
+export interface LinearSyncResponse {
+  preview: LinearSyncPreview
+  result?: LinearSyncResult
+}
+
+// L6 — Generate Issues from PRD
+export interface LinearGeneratePreview {
+  prd_id: string
+  issues_to_create: number
+  issues_already_mapped: number
+  milestones_to_create: number
+  milestones_already_mapped: number
+  new_criterion_texts?: string[]
+  new_milestone_names?: string[]
+  warnings?: string[]
+}
+
+export interface LinearGenerateResult {
+  prd_id: string
+  issues_created?: string[]
+  milestones_created?: string[]
+  errors?: LinearSyncError[]
+}
+
+export interface LinearGenerateResponse {
+  preview: LinearGeneratePreview
+  result?: LinearGenerateResult
 }
 
 export interface CreateProjectRequest {
@@ -136,6 +253,8 @@ export interface UpdateProjectRequest {
   description?: string
   status?: ProjectStatus
   tags?: string[]
+  // L2 (Linear integration). Empty string clears the link.
+  initiative_id?: string
 }
 
 export interface ProjectCounts {
@@ -715,4 +834,57 @@ export interface PersonaChatContinueResponse {
 export interface PersonaChatFinishResponse {
   content: string
   done: boolean
+}
+
+// --- Linear integration ---
+
+export interface LinearOrganization {
+  id: string
+  name: string
+  url_key: string
+}
+
+export interface LinearViewer {
+  id: string
+  name: string
+  email: string
+}
+
+export interface LinearStatusResponse {
+  configured: boolean
+  team_key: string
+  organization?: LinearOrganization
+  viewer?: LinearViewer
+  error?: string
+  webhook_secret_configured?: boolean
+  last_webhook_at?: string
+}
+
+export interface LinearTeam {
+  id: string
+  name: string
+  key: string
+}
+
+export interface LinearInitiative {
+  id: string
+  name: string
+  description?: string
+  status?: string
+}
+
+export interface LinearProject {
+  id: string
+  name: string
+  state?: string
+  description?: string
+}
+
+export interface LinearTestResponse {
+  ok: boolean
+  error?: string
+  organization?: string
+  viewer?: string
+  team_name?: string
+  team_warning?: string
 }

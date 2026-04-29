@@ -5,6 +5,8 @@ import { DashboardCardPage } from "@/pages/dashboard-card"
 import { IngestPage } from "@/pages/ingest"
 import { LibraryPage } from "@/pages/library"
 import { ConfigPage } from "@/pages/config"
+import { InitiativesPage } from "@/pages/initiatives"
+import { InitiativeDetailPage } from "@/pages/initiative-detail"
 import { ProjectsPage } from "@/pages/projects"
 import { ProjectDetailPage } from "@/pages/project-detail"
 import { ActionsPage } from "@/pages/actions"
@@ -26,6 +28,8 @@ export const router = createBrowserRouter([
       { path: "ingest", element: <IngestPage /> },
       { path: "library", element: <LibraryPage /> },
       { path: "config", element: <ConfigPage /> },
+      { path: "initiatives", element: <InitiativesPage /> },
+      { path: "initiatives/:id", element: <InitiativeDetailPage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "projects/:id", element: <ProjectDetailPage /> },
       { path: "actions", element: <ActionsPage /> },

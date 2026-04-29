@@ -34,6 +34,12 @@ type Project struct {
 	Description string    `json:"description,omitempty" yaml:"description,omitempty"`
 	Tags        []string  `json:"tags,omitempty"        yaml:"tags,omitempty"`
 	Created     time.Time `json:"created"               yaml:"created"`
+
+	// L2 (Linear integration) — optional cross-tier link + sync state.
+	// All three are nil/empty for projects that haven't opted in.
+	InitiativeID    *string    `json:"initiative_id,omitempty"    yaml:"initiative_id,omitempty"`
+	LinearProjectID string     `json:"linear_project_id,omitempty" yaml:"linear_project_id,omitempty"`
+	LastSyncedAt    *time.Time `json:"last_synced_at,omitempty"    yaml:"last_synced_at,omitempty"`
 }
 
 // CreateRequest is the payload for POST /api/projects.
@@ -51,4 +57,9 @@ type UpdateRequest struct {
 	Description *string   `json:"description,omitempty"`
 	Status      *Status   `json:"status,omitempty"`
 	Tags        *[]string `json:"tags,omitempty"`
+
+	// L2 (Linear integration) — optional. Empty-string clears the link.
+	// LinearProjectID and LastSyncedAt are sync-flow-owned (not exposed
+	// here) and won't be patched via PATCH /api/projects/{id}.
+	InitiativeID *string `json:"initiative_id,omitempty"`
 }

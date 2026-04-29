@@ -103,8 +103,13 @@ type Action struct {
 	SourceNote  string    `json:"source_note"`
 	SourceTitle string    `json:"source_title,omitempty"`
 	ProjectIDs  []string  `json:"project_ids,omitempty"`
-	Created     time.Time `json:"created"`
-	Updated     time.Time `json:"updated"`
+	// L4 (Linear integration) — set after the action is mirrored as a
+	// Linear Issue. The JSON action index (vault/.cortical/actions.json)
+	// is the single source of truth, so this round-trips automatically
+	// without store changes.
+	LinearIssueID string    `json:"linear_issue_id,omitempty"`
+	Created       time.Time `json:"created"`
+	Updated       time.Time `json:"updated"`
 }
 
 // Locations returns the relative vault paths this action should appear in.

@@ -35,6 +35,10 @@ type PRD struct {
 	Body         string    `json:"-"                    yaml:"-"`
 	Path         string    `json:"path,omitempty"       yaml:"-"`
 	Created      time.Time `json:"created"              yaml:"created"`
+
+	// L2 (Linear integration) — set by the L3 sync flow once the PRD
+	// body is mirrored as a Linear Project Document. Empty until then.
+	LinearDocumentID string `json:"linear_document_id,omitempty" yaml:"linear_document_id,omitempty"`
 }
 
 // Synthesis is the structured response Claude returns; each field maps

@@ -26,8 +26,10 @@ import {
 } from "@/components/ui/dialog"
 import { api, getErrorMessage } from "@/lib/api"
 import type { ProjectStatus } from "@/types/api"
-import { Pencil, Trash2 } from "lucide-react"
+import { Pencil, Trash2, Send, Sparkles } from "lucide-react"
 import { CanvasEditor } from "@/components/projects/canvas-editor"
+import { LinearSyncModal } from "@/components/sync/linear-sync-modal"
+import { LinearGenerateModal } from "@/components/sync/linear-generate-modal"
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -35,6 +37,13 @@ export function ProjectDetailPage() {
   const queryClient = useQueryClient()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
+
+  const { data: linearStatus } = useQuery({
+    queryKey: ["linear-status"],
+    queryFn: api.getLinearStatus,
+  })
 
   const { data: content, isLoading, error } = useQuery({
     queryKey: ["project-content", id],
@@ -42,11 +51,17 @@ export function ProjectDetailPage() {
     enabled: !!id,
   })
 
+  const { data: initiatives } = useQuery({
+    queryKey: ["initiatives"],
+    queryFn: api.listInitiatives,
+  })
+
   const updateMutation = useMutation({
     mutationFn: (body: {
       name?: string
       description?: string
       status?: ProjectStatus
+      initiative_id?: string
     }) => api.updateProject(id ?? "", body),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] })
@@ -99,6 +114,15 @@ export function ProjectDetailPage() {
         { label: p.name },
       ]} />
       <PageHeader title={p.name} description={p.description ?? p.slug}>
+        {linearStatus?.configured && (
+          <Button
+            variant="outline"
+            onClick={() => setSyncOpen(true)}
+            className="border-border rounded-sm font-normal gap-1.5"
+          >
+            <Send className="h-3.5 w-3.5" /> Sync to Linear
+          </Button>
+        )}
         <Button
           variant="outline"
           onClick={() => setEditOpen(true)}
@@ -114,6 +138,8 @@ export function ProjectDetailPage() {
           <Trash2 className="h-3.5 w-3.5" /> Delete
         </Button>
       </PageHeader>
+      <LinearSyncModal projectId={p.uuid} open={syncOpen} onOpenChange={setSyncOpen} />
+      <LinearGenerateModal projectId={p.uuid} open={generateOpen} onOpenChange={setGenerateOpen} />
 
       {content.warnings && content.warnings.length > 0 && (
         <div className="mb-4 rounded-sm border border-amber-500/40 bg-amber-50/10 p-3 text-xs text-amber-300">
@@ -198,6 +224,18 @@ export function ProjectDetailPage() {
                       meta={`v${x.version} · ${x.status}`}
                     />
                   ))}
+                  {linearStatus?.configured && p.linear_project_id && (
+                    <div className="pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setGenerateOpen(true)}
+                        className="border-border rounded-sm font-normal gap-1.5 text-xs"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" /> Generate Issues from PRD
+                      </Button>
+                    </div>
+                  )}
                 </Section>
               )}
               {content.prototypes.length > 0 && (
@@ -234,11 +272,10 @@ export function ProjectDetailPage() {
           ) : (
             <Section title={`Actions (${content.actions.length})`}>
               {content.actions.map((a) => (
-                <RowItem
+                <ActionRow
                   key={a.id}
-                  to={`/actions?status=${a.status}`}
-                  title={a.title || a.description}
-                  meta={`${a.status}${a.priority ? ` · ${a.priority}` : ""}${a.owner ? ` · ${a.owner}` : ""}`}
+                  action={a}
+                  linearWorkspace={linearStatus?.organization?.url_key}
                 />
               ))}
             </Section>
@@ -287,7 +324,13 @@ export function ProjectDetailPage() {
             </DialogTitle>
           </DialogHeader>
           <EditForm
-            initial={{ name: p.name, description: p.description ?? "", status: p.status }}
+            initial={{
+              name: p.name,
+              description: p.description ?? "",
+              status: p.status,
+              initiative_id: p.initiative_id ?? "",
+            }}
+            initiatives={initiatives ?? []}
             onSubmit={(patch) => updateMutation.mutate(patch)}
             submitting={updateMutation.isPending}
           />
@@ -375,28 +418,70 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
   )
 }
 
+function ActionRow({
+  action,
+  linearWorkspace,
+}: {
+  action: import("@/types/api").Action
+  linearWorkspace?: string
+}) {
+  const meta = `${action.status}${action.priority ? ` · ${action.priority}` : ""}${action.owner ? ` · ${action.owner}` : ""}`
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-border/40 last:border-0 hover:bg-muted/20 -mx-2 px-2 rounded-sm transition-colors">
+      <Link to={`/actions?status=${action.status}`} className="text-sm truncate flex-1">
+        {action.title || action.description || "(untitled)"}
+      </Link>
+      <div className="flex items-center gap-2 whitespace-nowrap">
+        <span className="text-xs text-muted-foreground font-mono">{meta}</span>
+        {action.linear_issue_id && (
+          <a
+            href={
+              linearWorkspace
+                ? `https://linear.app/${linearWorkspace}/issue/${action.linear_issue_id}`
+                : `https://linear.app/issue/${action.linear_issue_id}`
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            title="Open in Linear"
+          >
+            ↗ Linear
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function EditForm({
   initial,
+  initiatives,
   onSubmit,
   submitting,
 }: {
-  initial: { name: string; description: string; status: ProjectStatus }
-  onSubmit: (patch: { name?: string; description?: string; status?: ProjectStatus }) => void
+  initial: { name: string; description: string; status: ProjectStatus; initiative_id: string }
+  initiatives: { uuid: string; name: string }[]
+  onSubmit: (patch: { name?: string; description?: string; status?: ProjectStatus; initiative_id?: string }) => void
   submitting: boolean
 }) {
   const [name, setName] = useState(initial.name)
   const [description, setDescription] = useState(initial.description)
   const [status, setStatus] = useState<ProjectStatus>(initial.status)
+  // "" sentinel = "None"; non-empty = an initiative UUID. The Select
+  // can't take an empty string as a value, so use "__none__" internally.
+  const [initiativeID, setInitiativeID] = useState<string>(initial.initiative_id || "__none__")
 
   return (
     <form
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        const patch: { name?: string; description?: string; status?: ProjectStatus } = {}
+        const patch: { name?: string; description?: string; status?: ProjectStatus; initiative_id?: string } = {}
         if (name !== initial.name) patch.name = name
         if (description !== initial.description) patch.description = description
         if (status !== initial.status) patch.status = status
+        const nextInitiative = initiativeID === "__none__" ? "" : initiativeID
+        if (nextInitiative !== initial.initiative_id) patch.initiative_id = nextInitiative
         onSubmit(patch)
       }}
     >
@@ -421,6 +506,22 @@ function EditForm({
           </SelectContent>
         </Select>
       </div>
+      {initiatives.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-sm font-normal">Initiative</Label>
+          <Select value={initiativeID} onValueChange={setInitiativeID}>
+            <SelectTrigger className="border-border rounded-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— None —</SelectItem>
+              {initiatives.map((i) => (
+                <SelectItem key={i.uuid} value={i.uuid}>{i.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <Button
         type="submit"
         disabled={submitting || !name.trim()}

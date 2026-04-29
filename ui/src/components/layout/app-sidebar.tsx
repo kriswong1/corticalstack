@@ -1,7 +1,9 @@
 import { NavLink } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/hooks/use-theme"
 import { ProjectPicker } from "@/components/projects/project-picker"
+import { api } from "@/lib/api"
 import {
   Sidebar,
   SidebarContent,
@@ -30,12 +32,17 @@ import {
   Moon,
   Mic,
   File as FileIcon,
+  Compass,
 } from "lucide-react"
 
 const mainItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/ingest", label: "Ingest", icon: Download },
   { to: "/library", label: "Library", icon: Library },
+]
+
+const initiativeItems = [
+  { to: "/initiatives", label: "Initiatives", icon: Compass },
 ]
 
 const projectItems = [
@@ -105,6 +112,15 @@ function NavGroup({
 export function AppSidebar() {
   const { theme, toggleTheme } = useTheme()
 
+  // Lazy-disclosure: only surface the Initiatives tier when at least one
+  // initiative manifest exists. Solo users without initiatives never see
+  // the section. Per docs/linear/README.md §3 Fork B (Wa+Ta+Ib).
+  const { data: initiatives } = useQuery({
+    queryKey: ["initiatives"],
+    queryFn: api.listInitiatives,
+  })
+  const showInitiatives = (initiatives?.length ?? 0) > 0
+
   return (
     <Sidebar>
       <SidebarHeader className="p-4 space-y-3">
@@ -122,6 +138,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <NavGroup label="Main" items={mainItems} />
+        {showInitiatives && <NavGroup label="Strategy" items={initiativeItems} />}
         <NavGroup label="Projects" items={projectItems} />
         <NavGroup label="Product" items={productItems} />
         <NavGroup label="Pipeline" items={pipelineItems} />

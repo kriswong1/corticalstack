@@ -292,6 +292,15 @@ func (s *Store) Update(idOrSlug string, req UpdateRequest) (*Project, error) {
 	if req.Tags != nil {
 		updated.Tags = *req.Tags
 	}
+	if req.InitiativeID != nil {
+		// Empty string clears the link.
+		if strings.TrimSpace(*req.InitiativeID) == "" {
+			updated.InitiativeID = nil
+		} else {
+			v := *req.InitiativeID
+			updated.InitiativeID = &v
+		}
+	}
 
 	// Rename directory before writing the new manifest so we don't end up
 	// with a half-renamed state if the write fails.
@@ -522,6 +531,19 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 		}
 	}
 
+	// L2 Linear integration fields.
+	if init, ok := note.Frontmatter["initiative_id"].(string); ok && init != "" {
+		p.InitiativeID = &init
+	}
+	if lid, ok := note.Frontmatter["linear_project_id"].(string); ok {
+		p.LinearProjectID = lid
+	}
+	if synced, ok := note.Frontmatter["last_synced_at"].(string); ok && synced != "" {
+		if t, err := time.Parse(time.RFC3339, synced); err == nil {
+			p.LastSyncedAt = &t
+		}
+	}
+
 	// Slug fallback: derive from folder name if not in frontmatter.
 	if p.Slug == "" {
 		p.Slug = filepath.Base(filepath.Dir(relPath))
@@ -538,11 +560,10 @@ func (s *Store) loadManifest(relPath string) (*Project, error) {
 	return p, nil
 }
 
-// writeManifest writes the project's manifest in split-mode: deterministic
-// header + frontmatter, user-editable `## Canvas` section preserved
-// across writes, deterministic footer regenerated each time. The canvas
-// is read off the existing manifest body (if any) and round-tripped.
-func (s *Store) writeManifest(p *Project) error {
+// buildFrontmatter constructs the on-disk YAML frontmatter for a
+// project. Shared by writeManifest and SetCanvas so the L2 Linear
+// fields don't drift between the two write paths.
+func buildFrontmatter(p *Project) map[string]interface{} {
 	fm := map[string]interface{}{
 		"uuid":   p.UUID,
 		"id":     p.Slug,
@@ -556,6 +577,24 @@ func (s *Store) writeManifest(p *Project) error {
 		fm["tags"] = p.Tags
 	}
 	fm["created"] = p.Created.Format(time.RFC3339)
+	if p.InitiativeID != nil && *p.InitiativeID != "" {
+		fm["initiative_id"] = *p.InitiativeID
+	}
+	if p.LinearProjectID != "" {
+		fm["linear_project_id"] = p.LinearProjectID
+	}
+	if p.LastSyncedAt != nil {
+		fm["last_synced_at"] = p.LastSyncedAt.Format(time.RFC3339)
+	}
+	return fm
+}
+
+// writeManifest writes the project's manifest in split-mode: deterministic
+// header + frontmatter, user-editable `## Canvas` section preserved
+// across writes, deterministic footer regenerated each time. The canvas
+// is read off the existing manifest body (if any) and round-tripped.
+func (s *Store) writeManifest(p *Project) error {
+	fm := buildFrontmatter(p)
 
 	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, manifestName))
 
@@ -600,23 +639,34 @@ func (s *Store) SetCanvas(idOrSlug, canvas string) error {
 		return ErrProjectNotFound
 	}
 
-	fm := map[string]interface{}{
-		"uuid":   p.UUID,
-		"id":     p.Slug,
-		"name":   p.Name,
-		"status": string(p.Status),
-	}
-	if p.Description != "" {
-		fm["description"] = p.Description
-	}
-	if len(p.Tags) > 0 {
-		fm["tags"] = p.Tags
-	}
-	fm["created"] = p.Created.Format(time.RFC3339)
-
+	fm := buildFrontmatter(p)
 	rel := filepath.ToSlash(filepath.Join(projectsFolder, p.Slug, manifestName))
 	note := &vault.Note{Frontmatter: fm, Body: composeBody(p, canvas)}
 	return s.vault.WriteNote(rel, note)
+}
+
+// SetLinearSyncMetadata stamps a project's Linear sync state. Called
+// by the L3 outbound sync orchestration after a successful upsert.
+// Both fields are sync-flow-owned (HTTP PATCH won't touch them).
+func (s *Store) SetLinearSyncMetadata(idOrSlug, linearProjectID string, syncedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur := s.byUUID[idOrSlug]
+	if cur == nil {
+		cur = s.bySlug[idOrSlug]
+	}
+	if cur == nil {
+		return ErrProjectNotFound
+	}
+	updated := *cur
+	updated.LinearProjectID = linearProjectID
+	updated.LastSyncedAt = &syncedAt
+	if err := s.writeManifest(&updated); err != nil {
+		return err
+	}
+	s.byUUID[updated.UUID] = &updated
+	s.bySlug[updated.Slug] = &updated
+	return nil
 }
 
 func (s *Store) writeEmptyActionItems(p *Project) error {

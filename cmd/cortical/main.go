@@ -20,7 +20,9 @@ import (
 	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/dashboard"
 	"github.com/kriswong/corticalstack/internal/documents"
+	"github.com/kriswong/corticalstack/internal/initiatives"
 	"github.com/kriswong/corticalstack/internal/integrations"
+	"github.com/kriswong/corticalstack/internal/integrations/linear"
 	"github.com/kriswong/corticalstack/internal/intent"
 	"github.com/kriswong/corticalstack/internal/itemusage"
 	"github.com/kriswong/corticalstack/internal/meetings"
@@ -108,6 +110,15 @@ func main() {
 		slog.Error("register deepgram", "error", err)
 		os.Exit(1)
 	}
+	linearIntegration := linear.NewIntegration(linear.NewClient(config.LinearAPIKey()), config.LinearTeamKey())
+	if err := reg.Register(linearIntegration); err != nil {
+		slog.Error("register linear", "error", err)
+		os.Exit(1)
+	}
+	// Linear webhook subsystem — wired below once the action/project/
+	// PRD/initiative stores are constructed so the dispatcher can route
+	// inbound state changes back into the local manifests.
+	var linearWebhooks *linear.Webhooks
 
 	// Persona loader — bootstrapped from embedded templates on first run.
 	personaLoader := persona.New(v)
@@ -154,6 +165,17 @@ func main() {
 	projectStore := projects.New(v)
 	if err := projectStore.Refresh(); err != nil {
 		slog.Warn("project discovery failed", "error", err)
+	}
+
+	// Initiatives store (L2 — strategic tier above Projects). Lazy-
+	// disclosed in the UI: when no manifests exist, the sidebar group
+	// stays hidden. Vault layout: vault/initiatives/<slug>/initiative.md.
+	initiativeStore := initiatives.New(v)
+	if err := initiativeStore.EnsureFolder(); err != nil {
+		slog.Warn("could not create initiatives folder", "error", err)
+	}
+	if err := initiativeStore.Refresh(); err != nil {
+		slog.Warn("initiative discovery failed", "error", err)
 	}
 	if migrateRes, err := projects.Migrate(projectStore); err != nil {
 		slog.Warn("projects: migration failed", "error", err)
@@ -233,6 +255,15 @@ func main() {
 		useCaseStore, shapeupStore, documentsStore, meetingsStore,
 	)
 
+	// L5 inbound webhooks — bound to the live stores so dispatch can
+	// overwrite workflow-owned fields directly. Receives /webhooks/linear.
+	linearWebhooks = linear.NewWebhooks(linear.SyncStores{
+		Projects:    projectStore,
+		Initiatives: initiativeStore,
+		PRDs:        prdStore,
+		Actions:     actionStore,
+	})
+
 	// Build the handler Deps bundle
 	deps := handlers.Deps{
 		Vault:           v,
@@ -240,7 +271,9 @@ func main() {
 		Jobs:            jm,
 		Bus:             bus,
 		Registry:        reg,
+		LinearWebhooks:  linearWebhooks,
 		Projects:        projectStore,
+		Initiatives:     initiativeStore,
 		ProjectContent:  projectContent,
 		Actions:         actionStore,
 		Persona:         personaLoader,

@@ -266,6 +266,9 @@ func buildFrontmatter(p *PRD) map[string]interface{} {
 	if len(p.Projects) > 0 {
 		fm["projects"] = p.Projects
 	}
+	if p.LinearDocumentID != "" {
+		fm["linear_document_id"] = p.LinearDocumentID
+	}
 	fm["tags"] = []string{"cortical", "prd"}
 	return fm
 }
@@ -318,6 +321,9 @@ func fromNote(note *vault.Note) *PRD {
 		if t, err := time.Parse(time.RFC3339, created); err == nil {
 			p.Created = t
 		}
+	}
+	if lid, ok := note.Frontmatter["linear_document_id"].(string); ok {
+		p.LinearDocumentID = lid
 	}
 	p.Body = note.Body
 	return p

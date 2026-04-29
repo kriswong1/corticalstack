@@ -47,6 +47,17 @@ import type {
   PersonaChatStartResponse,
   PersonaChatContinueResponse,
   PersonaChatFinishResponse,
+  LinearStatusResponse,
+  LinearTeam,
+  LinearInitiative,
+  LinearProject,
+  LinearTestResponse,
+  Initiative,
+  InitiativeContent,
+  CreateInitiativeRequest,
+  UpdateInitiativeRequest,
+  LinearSyncResponse,
+  LinearGenerateResponse,
 } from "@/types/api"
 
 export class ApiError extends Error {
@@ -242,6 +253,14 @@ export const api = {
     post<{ ok: boolean; error?: string }>("/api/integrations/deepgram/test", body),
   saveDeepgram: (body: { api_key: string }) =>
     post<{ ok: boolean }>("/api/integrations/deepgram/save", body),
+  getLinearStatus: () => request<LinearStatusResponse>("/api/integrations/linear/status"),
+  listLinearTeams: () => request<LinearTeam[]>("/api/integrations/linear/teams"),
+  listLinearInitiatives: () => request<LinearInitiative[]>("/api/integrations/linear/initiatives"),
+  listLinearProjects: () => request<LinearProject[]>("/api/integrations/linear/projects"),
+  testLinear: (body: { api_key: string; team_key?: string }) =>
+    post<LinearTestResponse>("/api/integrations/linear/test", body),
+  saveLinear: (body: { api_key: string; team_key?: string; webhook_secret?: string }) =>
+    post<{ ok: boolean }>("/api/integrations/linear/save", body),
 
   // Dashboard operating view (single aggregator snapshot)
   getDashboard: () => request<DashboardSnapshot>("/api/dashboard"),
@@ -336,6 +355,27 @@ export const api = {
     put<void>(`/api/projects/${id}/canvas`, { canvas }),
   syncProjects: () =>
     post<{ created: string[]; created_count: number }>("/api/projects/sync", {}),
+
+  // Initiatives (L2 — strategic tier above Projects)
+  listInitiatives: () => request<Initiative[]>("/api/initiatives"),
+  getInitiative: (id: string) => request<Initiative>(`/api/initiatives/${id}`),
+  createInitiative: (body: CreateInitiativeRequest) =>
+    post<Initiative>("/api/initiatives", body),
+  updateInitiative: (id: string, body: UpdateInitiativeRequest) =>
+    patch<Initiative>(`/api/initiatives/${id}`, body),
+  deleteInitiative: (id: string) => del<void>(`/api/initiatives/${id}`),
+  getInitiativeContent: (id: string) =>
+    request<InitiativeContent>(`/api/initiatives/${id}/content`),
+
+  // Linear sync — two-step dry-run/confirm flow per docs/linear/README.md §5.
+  previewProjectSync: (id: string) =>
+    postLong<LinearSyncResponse>(`/api/projects/${id}/sync`, {}),
+  confirmProjectSync: (id: string) =>
+    postLong<LinearSyncResponse>(`/api/projects/${id}/sync?confirm=1`, {}),
+  previewGenerateIssues: (id: string) =>
+    postLong<LinearGenerateResponse>(`/api/projects/${id}/generate-issues-from-prd`, {}),
+  confirmGenerateIssues: (id: string) =>
+    postLong<LinearGenerateResponse>(`/api/projects/${id}/generate-issues-from-prd?confirm=1`, {}),
 
   // Actions
   listActions: (status?: string) =>

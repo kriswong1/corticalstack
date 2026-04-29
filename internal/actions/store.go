@@ -441,6 +441,9 @@ func (s *Store) updateLocked(id string, patch ActionPatch) (*Action, error) {
 	if patch.Context != nil {
 		a.Context = *patch.Context
 	}
+	if patch.LinearIssueID != nil {
+		a.LinearIssueID = *patch.LinearIssueID
+	}
 	a.Updated = time.Now()
 	if err := s.flushLocked(); err != nil {
 		*a = snapshot
@@ -451,14 +454,15 @@ func (s *Store) updateLocked(id string, patch ActionPatch) (*Action, error) {
 
 // ActionPatch holds optional fields for a partial action update.
 type ActionPatch struct {
-	Title       *string  `json:"title"`
-	Description string   `json:"description,omitempty"`
-	Owner       string   `json:"owner,omitempty"`
-	Deadline    *string  `json:"deadline"`
-	Status      Status   `json:"status,omitempty"`
-	Priority    Priority `json:"priority,omitempty"`
-	Effort      Effort   `json:"effort,omitempty"`
-	Context     *string  `json:"context"`
+	Title         *string  `json:"title"`
+	Description   string   `json:"description,omitempty"`
+	Owner         string   `json:"owner,omitempty"`
+	Deadline      *string  `json:"deadline"`
+	Status        Status   `json:"status,omitempty"`
+	Priority      Priority `json:"priority,omitempty"`
+	Effort        Effort   `json:"effort,omitempty"`
+	Context       *string  `json:"context"`
+	LinearIssueID *string  `json:"linear_issue_id,omitempty"` // L4
 }
 
 // CentralFilePath returns the vault-relative path of the central tracker.

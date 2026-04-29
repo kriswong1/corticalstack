@@ -18,7 +18,9 @@ import (
 	"github.com/kriswong/corticalstack/internal/actions"
 	"github.com/kriswong/corticalstack/internal/config"
 	"github.com/kriswong/corticalstack/internal/dashboard"
+	"github.com/kriswong/corticalstack/internal/initiatives"
 	"github.com/kriswong/corticalstack/internal/integrations"
+	"github.com/kriswong/corticalstack/internal/integrations/linear"
 	"github.com/kriswong/corticalstack/internal/persona"
 	"github.com/kriswong/corticalstack/internal/pipeline"
 	"github.com/kriswong/corticalstack/internal/prds"
@@ -52,7 +54,9 @@ type Deps struct {
 	Jobs               *jobs.Manager
 	Bus                *sse.EventBus
 	Registry           *integrations.Registry
+	LinearWebhooks     *linear.Webhooks
 	Projects           *projects.Store
+	Initiatives        *initiatives.Store
 	ProjectContent     *projectcontent.Aggregator
 	Actions            *actions.Store
 	Persona            *persona.Loader
@@ -80,7 +84,9 @@ type Handler struct {
 	Jobs     *jobs.Manager
 	Bus      *sse.EventBus
 	Registry       *integrations.Registry
+	LinearWebhooks *linear.Webhooks
 	Projects       *projects.Store
+	Initiatives    *initiatives.Store
 	ProjectContent *projectcontent.Aggregator
 	Actions        *actions.Store
 
@@ -127,7 +133,9 @@ func New(deps Deps) *Handler {
 		Jobs:               deps.Jobs,
 		Bus:                deps.Bus,
 		Registry:           deps.Registry,
+		LinearWebhooks:     deps.LinearWebhooks,
 		Projects:           deps.Projects,
+		Initiatives:        deps.Initiatives,
 		ProjectContent:     deps.ProjectContent,
 		Actions:            deps.Actions,
 		Persona:            deps.Persona,
