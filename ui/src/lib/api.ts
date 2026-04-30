@@ -266,6 +266,12 @@ export const api = {
     post<LinearTestResponse>("/api/integrations/linear/test", body),
   saveLinear: (body: { api_key: string; team_key?: string; webhook_secret?: string }) =>
     post<{ ok: boolean }>("/api/integrations/linear/save", body),
+  saveLinearOAuthApp: (body: { client_id: string; client_secret: string }) =>
+    post<{ ok: boolean }>("/api/integrations/linear/save-oauth-app", body),
+  saveLinearWebhookSecret: (body: { webhook_secret: string }) =>
+    post<{ ok: boolean }>("/api/integrations/linear/save-webhook", body),
+  disconnectLinear: () =>
+    post<{ ok: boolean }>("/api/integrations/linear/disconnect", {}),
 
   // Dashboard operating view (single aggregator snapshot)
   getDashboard: () => request<DashboardSnapshot>("/api/dashboard"),

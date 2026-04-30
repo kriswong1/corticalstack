@@ -85,6 +85,13 @@ func (s *Server) routes() {
 	r.Get("/api/integrations/linear/projects", s.Handler.ListLinearProjects)
 	r.Post("/api/integrations/linear/test", s.Handler.TestLinear)
 	r.Post("/api/integrations/linear/save", s.Handler.SaveLinear)
+	r.Post("/api/integrations/linear/save-oauth-app", s.Handler.SaveLinearOAuthApp)
+	r.Post("/api/integrations/linear/save-webhook", s.Handler.SaveLinearWebhookSecret)
+	r.Post("/api/integrations/linear/disconnect", s.Handler.DisconnectLinear)
+	// OAuth roundtrip — browser-facing, mounted outside /api so the
+	// callback path matches what gets registered in Linear's OAuth app.
+	r.Get("/oauth/linear/start", s.Handler.StartLinearOAuth)
+	r.Get("/oauth/linear/callback", s.Handler.LinearOAuthCallback)
 	// Inbound webhook receiver. Mounted outside /api so the path
 	// matches what users register in Linear's webhook UI.
 	r.Post("/webhooks/linear", s.Handler.LinearWebhook)

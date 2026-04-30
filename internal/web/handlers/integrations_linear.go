@@ -43,10 +43,19 @@ func (h *Handler) linearIntegration() *linear.Integration {
 // GET /api/integrations/linear/status
 func (h *Handler) LinearStatus(w http.ResponseWriter, r *http.Request) {
 	li := h.linearIntegration()
+	authMode := ""
+	if li != nil {
+		authMode = li.AuthMode()
+	}
+	oauthAppConfigured := strings.TrimSpace(config.LinearOAuthClientID()) != "" &&
+		strings.TrimSpace(config.LinearOAuthClientSecret()) != ""
 	resp := map[string]interface{}{
 		"configured":                false,
 		"team_key":                  "",
 		"webhook_secret_configured": config.LinearWebhookSecret() != "",
+		"auth_mode":                 authMode,
+		"oauth_app_configured":      oauthAppConfigured,
+		"redirect_uri":              linear.BuildRedirectURI(config.CorticalBaseURL()),
 	}
 	if h.LinearWebhooks != nil {
 		if t := h.LinearWebhooks.LastReceivedAt(); !t.IsZero() {
@@ -216,6 +225,11 @@ func (h *Handler) SaveLinear(w http.ResponseWriter, r *http.Request) {
 		internalError(w, "integrations.linear.save_key", err)
 		return
 	}
+	// Choosing the personal-API-key path drops any prior OAuth token
+	// so the auth scheme matches what the user just saved.
+	if config.LinearOAuthToken() != "" {
+		_ = config.SetEnvAndPersist("LINEAR_OAUTH_TOKEN", "")
+	}
 	if teamKey != "" {
 		if err := config.SetEnvAndPersist("LINEAR_TEAM_KEY", teamKey); err != nil {
 			internalError(w, "integrations.linear.save_team", err)
@@ -230,6 +244,97 @@ func (h *Handler) SaveLinear(w http.ResponseWriter, r *http.Request) {
 	}
 	if li := h.linearIntegration(); li != nil {
 		li.SetCredentials(key, teamKey)
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// SaveLinearOAuthApp persists the OAuth application's client_id and
+// client_secret to .env. These come from Linear → Settings → API →
+// OAuth applications and are required before the Connect button can
+// initiate an OAuth roundtrip.
+//
+// POST /api/integrations/linear/save-oauth-app  {client_id, client_secret}
+func (h *Handler) SaveLinearOAuthApp(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	clientID := strings.TrimSpace(req.ClientID)
+	clientSecret := strings.TrimSpace(req.ClientSecret)
+	if clientID == "" || clientSecret == "" {
+		http.Error(w, "client_id and client_secret required", http.StatusBadRequest)
+		return
+	}
+	if err := config.SetEnvAndPersist("LINEAR_OAUTH_CLIENT_ID", clientID); err != nil {
+		internalError(w, "integrations.linear.save_oauth_client_id", err)
+		return
+	}
+	if err := config.SetEnvAndPersist("LINEAR_OAUTH_CLIENT_SECRET", clientSecret); err != nil {
+		internalError(w, "integrations.linear.save_oauth_client_secret", err)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// SaveLinearWebhookSecret persists only the webhook secret to .env.
+// Independent of auth mode — the user may have OAuth-connected and
+// just wants to register a webhook secret without re-entering an API
+// key (which they may not have at all).
+//
+// POST /api/integrations/linear/save-webhook  {webhook_secret}
+func (h *Handler) SaveLinearWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WebhookSecret string `json:"webhook_secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	secret := strings.TrimSpace(req.WebhookSecret)
+	if secret == "" {
+		http.Error(w, "webhook_secret required", http.StatusBadRequest)
+		return
+	}
+	if err := config.SetEnvAndPersist("LINEAR_WEBHOOK_SECRET", secret); err != nil {
+		internalError(w, "integrations.linear.save_webhook", err)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// DisconnectLinear wipes the OAuth access token (and best-effort
+// revokes it on Linear's side). Personal API key (if any) is left
+// alone — the user can disconnect OAuth without forgetting their
+// fallback credential.
+//
+// POST /api/integrations/linear/disconnect
+func (h *Handler) DisconnectLinear(w http.ResponseWriter, r *http.Request) {
+	token := config.LinearOAuthToken()
+	if token != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		// Best-effort; ignore failure so disconnect always succeeds locally.
+		_ = linear.RevokeToken(ctx, token)
+	}
+	if err := config.SetEnvAndPersist("LINEAR_OAUTH_TOKEN", ""); err != nil {
+		internalError(w, "integrations.linear.clear_oauth_token", err)
+		return
+	}
+	if li := h.linearIntegration(); li != nil {
+		// Wipe the live OAuth token first; SetCredentials only clears
+		// it when handed a non-empty key, so disconnect-with-no-
+		// fallback would otherwise leave the integration still
+		// authenticated with the just-revoked token.
+		li.ClearCredentials()
+		// If a personal API key is left as fallback, re-seat it onto
+		// the live client so the user keeps a working credential.
+		if k := config.LinearAPIKey(); k != "" {
+			li.SetCredentials(k, li.CurrentTeamKey())
+		}
 	}
 	writeJSON(w, map[string]interface{}{"ok": true})
 }

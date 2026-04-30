@@ -111,7 +111,17 @@ func main() {
 		slog.Error("register deepgram", "error", err)
 		os.Exit(1)
 	}
-	linearIntegration := linear.NewIntegration(linear.NewClient(config.LinearAPIKey()), config.LinearTeamKey())
+	// Prefer the OAuth token when present; fall back to the personal
+	// API key. Mirrors Client.authHeader's precedence so a user who
+	// connected via the Connect button isn't silently re-authed with
+	// a leftover personal key.
+	var linearClient *linear.Client
+	if tok := config.LinearOAuthToken(); tok != "" {
+		linearClient = linear.NewOAuthClient(tok)
+	} else {
+		linearClient = linear.NewClient(config.LinearAPIKey())
+	}
+	linearIntegration := linear.NewIntegration(linearClient, config.LinearTeamKey())
 	if err := reg.Register(linearIntegration); err != nil {
 		slog.Error("register linear", "error", err)
 		os.Exit(1)

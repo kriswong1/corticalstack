@@ -64,8 +64,10 @@ func (h *Handler) SaveObsidian(w http.ResponseWriter, r *http.Request) {
 // --- Deepgram ---
 
 // TestDeepgram creates a temporary client with the provided key and
-// runs a health check against the Deepgram API.
-// POST /api/integrations/deepgram/test  {api_key: string}
+// runs a health check against the Deepgram API. When api_key is empty,
+// falls back to the currently-saved key on the registered client so
+// the user can re-test an existing connection without re-entering it.
+// POST /api/integrations/deepgram/test  {api_key?: string}
 func (h *Handler) TestDeepgram(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		APIKey string `json:"api_key"`
@@ -75,6 +77,15 @@ func (h *Handler) TestDeepgram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := strings.TrimSpace(req.APIKey)
+	if key == "" {
+		// Fall back to the saved key on the live integration so the
+		// "Test" button keeps working after the user has saved.
+		if dg := h.Registry.Get("deepgram"); dg != nil {
+			if client, ok := dg.(*integrations.DeepgramClient); ok {
+				key = strings.TrimSpace(client.APIKey)
+			}
+		}
+	}
 	if key == "" {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": "API key is required"})
 		return

@@ -932,6 +932,15 @@ export interface LinearStatusResponse {
   error?: string
   webhook_secret_configured?: boolean
   last_webhook_at?: string
+  // "oauth" when connected via the Connect button, "key" when a
+  // personal API key is in use, "" when not configured.
+  auth_mode?: "oauth" | "key" | ""
+  // True when LINEAR_OAUTH_CLIENT_ID and CLIENT_SECRET are present —
+  // the prerequisite before the Connect button can do anything.
+  oauth_app_configured?: boolean
+  // Computed from CORTICAL_BASE_URL — shown in the card so the user
+  // can paste it into Linear's OAuth-app redirect-URI field.
+  redirect_uri?: string
 }
 
 export interface LinearTeam {

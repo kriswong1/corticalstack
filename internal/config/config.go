@@ -112,6 +112,41 @@ func LinearWebhookSecret() string {
 	return os.Getenv("LINEAR_WEBHOOK_SECRET")
 }
 
+// LinearOAuthClientID returns the Linear OAuth application's client_id.
+// Set once after registering the app at Linear → Settings → API → OAuth
+// applications.
+func LinearOAuthClientID() string {
+	Load()
+	return os.Getenv("LINEAR_OAUTH_CLIENT_ID")
+}
+
+// LinearOAuthClientSecret returns the Linear OAuth application's
+// client_secret. Pair with LinearOAuthClientID.
+func LinearOAuthClientSecret() string {
+	Load()
+	return os.Getenv("LINEAR_OAUTH_CLIENT_SECRET")
+}
+
+// LinearOAuthToken returns the OAuth access token obtained via the
+// Connect flow. When set, the Linear client uses Bearer auth and
+// LinearAPIKey is ignored.
+func LinearOAuthToken() string {
+	Load()
+	return os.Getenv("LINEAR_OAUTH_TOKEN")
+}
+
+// CorticalBaseURL returns the public base URL of the running cortical
+// instance — used to build the OAuth redirect URI and (later) the
+// Linear webhook URL displayed in the config card. Falls back to
+// http://localhost:<PORT> for local dev.
+func CorticalBaseURL() string {
+	Load()
+	if v := os.Getenv("CORTICAL_BASE_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:" + strconv.Itoa(Port())
+}
+
 // MaxUploadBytes returns the upload size cap, defaulting to 200 MB.
 func MaxUploadBytes() int64 {
 	Load()

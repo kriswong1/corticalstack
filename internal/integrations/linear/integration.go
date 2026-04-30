@@ -52,16 +52,35 @@ func (i *Integration) ID() string { return "linear" }
 // Name implements integrations.Integration.
 func (i *Integration) Name() string { return "Linear" }
 
-// Configured reports whether the API key is present. Team key is
-// optional at this layer — sync orchestration will fail loudly later
-// if it's missing when needed.
+// Configured reports whether either credential (OAuth token or
+// personal API key) is present. Team key is optional at this layer —
+// sync orchestration will fail loudly later if it's missing when needed.
 func (i *Integration) Configured() bool {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 	if i.Client == nil {
 		return false
 	}
-	return strings.TrimSpace(i.Client.APIKey) != ""
+	return strings.TrimSpace(i.Client.APIKey) != "" ||
+		strings.TrimSpace(i.Client.OAuthToken) != ""
+}
+
+// AuthMode reports how the live client is currently authenticated:
+// "oauth", "key", or "" when not configured. OAuth wins when both are
+// set, mirroring Client.authHeader.
+func (i *Integration) AuthMode() string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	if i.Client == nil {
+		return ""
+	}
+	if strings.TrimSpace(i.Client.OAuthToken) != "" {
+		return "oauth"
+	}
+	if strings.TrimSpace(i.Client.APIKey) != "" {
+		return "key"
+	}
+	return ""
 }
 
 // HealthCheck calls Viewer with a short timeout. Used by the integration
@@ -81,6 +100,10 @@ func (i *Integration) HealthCheck() error {
 // SetCredentials atomically updates the API key and team key.
 // Called by the SaveLinear handler after SetEnvAndPersist so the
 // running process picks up the new values without a restart.
+//
+// Setting a non-empty API key clears any OAuth token — the user has
+// explicitly chosen the personal-API-key path and the previous OAuth
+// session should not silently keep authenticating.
 func (i *Integration) SetCredentials(apiKey, teamKey string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -88,8 +111,37 @@ func (i *Integration) SetCredentials(apiKey, teamKey string) {
 		i.Client = NewClient(apiKey)
 	} else {
 		i.Client.APIKey = apiKey
+		if strings.TrimSpace(apiKey) != "" {
+			i.Client.OAuthToken = ""
+		}
 	}
 	i.TeamKey = teamKey
+}
+
+// SetOAuthToken atomically swaps the live client onto an OAuth access
+// token. Clears the personal API key so authHeader picks the right
+// scheme.
+func (i *Integration) SetOAuthToken(token string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.Client == nil {
+		i.Client = NewOAuthClient(token)
+		return
+	}
+	i.Client.OAuthToken = token
+	i.Client.APIKey = ""
+}
+
+// ClearCredentials wipes both the OAuth token and the API key on the
+// live client. Used by the Disconnect handler.
+func (i *Integration) ClearCredentials() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.Client == nil {
+		return
+	}
+	i.Client.OAuthToken = ""
+	i.Client.APIKey = ""
 }
 
 // CurrentTeamKey is a thread-safe read of the configured team key.

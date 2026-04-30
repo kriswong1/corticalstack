@@ -22,16 +22,21 @@ import (
 
 const defaultEndpoint = "https://api.linear.app/graphql"
 
-// Client is a thin GraphQL client for Linear. APIKey is read on every
-// call, so the running process picks up SetEnvAndPersist updates from
-// the config card without re-registration.
+// Client is a thin GraphQL client for Linear. APIKey/OAuthToken are
+// read on every call, so the running process picks up
+// SetEnvAndPersist updates from the config card without
+// re-registration.
+//
+// Auth precedence: OAuthToken (sent as `Bearer <token>`) wins over
+// APIKey (sent raw, no prefix — Linear's personal-API-key convention).
 type Client struct {
-	APIKey   string
-	HTTP     *http.Client
-	Endpoint string // override for tests; empty = production
+	APIKey     string
+	OAuthToken string
+	HTTP       *http.Client
+	Endpoint   string // override for tests; empty = production
 }
 
-// NewClient builds a client with sensible defaults.
+// NewClient builds a client with a personal API key.
 func NewClient(apiKey string) *Client {
 	return &Client{
 		APIKey:   apiKey,
@@ -40,9 +45,28 @@ func NewClient(apiKey string) *Client {
 	}
 }
 
-// configured reports whether an API key is present.
+// NewOAuthClient builds a client with an OAuth access token.
+func NewOAuthClient(token string) *Client {
+	return &Client{
+		OAuthToken: token,
+		HTTP:       &http.Client{Timeout: 10 * time.Second},
+		Endpoint:   defaultEndpoint,
+	}
+}
+
+// configured reports whether either credential is present.
 func (c *Client) configured() bool {
-	return strings.TrimSpace(c.APIKey) != ""
+	return strings.TrimSpace(c.APIKey) != "" || strings.TrimSpace(c.OAuthToken) != ""
+}
+
+// authHeader returns the value to send in the Authorization header.
+// OAuth tokens use the "Bearer <token>" form; personal API keys are
+// sent raw per Linear's documented convention.
+func (c *Client) authHeader() string {
+	if t := strings.TrimSpace(c.OAuthToken); t != "" {
+		return "Bearer " + t
+	}
+	return c.APIKey
 }
 
 // gqlRequest is the Linear GraphQL request envelope.
@@ -68,7 +92,7 @@ type gqlResponse struct {
 // query is the single transport. All typed methods funnel through here.
 func (c *Client) query(ctx context.Context, q string, vars map[string]interface{}, out interface{}) error {
 	if !c.configured() {
-		return fmt.Errorf("linear: not configured (set LINEAR_API_KEY)")
+		return fmt.Errorf("linear: not configured (set LINEAR_API_KEY or connect via OAuth)")
 	}
 
 	body, err := json.Marshal(gqlRequest{Query: q, Variables: vars})
@@ -84,7 +108,7 @@ func (c *Client) query(ctx context.Context, q string, vars map[string]interface{
 	if err != nil {
 		return fmt.Errorf("linear: build request: %w", err)
 	}
-	req.Header.Set("Authorization", c.APIKey)
+	req.Header.Set("Authorization", c.authHeader())
 	req.Header.Set("Content-Type", "application/json")
 
 	httpClient := c.HTTP
