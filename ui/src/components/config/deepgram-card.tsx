@@ -26,9 +26,15 @@ export function DeepgramCard() {
     mutationFn: () => api.testDeepgram({ api_key: apiKey }),
     onSuccess: (res) => {
       if (res.ok) {
-        setTestPassed(true)
+        // Only enable Save when the user typed a new key — otherwise
+        // we just re-verified the saved key and there's nothing to save.
+        setTestPassed(apiKey.trim() !== "")
         setTestError(undefined)
-        toast.success("Deepgram API key verified")
+        toast.success(
+          apiKey.trim() === ""
+            ? "Saved Deepgram key still works"
+            : "Deepgram API key verified"
+        )
       } else {
         setTestPassed(false)
         setTestError(res.error ?? "Test failed")
@@ -77,7 +83,7 @@ export function DeepgramCard() {
       onSave={() => saveMutation.mutate()}
       isTesting={testMutation.isPending}
       isSaving={saveMutation.isPending}
-      disabled={!apiKey.trim()}
+      disabled={!apiKey.trim() && !isConfigured}
     >
       <div className="text-[11px] text-muted-foreground bg-muted/50 border border-border rounded-sm px-3 py-2 space-y-1">
         <p>1. Sign up at <span className="font-mono">deepgram.com</span> (free tier available)</p>
