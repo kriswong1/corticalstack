@@ -5,6 +5,7 @@ import type {
   Job,
   ConfirmPayload,
   Action,
+  CreateActionRequest,
   ReconcileResult,
   Project,
   ProjectContent,
@@ -396,6 +397,8 @@ export const api = {
   listActions: (status?: string) =>
     request<Action[]>(`/api/actions${status ? `?status=${status}` : ""}`),
   getActionCounts: () => request<Record<string, number>>("/api/actions/counts"),
+  createAction: (body: CreateActionRequest) =>
+    post<Action>("/api/actions", body),
   setActionStatus: (id: string, status: string) =>
     post<Action>(`/api/actions/${id}/status`, { status }),
   updateAction: (id: string, patch: Partial<Action>) =>

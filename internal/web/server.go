@@ -106,6 +106,7 @@ func (s *Server) routes() {
 
 	// API: actions
 	r.Get("/api/actions", s.Handler.ListActions)
+	r.Post("/api/actions", s.Handler.CreateAction)
 	r.Get("/api/actions/counts", s.Handler.ActionCounts)
 	r.Put("/api/actions/{id}", s.Handler.UpdateAction)
 	r.Post("/api/actions/{id}/status", s.Handler.SetActionStatus)

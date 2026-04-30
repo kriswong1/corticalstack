@@ -135,6 +135,22 @@ func (s *Store) List() []*Action {
 	return out
 }
 
+// ListChildren returns the steps (subtasks) of a given parent action,
+// ordered oldest-first so the user-visible step list stays stable as new
+// steps are appended.
+func (s *Store) ListChildren(parentID string) []*Action {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Action, 0)
+	for _, a := range s.byID {
+		if a.ParentID == parentID {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Created.Before(out[j].Created) })
+	return out
+}
+
 // ListByStatus returns actions filtered to a single status.
 func (s *Store) ListByStatus(status Status) []*Action {
 	all := s.List()
@@ -235,6 +251,9 @@ func (s *Store) Upsert(a *Action) (*Action, error) {
 	candidate.SourceNote = a.SourceNote
 	candidate.SourceTitle = a.SourceTitle
 	candidate.ProjectIDs = a.ProjectIDs
+	candidate.MyDay = a.MyDay
+	candidate.Starred = a.Starred
+	candidate.ParentID = a.ParentID
 
 	if actionsEqual(existing, &candidate) {
 		// No-op upsert: nothing changed, no flush needed, Updated untouched.
@@ -279,7 +298,10 @@ func actionsEqual(a, b *Action) bool {
 		a.Effort != b.Effort ||
 		a.Context != b.Context ||
 		a.SourceNote != b.SourceNote ||
-		a.SourceTitle != b.SourceTitle {
+		a.SourceTitle != b.SourceTitle ||
+		a.MyDay != b.MyDay ||
+		a.Starred != b.Starred ||
+		a.ParentID != b.ParentID {
 		return false
 	}
 	return stringSlicesEqual(a.ProjectIDs, b.ProjectIDs)
@@ -444,6 +466,15 @@ func (s *Store) updateLocked(id string, patch ActionPatch) (*Action, error) {
 	if patch.LinearIssueID != nil {
 		a.LinearIssueID = *patch.LinearIssueID
 	}
+	if patch.MyDay != nil {
+		a.MyDay = *patch.MyDay
+	}
+	if patch.Starred != nil {
+		a.Starred = *patch.Starred
+	}
+	if patch.ParentID != nil {
+		a.ParentID = *patch.ParentID
+	}
 	a.Updated = time.Now()
 	if err := s.flushLocked(); err != nil {
 		*a = snapshot
@@ -463,6 +494,9 @@ type ActionPatch struct {
 	Effort        Effort   `json:"effort,omitempty"`
 	Context       *string  `json:"context"`
 	LinearIssueID *string  `json:"linear_issue_id,omitempty"` // L4
+	MyDay         *bool    `json:"my_day,omitempty"`
+	Starred       *bool    `json:"starred,omitempty"`
+	ParentID      *string  `json:"parent_id,omitempty"`
 }
 
 // CentralFilePath returns the vault-relative path of the central tracker.

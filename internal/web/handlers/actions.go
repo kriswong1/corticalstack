@@ -56,6 +56,77 @@ func (h *Handler) ListActions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// CreateAction handles POST /api/actions for manual quick-add from the
+// dashboard. Required: description (the typed line). Optional: title,
+// project_ids, my_day, starred, parent_id, deadline, priority, effort,
+// context. Owner defaults to "me" so unowned UI-created tasks don't
+// render as "TBD" — quick-add tasks belong to the user typing them.
+func (h *Handler) CreateAction(w http.ResponseWriter, r *http.Request) {
+	if h.Actions == nil {
+		http.Error(w, "action store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Title       string             `json:"title"`
+		Description string             `json:"description"`
+		Owner       string             `json:"owner"`
+		Deadline    string             `json:"deadline"`
+		Priority    actions.Priority   `json:"priority"`
+		Effort      actions.Effort     `json:"effort"`
+		Context     string             `json:"context"`
+		ProjectIDs  []string           `json:"project_ids"`
+		MyDay       bool               `json:"my_day"`
+		Starred     bool               `json:"starred"`
+		ParentID    string             `json:"parent_id"`
+		Status      actions.Status     `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.Description == "" && body.Title == "" {
+		http.Error(w, "description or title required", http.StatusBadRequest)
+		return
+	}
+	owner := body.Owner
+	if owner == "" {
+		owner = "me"
+	}
+	status := body.Status
+	if status == "" {
+		// Manually-created tasks skip the Inbox triage step that
+		// pipeline-extracted tasks need — the user typed it themselves
+		// so they've already triaged it. Land in "next".
+		status = actions.StatusNext
+	}
+	a := &actions.Action{
+		Title:       body.Title,
+		Description: body.Description,
+		Owner:       owner,
+		Deadline:    body.Deadline,
+		Status:      status,
+		Priority:    body.Priority,
+		Effort:      body.Effort,
+		Context:     body.Context,
+		ProjectIDs:  body.ProjectIDs,
+		MyDay:       body.MyDay,
+		Starred:     body.Starred,
+		ParentID:    body.ParentID,
+	}
+	created, err := h.Actions.Upsert(a)
+	if err != nil {
+		internalError(w, "action.create", err)
+		return
+	}
+	if err := h.Actions.Sync(created); err != nil {
+		internalError(w, "action.sync_after_create", err)
+		return
+	}
+	h.kickLinearSync(created.ID)
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, created)
+}
+
 // ActionCounts returns a status → count map.
 func (h *Handler) ActionCounts(w http.ResponseWriter, r *http.Request) {
 	if h.Actions == nil {

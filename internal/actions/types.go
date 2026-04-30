@@ -90,6 +90,13 @@ func AllEfforts() []Effort {
 }
 
 // Action is one tracked item across the three locations.
+//
+// MyDay, Starred, and ParentID are MS-To-Do-flavored dashboard fields
+// that live in actions.json only — they are intentionally NOT on the
+// markdown line. Obsidian users edit status/priority/effort/context
+// in markdown; "today's plan" and "starred" are app concepts that
+// don't translate cleanly to vault tags, and subtask hierarchy via
+// nested checkboxes is too ambiguous to round-trip safely.
 type Action struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title,omitempty"`
@@ -103,6 +110,15 @@ type Action struct {
 	SourceNote  string    `json:"source_note"`
 	SourceTitle string    `json:"source_title,omitempty"`
 	ProjectIDs  []string  `json:"project_ids,omitempty"`
+	// MyDay flags an action for the user's "today" focus list. Sticky —
+	// stays set until the user explicitly clears it (no nightly reset).
+	MyDay bool `json:"my_day,omitempty"`
+	// Starred is a binary "important" flag, separate from Priority.
+	Starred bool `json:"starred,omitempty"`
+	// ParentID is the action ID of the parent step. Empty for top-level
+	// actions. Used to model To-Do "Steps" (subtasks) without changing
+	// the markdown line shape.
+	ParentID string `json:"parent_id,omitempty"`
 	// L4 (Linear integration) — set after the action is mirrored as a
 	// Linear Issue. The JSON action index (vault/.cortical/actions.json)
 	// is the single source of truth, so this round-trips automatically

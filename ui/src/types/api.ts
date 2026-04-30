@@ -96,10 +96,30 @@ export interface Action {
   source_note: string
   source_title?: string
   project_ids?: string[]
+  // MS-To-Do-flavored fields. JSON-only — these don't round-trip
+  // through the Obsidian markdown line.
+  my_day?: boolean
+  starred?: boolean
+  parent_id?: string
   // L4 (Linear integration)
   linear_issue_id?: string
   created: string
   updated: string
+}
+
+export interface CreateActionRequest {
+  title?: string
+  description?: string
+  owner?: string
+  deadline?: string
+  priority?: ActionPriority
+  effort?: ActionEffort
+  context?: string
+  project_ids?: string[]
+  my_day?: boolean
+  starred?: boolean
+  parent_id?: string
+  status?: ActionStatus
 }
 
 export interface ReconcileResult {
